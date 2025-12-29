@@ -1,0 +1,8 @@
+streamlit
+pandas
+geopy
+astropy
+matplotlib
+jplephem
+timezonefinder
+pytz
