@@ -1715,11 +1715,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ============================================================
     
     # ============================================================
-    # GLOBAL RESERVE INITIALIZATION
+    # GLOBAL RESERVE INITIALIZATION (MODIFIED)
     # ============================================================
-    # Initialize house_reserves to track unutilized gift pot currency with currency type
-    # Structure: {sign_name: {'amount': float, 'currency': str}}
-    house_reserves = {sign: {'amount': 0.0, 'currency': '-'} for sign in sign_names}
+    # Initialize house_reserves to support multiple currency types per house
+    # Structure: {sign_name: {currency_type: amount}}
+    house_reserves = defaultdict(lambda: defaultdict(float))
     
     # ============================================================
     # PHASE 3 CURRENCY EXCHANGE LOGIC (Rasi Chart) - 11th House Pot System
@@ -1896,10 +1896,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if not p3_something_happened:
                 break
     
-    # 4. Capture Phase 3 Leftovers into Reserve
+    # 4. Capture Phase 3 Leftovers into Reserve (MODIFIED)
     if house_11_pot > 0.001:
-        house_reserves[house_11_sign]['amount'] += house_11_pot
-        house_reserves[house_11_sign]['currency'] = 'Good Moon'
+        house_reserves[house_11_sign]['Good Moon'] += house_11_pot
     
     # 5. Format Phase 3 Output
     phase3_rows = []
@@ -1996,10 +1995,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if phase4_data[p]['sign'] == target_sign:
                 planets_in_sign.append(p)
         
-        # Skip if no planets in this sign - add entire pot to reserves
+        # Skip if no planets in this sign - add entire pot to reserves (MODIFIED)
         if not planets_in_sign:
-            house_reserves[target_sign]['amount'] += sign_pot
-            house_reserves[target_sign]['currency'] = currency_type
+            house_reserves[target_sign][currency_type] += sign_pot
             pot_inventory[target_sign] = 0.0
             continue
         
@@ -2074,7 +2072,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 
                 debt = phase4_data[malefic]['p4_current_debt']
                 
-                # Only consume if planet has debt (< -0.001)
+                # Only consume if planet has debt (< -0.001) - STRICT DEBT QUENCHING
                 if debt < -0.001:
                     needed = abs(debt)
                     take = min(1.0, needed, sign_pot)
@@ -2103,24 +2101,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     
                     debt = phase4_data[benefic]['p4_current_debt']
                     
-                    # Check if benefic has debt
+                    # MODIFIED: Only consume if benefic has debt - STRICT DEBT QUENCHING
+                    # Removed the bonus consumption rule for benefics
                     if debt < -0.001:
                         # Has debt - consume to reduce debt
                         needed = abs(debt)
                         take = min(1.0, needed, sign_pot)
-                    else:
-                        # No debt - bonus consumption rule
-                        take = min(1.0, sign_pot)
-                    
-                    if take > 0.001:
-                        # Consume from pot
-                        sign_pot -= take
-                        # Add currency to inventory
-                        phase4_data[benefic]['p4_inventory'][currency_type] += take
-                        # If had debt, reduce it
-                        if debt < -0.001:
+                        
+                        if take > 0.001:
+                            # Consume from pot
+                            sign_pot -= take
+                            # Add currency to inventory
+                            phase4_data[benefic]['p4_inventory'][currency_type] += take
+                            # Reduce debt
                             phase4_data[benefic]['p4_current_debt'] += take
-                        p4_something_happened = True
+                            p4_something_happened = True
             
             if not p4_something_happened:
                 break
@@ -2128,10 +2123,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Update the pot inventory after processing this sign
         pot_inventory[target_sign] = sign_pot
         
-        # Capture Phase 4 Leftovers into Reserve for this sign
+        # Capture Phase 4 Leftovers into Reserve for this sign (MODIFIED)
         if sign_pot > 0.001:
-            house_reserves[target_sign]['amount'] += sign_pot
-            house_reserves[target_sign]['currency'] = currency_type
+            house_reserves[target_sign][currency_type] += sign_pot
     
     # Step 4: Format Phase 4 Output
     phase4_rows = []
@@ -2163,15 +2157,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ============================================================
     # CREATE HOUSE RESERVES DATAFRAME (MODIFIED)
     # ============================================================
-    # List all 12 signs in zodiac order with amount and currency type
+    # List all 12 signs in zodiac order with formatted currency amounts
     reserve_rows = []
     for sign_name in sign_names:  # Aries to Pisces
-        reserve_data = house_reserves[sign_name]
-        amount = reserve_data['amount']
-        currency = reserve_data['currency'] if amount > 0.001 else '-'
-        reserve_rows.append([sign_name, f"{amount:.2f}", currency])
+        currency_dict = house_reserves[sign_name]
+        
+        # Format the currency string: CurrencyName[Amount], ...
+        currency_parts = []
+        for currency_type, amount in currency_dict.items():
+            if amount > 0.001:
+                currency_parts.append(f"{currency_type}[{amount:.2f}]")
+        
+        # If no reserves, display '-'
+        reserve_str = ", ".join(currency_parts) if currency_parts else "-"
+        reserve_rows.append([sign_name, reserve_str])
     
-    df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points', 'Currency Type'])
+    df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
     
     # ============================================================
     # END OF HOUSE RESERVES
