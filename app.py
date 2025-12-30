@@ -1716,6 +1716,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ============================================================
     
     # ============================================================
+    # GLOBAL RESERVE INITIALIZATION
+    # ============================================================
+    # Initialize house_reserves to track unutilized gift pot currency
+    house_reserves = defaultdict(float)
+    
+    # ============================================================
     # PHASE 3 CURRENCY EXCHANGE LOGIC (Rasi Chart) - 11th House Pot System
     # ============================================================
     
@@ -1760,6 +1766,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     # Create the floating pot with 50.0 "Good Moon" currency
     house_11_pot = 50.0
+    
+    # Identify the Sign Name of the 11th House for reserve tracking
+    house_11_sign = get_sign((lagna_sid + (11 - 1) * 30) % 360)
     
     # 3. The Consumption Cycle (only if there are planets in House 11)
     if planets_in_house_11:
@@ -1887,7 +1896,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if not p3_something_happened:
                 break
     
-    # 4. Format Phase 3 Output
+    # 4. Capture Phase 3 Leftovers into Reserve
+    if house_11_pot > 0.001:
+        house_reserves[house_11_sign] += house_11_pot
+    
+    # 5. Format Phase 3 Output
     phase3_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase3_data[p]['p3_inventory']
@@ -1990,8 +2003,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if phase4_data[p]['sign'] == target_sign:
                 planets_in_sign.append(p)
         
-        # Skip if no planets in this sign
+        # Skip if no planets in this sign - add entire pot to reserves
         if not planets_in_sign:
+            house_reserves[target_sign] += sign_pot
+            pot_inventory[target_sign] = 0.0
             continue
         
         # Consumption cycle
@@ -2118,6 +2133,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         # Update the pot inventory after processing this sign
         pot_inventory[target_sign] = sign_pot
+        
+        # Capture Phase 4 Leftovers into Reserve for this sign
+        if sign_pot > 0.001:
+            house_reserves[target_sign] += sign_pot
     
     # Step 4: Format Phase 4 Output
     phase4_rows = []
@@ -2144,6 +2163,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     # ============================================================
     # END OF PHASE 4 LOGIC
+    # ============================================================
+    
+    # ============================================================
+    # CREATE HOUSE RESERVES DATAFRAME
+    # ============================================================
+    reserve_rows = []
+    for sign_name, reserve_value in house_reserves.items():
+        if reserve_value > 0.001:
+            reserve_rows.append([sign_name, f"{reserve_value:.2f}"])
+    
+    # Sort by sign order for consistent display
+    sign_order = {s: i for i, s in enumerate(sign_names)}
+    reserve_rows.sort(key=lambda x: sign_order.get(x[0], 99))
+    
+    df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
+    
+    # ============================================================
+    # END OF HOUSE RESERVES
     # ============================================================
     
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
@@ -2203,6 +2240,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_navamsa_phase2': df_navamsa_phase2,
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
+        'df_house_reserves': df_house_reserves,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2375,6 +2413,11 @@ if st.session_state.chart_data:
 
     st.subheader("Planetary Positions")
     st.dataframe(cd['df_planets'], hide_index=True, use_container_width=True)
+
+    # House Bonus Points (Reserve) - Placed immediately below Planetary Positions
+    if not cd['df_house_reserves'].empty:
+        st.subheader("House Bonus Points (Reserve)")
+        st.dataframe(cd['df_house_reserves'], hide_index=True, use_container_width=True)
 
     st.subheader("Navamsa Exchange (Phase 1)")
     st.dataframe(cd['df_navamsa_exchange'], hide_index=True, use_container_width=True)
