@@ -1914,6 +1914,238 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # END OF PHASE 3 LOGIC
     # ============================================================
     
+    # ============================================================
+    # PHASE 4 CURRENCY EXCHANGE LOGIC (Rasi Chart) - Gift Pots System
+    # ============================================================
+    
+    # Step 1: Initialization - Deep copy from Phase 3
+    phase4_data = {}
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        phase4_data[p] = {
+            'p4_inventory': defaultdict(float),
+            'p4_current_debt': phase3_data[p]['p3_current_debt'],
+            'volume': phase3_data[p]['volume'],
+            'L': phase3_data[p]['L'],
+            'rasi_house': phase3_data[p]['rasi_house'],
+            'sign': planet_sign_map[p]  # Get the Rasi sign for this planet
+        }
+        # Copy Phase 3 final inventory
+        for k, v in phase3_data[p]['p3_inventory'].items():
+            phase4_data[p]['p4_inventory'][k] = v
+    
+    # Step 2: Initialize Gift Pots for 6 specific signs
+    # Formula: Pot Value = ((Gifter Sthana / 100) * Gifter Capacity) * Percentage * 0.5
+    # Note: (Gifter Sthana / 100) * Gifter Capacity = volume from Phase 1
+    
+    # Gift pot configuration: {sign_name: (gifter_planet, percentage, currency_type)}
+    gift_pot_config = {
+        'Sagittarius': ('Jupiter', 1.0),   # 100%
+        'Pisces': ('Jupiter', 0.8),         # 80%
+        'Libra': ('Venus', 1.0),            # 100%
+        'Taurus': ('Venus', 0.8),           # 80%
+        'Virgo': ('Mercury', 1.0),          # 100%
+        'Gemini': ('Mercury', 0.8)          # 80%
+    }
+    
+    # Calculate pot values for each sign
+    pot_inventory = {}
+    pot_currency_type = {}
+    
+    for sign_name, (gifter, percentage) in gift_pot_config.items():
+        # Get gifter's volume from planet_data (which is sthana/100 * capacity)
+        gifter_volume = planet_data[gifter]['volume']
+        
+        # Calculate pot value: volume * percentage * 0.5
+        pot_value = gifter_volume * percentage * 0.5
+        
+        pot_inventory[sign_name] = pot_value
+        
+        # Currency type is "Good [Gifter]" for Jupiter/Venus/Mercury
+        # These planets have single currency type (their name), which is inherently good
+        if gifter in ['Jupiter', 'Venus', 'Mercury']:
+            pot_currency_type[sign_name] = gifter  # e.g., "Jupiter", "Venus", "Mercury"
+        else:
+            pot_currency_type[sign_name] = f"Good {gifter}"
+    
+    # Step 3: Consumption Cycle - Process each of the 6 signs
+    # Standard Malefics and Benefics for Phase 4 (same as Phase 3)
+    p4_standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
+    p4_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
+    
+    # Debtor rank for malefics
+    p4_malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
+    
+    for target_sign in ['Sagittarius', 'Pisces', 'Libra', 'Taurus', 'Virgo', 'Gemini']:
+        # Get the pot for this sign
+        sign_pot = pot_inventory[target_sign]
+        currency_type = pot_currency_type[target_sign]
+        
+        # Skip if pot is empty
+        if sign_pot <= 0.001:
+            continue
+        
+        # Identify which planets are in this sign
+        planets_in_sign = []
+        for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+            if phase4_data[p]['sign'] == target_sign:
+                planets_in_sign.append(p)
+        
+        # Skip if no planets in this sign
+        if not planets_in_sign:
+            continue
+        
+        # Consumption cycle
+        p4_cycle_limit = 200
+        p4_cycles = 0
+        
+        while p4_cycles < p4_cycle_limit:
+            p4_cycles += 1
+            p4_something_happened = False
+            
+            if sign_pot <= 0.001:
+                break  # No currency left in pot
+            
+            # Dynamic Classification (Per Cycle)
+            # Check Moon's Bad Moon currency to classify as malefic or benefic
+            moon_bad_currency_p4 = phase4_data['Moon']['p4_inventory'].get('Bad Moon', 0.0)
+            moon_is_malefic_p4 = moon_bad_currency_p4 > 0.001
+            
+            # Build malefic list for this sign
+            sign_malefics = []
+            for p in planets_in_sign:
+                if p in p4_standard_malefics:
+                    sign_malefics.append(p)
+                elif p == 'Moon' and moon_is_malefic_p4:
+                    sign_malefics.append(p)
+            
+            # Build benefic list for this sign
+            sign_benefics = []
+            for p in planets_in_sign:
+                if p in p4_standard_benefics:
+                    sign_benefics.append(p)
+                elif p == 'Moon' and not moon_is_malefic_p4:
+                    sign_benefics.append(p)
+            
+            # Sort malefics by debtor rank
+            # Moon ranking (if malefic): Bad % > 25 -> before Mars, else after Mars
+            def get_p4_malefic_rank(p):
+                if p == 'Moon':
+                    vol = phase4_data['Moon']['volume']
+                    if vol > 0:
+                        bad_pct = (moon_bad_currency_p4 / vol) * 100
+                    else:
+                        bad_pct = 0
+                    if bad_pct > 25:
+                        # Rank before Mars (Mars is at index 3)
+                        return 2.5
+                    else:
+                        # Rank after Mars
+                        return 3.5
+                else:
+                    if p in p4_malefic_debtor_order:
+                        return p4_malefic_debtor_order.index(p)
+                    return 99
+            
+            sign_malefics_sorted = sorted(sign_malefics, key=get_p4_malefic_rank)
+            
+            # Sort benefics by debt percentage (highest first)
+            def get_p4_benefic_debt_pct(p):
+                vol = phase4_data[p]['volume']
+                debt = abs(phase4_data[p]['p4_current_debt'])
+                if vol > 0:
+                    return (debt / vol) * 100
+                return 0
+            
+            sign_benefics_sorted = sorted(sign_benefics, key=lambda p: -get_p4_benefic_debt_pct(p))
+            
+            # Execution - Phase A (Malefics)
+            for malefic in sign_malefics_sorted:
+                if sign_pot <= 0.001:
+                    break
+                
+                debt = phase4_data[malefic]['p4_current_debt']
+                
+                # Only consume if planet has debt (< -0.001)
+                if debt < -0.001:
+                    needed = abs(debt)
+                    take = min(1.0, needed, sign_pot)
+                    
+                    if take > 0.001:
+                        # Consume from pot
+                        sign_pot -= take
+                        # Add currency to inventory
+                        phase4_data[malefic]['p4_inventory'][currency_type] += take
+                        # Reduce debt (make it less negative)
+                        phase4_data[malefic]['p4_current_debt'] += take
+                        p4_something_happened = True
+            
+            # Execution - Phase B (Benefics)
+            # Only runs if ALL malefics in this sign have cleared debt OR no malefics
+            all_malefics_cleared = True
+            for malefic in sign_malefics:
+                if phase4_data[malefic]['p4_current_debt'] < -0.001:
+                    all_malefics_cleared = False
+                    break
+            
+            if all_malefics_cleared or len(sign_malefics) == 0:
+                for benefic in sign_benefics_sorted:
+                    if sign_pot <= 0.001:
+                        break
+                    
+                    debt = phase4_data[benefic]['p4_current_debt']
+                    
+                    # Check if benefic has debt
+                    if debt < -0.001:
+                        # Has debt - consume to reduce debt
+                        needed = abs(debt)
+                        take = min(1.0, needed, sign_pot)
+                    else:
+                        # No debt - bonus consumption rule
+                        take = min(1.0, sign_pot)
+                    
+                    if take > 0.001:
+                        # Consume from pot
+                        sign_pot -= take
+                        # Add currency to inventory
+                        phase4_data[benefic]['p4_inventory'][currency_type] += take
+                        # If had debt, reduce it
+                        if debt < -0.001:
+                            phase4_data[benefic]['p4_current_debt'] += take
+                        p4_something_happened = True
+            
+            if not p4_something_happened:
+                break
+        
+        # Update the pot inventory after processing this sign
+        pot_inventory[target_sign] = sign_pot
+    
+    # Step 4: Format Phase 4 Output
+    phase4_rows = []
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        inv = phase4_data[p]['p4_inventory']
+        parts = []
+        own_keys = [p, f"Good {p}", f"Bad {p}"]
+        if p == 'Moon': own_keys = ["Good Moon", "Bad Moon"]
+        for k in own_keys:
+            if k in inv and inv[k] > 0.001: parts.append(f"{k}[{inv[k]:.2f}]")
+        for k, v in inv.items():
+            if k not in own_keys and v > 0.001: parts.append(f"{k}[{v:.2f}]")
+        phase4_data[p]['currency_p4'] = ", ".join(parts) if parts else "-"
+        d_val = phase4_data[p]['p4_current_debt']
+        if abs(d_val) < 0.01: phase4_data[p]['debt_p4'] = "0.00"
+        else: phase4_data[p]['debt_p4'] = f"{d_val:.2f}"
+    
+    phase4_rows = []
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        d_p4 = phase4_data[p]
+        phase4_rows.append([p, d_p4['currency_p4'], d_p4['debt_p4']])
+    
+    df_phase4 = pd.DataFrame(phase4_rows, columns=['Planet', 'Currency [Phase 4]', 'Debt [Phase 4]'])
+    
+    # ============================================================
+    # END OF PHASE 4 LOGIC
+    # ============================================================
+    
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
                                              'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
@@ -1970,7 +2202,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
         'df_navamsa_phase3': df_navamsa_phase3,
-        'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3,
+        'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2161,6 +2393,9 @@ if st.session_state.chart_data:
 
     st.subheader("Currency Exchange Phase 3")
     st.dataframe(cd['df_phase3'], hide_index=True, use_container_width=True)
+
+    st.subheader("Currency Exchange Phase 4")
+    st.dataframe(cd['df_phase4'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) — South Indian")
     col1, col2 = st.columns(2, gap="small")
