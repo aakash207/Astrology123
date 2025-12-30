@@ -869,15 +869,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             break
     
     # TRANSFORM Bad Ketu to Good Ketu before Navamsa Phase 2 (only if no Sun/Moon currency)
+    # CRITICAL CHANGE: In Navamsa Phase 2, do NOT reduce debt for this transformation
     nav_bad_ketu_remaining = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Bad Ketu', 0.0)
     if nav_bad_ketu_remaining > 0 and not ketu_has_sun_moon:
-        # Transform Bad Ketu to Good Ketu
+        # Transform Bad Ketu to Good Ketu (currency transformation only)
         navamsa_phase2_data['Ketu']['navp2_inventory']['Good Ketu'] = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Good Ketu', 0.0) + nav_bad_ketu_remaining
         navamsa_phase2_data['Ketu']['navp2_carried_over']['Good Ketu'] = navamsa_phase2_data['Ketu']['navp2_carried_over'].get('Good Ketu', 0.0) + nav_bad_ketu_remaining
         navamsa_phase2_data['Ketu']['navp2_inventory']['Bad Ketu'] = 0.0
         navamsa_phase2_data['Ketu']['navp2_carried_over']['Bad Ketu'] = 0.0
-        # Reduce Ketu's debt by the amount of currency it holds
-        navamsa_phase2_data['Ketu']['navp2_current_debt'] += nav_bad_ketu_remaining
+        # CRITICAL: Do NOT reduce Ketu's debt for this transformation in Navamsa Phase 2
+        # The following line is REMOVED:
+        # navamsa_phase2_data['Ketu']['navp2_current_debt'] += nav_bad_ketu_remaining
     
     # Add Ketu to benefics for Navamsa Phase 2 (only if it has Good currency and no Sun/Moon)
     ketu_good_currency = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Good Ketu', 0.0)
@@ -998,6 +1000,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if not navp2_something_happened: navp2_loop_active = False
     
     # --- FORMAT NAVAMSA PHASE 2 OUTPUT ---
+    # Also calculate and store the corrected debt for use in Phase 3
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = navamsa_phase2_data[p]['navp2_inventory']
         carried = navamsa_phase2_data[p]['navp2_carried_over']
@@ -1026,6 +1029,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         for k, v in gained_p2.items():
             combined_gained[k] += v
         
+        # Store combined gained for Phase 3 use
+        navamsa_phase2_data[p]['combined_gained_p1_p2'] = combined_gained
+        
         # Format combined gained currencies
         gained_parts = []
         for k, v in combined_gained.items():
@@ -1035,6 +1041,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Debt correction: Add back the initial default debt (subtract since initial is negative)
         initial_debt = nav_initial_default_debts.get(p, 0.0)
         corrected_debt = navamsa_phase2_data[p]['navp2_current_debt'] - initial_debt
+        
+        # Store the corrected debt value for Phase 3 initialization
+        navamsa_phase2_data[p]['corrected_debt_p2'] = corrected_debt
         
         if abs(corrected_debt) < 0.01: 
             navamsa_phase2_data[p]['debt_navp2'] = "0.00"
@@ -1060,11 +1069,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'navp3_inventory': defaultdict(float),
             'navp3_current_debt': navamsa_phase2_data[p]['navp2_current_debt'],
             'nav_volume': navamsa_phase2_data[p]['nav_volume'],
-            'nav_house': navamsa_phase2_data[p]['nav_house']
+            'nav_house': navamsa_phase2_data[p]['nav_house'],
+            # CRITICAL: Initialize Phase 3 debt from Phase 2 corrected debt
+            'navp3_debt': navamsa_phase2_data[p]['corrected_debt_p2'],
+            # Carry forward gained currencies from Phase 1 + Phase 2
+            'navp3_gained_currencies': defaultdict(float),
+            # Track Good Moon gained specifically in Phase 3
+            'navp3_good_moon_gained': 0.0,
+            # Store inventory carried over (for output formatting)
+            'navp3_carried_over': defaultdict(float)
         }
         # Copy Phase 2 final inventory
         for k, v in navamsa_phase2_data[p]['navp2_inventory'].items():
             navamsa_phase3_data[p]['navp3_inventory'][k] = v
+            navamsa_phase3_data[p]['navp3_carried_over'][k] = v
+        
+        # Copy combined gained currencies from Phase 1 + Phase 2
+        for k, v in navamsa_phase2_data[p]['combined_gained_p1_p2'].items():
+            navamsa_phase3_data[p]['navp3_gained_currencies'][k] = v
     
     # 2. Initialize House Pots - "Good Moon" currency for each Navamsa house sign
     # Get the sign for each Navamsa house (1-12)
@@ -1194,6 +1216,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     navamsa_phase3_data[malefic]['navp3_inventory']['Good Moon'] += take
                     # Reduce debt (make it less negative / more positive)
                     navamsa_phase3_data[malefic]['navp3_current_debt'] += take
+                    
+                    # CRITICAL: Track Good Moon gained in Phase 3
+                    navamsa_phase3_data[malefic]['navp3_good_moon_gained'] += take
+                    # Add to gained currencies
+                    navamsa_phase3_data[malefic]['navp3_gained_currencies']['Good Moon'] += take
+                    # CRITICAL: Reduce debt incrementally
+                    navamsa_phase3_data[malefic]['navp3_debt'] += take
+                    
                     navp3_something_happened = True
             
             # Phase B: Benefic Secondary
@@ -1227,38 +1257,67 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         navamsa_phase3_data[benefic]['navp3_inventory']['Good Moon'] += take
                         # Reduce debt
                         navamsa_phase3_data[benefic]['navp3_current_debt'] += take
+                        
+                        # CRITICAL: Track Good Moon gained in Phase 3
+                        navamsa_phase3_data[benefic]['navp3_good_moon_gained'] += take
+                        # Add to gained currencies
+                        navamsa_phase3_data[benefic]['navp3_gained_currencies']['Good Moon'] += take
+                        # CRITICAL: Reduce debt incrementally
+                        navamsa_phase3_data[benefic]['navp3_debt'] += take
+                        
                         navp3_something_happened = True
         
         if not navp3_something_happened:
             break
     
-    # 4. Format Phase 3 Output
+    # 4. Format Phase 3 Output with new columns
     navamsa_phase3_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = navamsa_phase3_data[p]['navp3_inventory']
+        carried = navamsa_phase3_data[p]['navp3_carried_over']
+        gained = navamsa_phase3_data[p]['navp3_gained_currencies']
+        good_moon_p3 = navamsa_phase3_data[p]['navp3_good_moon_gained']
         
-        # Format inventory string
-        inv_parts = []
+        # Format Inventory Carried Over (currencies held originally, minus what was lost)
+        # This is the inventory from Phase 2 minus what was lost, excluding Good Moon gained in P3
+        carried_parts = []
         own_keys = [p, f"Good {p}", f"Bad {p}"]
         if p == 'Moon': own_keys = ["Good Moon", "Bad Moon"]
-        for k in own_keys:
-            if k in inv and inv[k] > 0.001:
-                inv_parts.append(f"{k}[{inv[k]:.2f}]")
-        for k, v in inv.items():
-            if k not in own_keys and v > 0.001:
-                inv_parts.append(f"{k}[{v:.2f}]")
-        currency_str = ", ".join(inv_parts) if inv_parts else "-"
         
-        # Format debt
-        debt_val = navamsa_phase3_data[p]['navp3_current_debt']
+        for k in carried.keys():
+            current_val = inv.get(k, 0.0)
+            # For Good Moon, subtract what was gained in Phase 3 to show carried over
+            if k == 'Good Moon':
+                carried_val = current_val - good_moon_p3
+            else:
+                carried_val = current_val
+            if carried_val > 0.001:
+                carried_parts.append(f"{k}[{carried_val:.2f}]")
+        
+        # Also check for other currencies in inventory that might not be in carried
+        for k, v in inv.items():
+            if k not in carried.keys() and k != 'Good Moon' and v > 0.001:
+                carried_parts.append(f"{k}[{v:.2f}]")
+        
+        inventory_carried_str = ", ".join(carried_parts) if carried_parts else "-"
+        
+        # Format Gained Currencies (Cumulative from Ph1 + Ph2 + Ph3 Good Moon)
+        gained_parts = []
+        for k, v in gained.items():
+            if v > 0.001: gained_parts.append(f"{k}[{v:.2f}]")
+        gained_currencies_str = ", ".join(gained_parts) if gained_parts else "-"
+        
+        # Format Debt [Nav Phase 3] - calculated incrementally
+        # Final debt = (Debt at end of Phase 2) + (Total Good Moon Gained in Phase 3)
+        debt_val = navamsa_phase3_data[p]['navp3_debt']
         if abs(debt_val) < 0.01:
             debt_str = "0.00"
         else:
             debt_str = f"{debt_val:.2f}"
         
-        navamsa_phase3_rows.append([p, currency_str, debt_str])
+        navamsa_phase3_rows.append([p, inventory_carried_str, gained_currencies_str, debt_str])
     
-    df_navamsa_phase3 = pd.DataFrame(navamsa_phase3_rows, columns=['Planet', 'Currency [Nav Phase 3]', 'Debt [Nav Phase 3]'])
+    df_navamsa_phase3 = pd.DataFrame(navamsa_phase3_rows, columns=['Planet', 'Inventory Carried Over', 'Gained Currencies', 'Debt [Nav Phase 3]'])
     
     # ============================================================
     # END OF NAVAMSA PHASE 3 LOGIC
@@ -1959,4 +2018,3 @@ else: st.info("Enter birth details above and click 'Generate Chart' to begin")
 
 st.markdown("---")
 st.caption("Buvi Astrology Data Generator")
-
