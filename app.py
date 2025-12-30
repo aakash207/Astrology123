@@ -524,9 +524,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_cap = p.capitalize()
         navamsa_house_planets[nav_house].append(planet_cap)
         
-        # For Navamsa, volume = 100% of capacity (not sthana bala based)
-        capacity = capacity_dict.get(planet_cap, 0)
-        nav_volume = float(capacity)  # 100% volume
+        # MODIFICATION: Use volume from planet_data (which includes Sthana Bala) instead of raw capacity
+        nav_volume = planet_data[planet_cap]['volume']
         
         # Get good/bad percentages (same as before)
         if planet_cap == 'Moon':
@@ -1718,8 +1717,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ============================================================
     # GLOBAL RESERVE INITIALIZATION
     # ============================================================
-    # Initialize house_reserves to track unutilized gift pot currency
-    house_reserves = defaultdict(float)
+    # Initialize house_reserves to track unutilized gift pot currency with currency type
+    # Structure: {sign_name: {'amount': float, 'currency': str}}
+    house_reserves = {sign: {'amount': 0.0, 'currency': '-'} for sign in sign_names}
     
     # ============================================================
     # PHASE 3 CURRENCY EXCHANGE LOGIC (Rasi Chart) - 11th House Pot System
@@ -1898,7 +1898,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     # 4. Capture Phase 3 Leftovers into Reserve
     if house_11_pot > 0.001:
-        house_reserves[house_11_sign] += house_11_pot
+        house_reserves[house_11_sign]['amount'] += house_11_pot
+        house_reserves[house_11_sign]['currency'] = 'Good Moon'
     
     # 5. Format Phase 3 Output
     phase3_rows = []
@@ -1946,41 +1947,33 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         for k, v in phase3_data[p]['p3_inventory'].items():
             phase4_data[p]['p4_inventory'][k] = v
     
-    # Step 2: Initialize Gift Pots for 6 specific signs
-    # Formula: Pot Value = ((Gifter Sthana / 100) * Gifter Capacity) * Percentage * 0.5
-    # Note: (Gifter Sthana / 100) * Gifter Capacity = volume from Phase 1
-    
-    # Gift pot configuration: {sign_name: (gifter_planet, percentage, currency_type)}
+    # Step 2: Initialize Gift Pots for 4 specific signs (MODIFIED)
+    # Formula: multiplier * (Gifter's Sthana Balam / 100)
+    # gift_pot_config: {sign_name: (gifter_planet, multiplier)}
     gift_pot_config = {
-        'Sagittarius': ('Jupiter', 1.0),   # 100%
-        'Pisces': ('Jupiter', 0.8),         # 80%
-        'Libra': ('Venus', 1.0),            # 100%
-        'Taurus': ('Venus', 0.8),           # 80%
-        'Virgo': ('Mercury', 1.0),          # 100%
-        'Gemini': ('Mercury', 0.8)          # 80%
+        'Sagittarius': ('Jupiter', 100),   # 100 * Jupiter's Sthana Balam
+        'Pisces': ('Jupiter', 80),          # 80 * Jupiter's Sthana Balam
+        'Libra': ('Venus', 80),             # 80 * Venus's Sthana Balam
+        'Taurus': ('Venus', 60)             # 60 * Venus's Sthana Balam
     }
     
     # Calculate pot values for each sign
     pot_inventory = {}
     pot_currency_type = {}
     
-    for sign_name, (gifter, percentage) in gift_pot_config.items():
-        # Get gifter's volume from planet_data (which is sthana/100 * capacity)
-        gifter_volume = planet_data[gifter]['volume']
+    for sign_name, (gifter, multiplier) in gift_pot_config.items():
+        # Get gifter's Sthana Balam from planet_data (stored as percentage value like 80)
+        gifter_sthana = planet_data[gifter]['sthana']
         
-        # Calculate pot value: volume * percentage * 0.5
-        pot_value = gifter_volume * percentage * 0.5
+        # Calculate pot value: multiplier * (sthana / 100)
+        pot_value = multiplier * (gifter_sthana / 100.0)
         
         pot_inventory[sign_name] = pot_value
         
-        # Currency type is "Good [Gifter]" for Jupiter/Venus/Mercury
-        # These planets have single currency type (their name), which is inherently good
-        if gifter in ['Jupiter', 'Venus', 'Mercury']:
-            pot_currency_type[sign_name] = gifter  # e.g., "Jupiter", "Venus", "Mercury"
-        else:
-            pot_currency_type[sign_name] = f"Good {gifter}"
+        # Currency type for Jupiter and Venus (these are inherently good single currencies)
+        pot_currency_type[sign_name] = gifter  # e.g., "Jupiter", "Venus"
     
-    # Step 3: Consumption Cycle - Process each of the 6 signs
+    # Step 3: Consumption Cycle - Process each of the 4 signs
     # Standard Malefics and Benefics for Phase 4 (same as Phase 3)
     p4_standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
     p4_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
@@ -1988,7 +1981,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # Debtor rank for malefics
     p4_malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
-    for target_sign in ['Sagittarius', 'Pisces', 'Libra', 'Taurus', 'Virgo', 'Gemini']:
+    for target_sign in ['Sagittarius', 'Pisces', 'Libra', 'Taurus']:
         # Get the pot for this sign
         sign_pot = pot_inventory[target_sign]
         currency_type = pot_currency_type[target_sign]
@@ -2005,7 +1998,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         # Skip if no planets in this sign - add entire pot to reserves
         if not planets_in_sign:
-            house_reserves[target_sign] += sign_pot
+            house_reserves[target_sign]['amount'] += sign_pot
+            house_reserves[target_sign]['currency'] = currency_type
             pot_inventory[target_sign] = 0.0
             continue
         
@@ -2136,7 +2130,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         # Capture Phase 4 Leftovers into Reserve for this sign
         if sign_pot > 0.001:
-            house_reserves[target_sign] += sign_pot
+            house_reserves[target_sign]['amount'] += sign_pot
+            house_reserves[target_sign]['currency'] = currency_type
     
     # Step 4: Format Phase 4 Output
     phase4_rows = []
@@ -2166,18 +2161,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ============================================================
     
     # ============================================================
-    # CREATE HOUSE RESERVES DATAFRAME
+    # CREATE HOUSE RESERVES DATAFRAME (MODIFIED)
     # ============================================================
+    # List all 12 signs in zodiac order with amount and currency type
     reserve_rows = []
-    for sign_name, reserve_value in house_reserves.items():
-        if reserve_value > 0.001:
-            reserve_rows.append([sign_name, f"{reserve_value:.2f}"])
+    for sign_name in sign_names:  # Aries to Pisces
+        reserve_data = house_reserves[sign_name]
+        amount = reserve_data['amount']
+        currency = reserve_data['currency'] if amount > 0.001 else '-'
+        reserve_rows.append([sign_name, f"{amount:.2f}", currency])
     
-    # Sort by sign order for consistent display
-    sign_order = {s: i for i, s in enumerate(sign_names)}
-    reserve_rows.sort(key=lambda x: sign_order.get(x[0], 99))
-    
-    df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
+    df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points', 'Currency Type'])
     
     # ============================================================
     # END OF HOUSE RESERVES
@@ -2415,9 +2409,8 @@ if st.session_state.chart_data:
     st.dataframe(cd['df_planets'], hide_index=True, use_container_width=True)
 
     # House Bonus Points (Reserve) - Placed immediately below Planetary Positions
-    if not cd['df_house_reserves'].empty:
-        st.subheader("House Bonus Points (Reserve)")
-        st.dataframe(cd['df_house_reserves'], hide_index=True, use_container_width=True)
+    st.subheader("House Bonus Points (Reserve)")
+    st.dataframe(cd['df_house_reserves'], hide_index=True, use_container_width=True)
 
     st.subheader("Navamsa Exchange (Phase 1)")
     st.dataframe(cd['df_navamsa_exchange'], hide_index=True, use_container_width=True)
