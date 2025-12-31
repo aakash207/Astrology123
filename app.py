@@ -2158,7 +2158,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # PHASE 5 CURRENCY EXCHANGE LOGIC - Virtual Clones System
     # ============================================================
     
-    # Step 1: Initialization - Deep copy from Phase 4 (Live State of Real Planets)
+    # Step 1: Initialization - Deep copy from Phase 4
     phase5_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         phase5_data[p] = {
@@ -2176,7 +2176,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # Output container for leftover aspects
     leftover_aspects = []
     
-    # Step 2: Define Aspect Rules (Configuration)
+    # Aspect Rules Configuration
     aspect_rules = {
         'Saturn': {3: 0.25, 7: 1.0, 10: 0.75},
         'Mars': {4: 0.40, 7: 1.0, 8: 0.25},
@@ -2185,165 +2185,172 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'Mercury': {7: 1.0},
         'Moon': {4: 0.25, 6: 0.50, 7: 1.0, 8: 0.50, 10: 0.25}
     }
-    # Sun, Rahu, Ketu have no aspects
     
-    # Step 3: Define Planet Classifications
+    # Planet Definitions
     p5_standard_malefics = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu']
     p5_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
     
-    # Debtor rank order for malefics
-    p5_debtor_rank_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
+    # Debtor rank order for malefics (from Phase 1)
+    p5_malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
-    # Currency Rank Score function for Phase 5
-    # CRITICAL: "Good Saturn" and "Good Mars" must return high scores (750-800)
+    # Currency Rank Score for Phase 5
+    # CRITICAL: Good Saturn and Good Mars return high scores (750-800)
     def get_phase5_currency_rank_score(c_key):
-        if c_key == 'Jupiter': return 990
+        if c_key == 'Jupiter': return 1000
         if c_key == 'Venus': return 980
         if c_key == 'Mercury': return 970
         if c_key == 'Good Moon': return 950
-        if c_key == 'Good Saturn': return 800  # High score for Real Benefics to pull
-        if c_key == 'Good Mars': return 750    # High score for Real Benefics to pull
-        if c_key == 'Good Sun': return 700
+        if c_key == 'Good Saturn': return 800
+        if c_key == 'Good Mars': return 780
+        if c_key == 'Good Sun': return 750
         if c_key == 'Good Ketu': return 700
-        if c_key == 'Bad Mars': return 325
-        if c_key == 'Bad Sun': return 250
-        if c_key == 'Bad Moon': return 200
+        # Bad currencies have lower scores
+        if c_key == 'Bad Moon': return 300
+        if c_key == 'Bad Mars': return 250
+        if c_key == 'Bad Sun': return 200
         if c_key == 'Bad Saturn': return 100
         if c_key == 'Bad Rahu': return 100
         if c_key == 'Bad Ketu': return 150
         return 0
     
-    # Helper function to calculate angular gap
+    # Helper: Check if currency is good
+    def is_p5_good_currency(c_key):
+        if 'Bad' in c_key:
+            return False
+        if c_key in ['Jupiter', 'Venus', 'Mercury']:
+            return True
+        if 'Good' in c_key:
+            return True
+        return False
+    
+    # Helper: Calculate angular gap
     def calc_angular_gap(L1, L2):
         diff = abs(L1 - L2)
         if diff > 180:
             diff = 360 - diff
         return int(diff)
     
-    # Step 4: Master Execution Sequence
-    master_planet_order = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
+    # Master Execution Sequence
+    planet_sequence = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
     
-    for current_planet in master_planet_order:
-        # Skip planets without aspects
+    for current_planet in planet_sequence:
+        # Skip if planet has no aspects defined
         if current_planet not in aspect_rules:
             continue
         
-        planet_aspects = aspect_rules[current_planet]
-        parent_L = phase5_data[current_planet]['L']
+        aspects = aspect_rules[current_planet]
         
-        # Iterate through each aspect offset for this planet
-        for offset, aspect_percentage in planet_aspects.items():
+        # Part A: Create ALL clones for this planet at once
+        clones = []
+        
+        for offset, percentage in aspects.items():
+            # Get the Live State of the current planet
+            parent_data = phase5_data[current_planet]
+            parent_L = parent_data['L']
             
-            # ========================================
-            # Part A: Clone Creation
-            # ========================================
-            
-            # Clone Location
+            # Calculate Clone Location
             clone_L = (parent_L + (offset - 1) * 30) % 360
             
-            # Initialize clone structure
-            clone = {
-                'inventory': defaultdict(float),
-                'debt': 0.0,
-                'L': clone_L,
-                'type': 'passive',  # Default, will change for Saturn/Mars
-                'parent': current_planet
-            }
+            # Determine clone composition based on planet type
+            clone_inventory = defaultdict(float)
+            clone_debt = 0.0
+            clone_type = 'Passive'  # Default
             
-            # Get parent's LIVE inventory from phase5_data
-            parent_inventory = phase5_data[current_planet]['p5_inventory']
-            parent_debt = phase5_data[current_planet]['p5_current_debt']
-            
-            # Calculate total good currency from parent
-            total_good_currency = 0.0
-            for k, v in parent_inventory.items():
-                if v > 0.001:
-                    # Check if it's a good currency
-                    if 'Bad' not in k:
-                        total_good_currency += v
-            
-            # Composition Rules based on planet type
+            # CASE 1: Malefics (Saturn, Mars)
             if current_planet in ['Saturn', 'Mars']:
-                # CASE 1: Malefics (Saturn, Mars) - Active Clones
-                clone['type'] = 'active'
+                # Extract Good Currencies ONLY and rename to "Good [CurrentPlanet]"
+                total_good_value = 0.0
+                for key, val in parent_data['p5_inventory'].items():
+                    if is_p5_good_currency(key) and val > 0.001:
+                        total_good_value += val
                 
-                # Rename all good currencies to "Good [CurrentPlanet]"
-                clone_currency_value = total_good_currency * aspect_percentage
-                if clone_currency_value > 0.001:
-                    clone['inventory'][f"Good {current_planet}"] = clone_currency_value
+                # Clone inventory: Good [Planet] with percentage
+                if total_good_value > 0:
+                    clone_inventory[f"Good {current_planet}"] = total_good_value * percentage
                 
-                # Clone inherits debt from parent (scaled by aspect percentage)
-                clone['debt'] = parent_debt * aspect_percentage
+                # Also include Bad currency (as specified in example)
+                bad_key = f"Bad {current_planet}"
+                if bad_key in parent_data['p5_inventory'] and parent_data['p5_inventory'][bad_key] > 0.001:
+                    clone_inventory[bad_key] = parent_data['p5_inventory'][bad_key] * percentage
                 
+                # Debt: Live_Real_Debt * Aspect_Percentage
+                clone_debt = parent_data['p5_current_debt'] * percentage
+                clone_type = 'Active'  # Can pull from Real Planets
+            
+            # CASE 2: Benefics (Jupiter, Venus, Mercury)
             elif current_planet in ['Jupiter', 'Venus', 'Mercury']:
-                # CASE 2: Benefics (Jupiter, Venus, Mercury) - Passive Clones
-                clone['type'] = 'passive'
+                # Extract Good Currencies ONLY and rename to "[CurrentPlanet]"
+                total_good_value = 0.0
+                for key, val in parent_data['p5_inventory'].items():
+                    if is_p5_good_currency(key) and val > 0.001:
+                        total_good_value += val
                 
-                # Rename all good currencies to "[CurrentPlanet]"
-                clone_currency_value = total_good_currency * aspect_percentage
-                if clone_currency_value > 0.001:
-                    clone['inventory'][current_planet] = clone_currency_value
+                # Clone inventory: [Planet] with percentage
+                if total_good_value > 0:
+                    clone_inventory[current_planet] = total_good_value * percentage
                 
-                # Benefic clones are born debt-free
-                clone['debt'] = 0.0
-                
+                # Debt: 0 (Benefic clones are born debt-free)
+                clone_debt = 0.0
+                clone_type = 'Passive'
+            
+            # CASE 3: Moon (Special Rule - ALWAYS BENEFIC behavior)
             elif current_planet == 'Moon':
-                # CASE 3: Moon (Special Rule) - Always Benefic/Passive
-                clone['type'] = 'passive'
+                # Calculate: Value(Good Moon) + (Sum_Others / 2)
+                good_moon_value = parent_data['p5_inventory'].get('Good Moon', 0.0)
                 
-                # Calculate Moon clone value
-                good_moon_val = parent_inventory.get('Good Moon', 0.0)
+                sum_others = 0.0
+                for key, val in parent_data['p5_inventory'].items():
+                    if is_p5_good_currency(key) and key != 'Good Moon' and val > 0.001:
+                        sum_others += val
                 
-                # Sum all other good currencies
-                other_good_sum = 0.0
-                for k, v in parent_inventory.items():
-                    if v > 0.001 and 'Bad' not in k and k != 'Good Moon':
-                        other_good_sum += v
+                total_value = good_moon_value + (sum_others / 2.0)
                 
-                # Total value = Good Moon + (Other Goods / 2)
-                total_moon_value = good_moon_val + (other_good_sum / 2.0)
+                # Clone inventory: "Good Moon" with percentage
+                if total_value > 0:
+                    clone_inventory['Good Moon'] = total_value * percentage
                 
-                clone_currency_value = total_moon_value * aspect_percentage
-                if clone_currency_value > 0.001:
-                    clone['inventory']['Good Moon'] = clone_currency_value
-                
-                # Moon clones are debt-free
-                clone['debt'] = 0.0
+                # Debt: 0
+                clone_debt = 0.0
+                clone_type = 'Passive'
             
-            # ========================================
-            # Part B: The Interaction Cycle (200-Loop)
-            # ========================================
+            # Create clone object
+            clone = {
+                'parent': current_planet,
+                'offset': offset,
+                'percentage': percentage,
+                'L': clone_L,
+                'inventory': clone_inventory,
+                'debt': clone_debt,
+                'type': clone_type
+            }
+            clones.append(clone)
+        
+        # Part B: Run the Interaction Cycle (500-iteration loop) for all clones
+        p5_cycle_limit = 500
+        p5_cycles = 0
+        
+        while p5_cycles < p5_cycle_limit:
+            p5_cycles += 1
+            p5_something_happened = False
             
-            cycle_limit = 200
-            cycles = 0
+            # Dynamic Moon classification for this cycle
+            moon_bad_currency_p5 = phase5_data['Moon']['p5_inventory'].get('Bad Moon', 0.0)
+            moon_is_malefic_p5 = moon_bad_currency_p5 > 0.001
             
-            while cycles < cycle_limit:
-                cycles += 1
-                something_happened = False
-                
-                # Initialize pulled_from_tracker for this cycle
-                # Structure: tracker[puller][target] = amount_pulled
-                
-                # --------------------------------------------
+            # Process each clone
+            for clone in clones:
                 # Step 1: Real Malefics Pull (from Clone)
-                # --------------------------------------------
+                # Build list of real malefics
+                real_malefics_list = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
+                if moon_is_malefic_p5:
+                    real_malefics_list.append('Moon')
                 
-                # Determine which planets are malefics (including dynamic Moon check)
-                real_malefics = []
-                for p in ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']:
-                    real_malefics.append(p)
-                
-                # Dynamic Moon check: Malefic if Bad Moon > 0.001
-                moon_bad_val = phase5_data['Moon']['p5_inventory'].get('Bad Moon', 0.0)
-                if moon_bad_val > 0.001:
-                    real_malefics.append('Moon')
-                
-                # Sort by debtor rank (including Moon's dynamic position)
+                # Sort by debtor rank (from Phase 1 logic)
                 def get_p5_malefic_rank(p):
                     if p == 'Moon':
                         vol = phase5_data['Moon']['volume']
                         if vol > 0:
-                            bad_pct = (moon_bad_val / vol) * 100
+                            bad_pct = (moon_bad_currency_p5 / vol) * 100
                         else:
                             bad_pct = 0
                         if bad_pct > 25:
@@ -2351,256 +2358,251 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         else:
                             return 3.5  # After Mars
                     else:
-                        if p in p5_debtor_rank_order:
-                            return p5_debtor_rank_order.index(p)
+                        if p in p5_malefic_debtor_order:
+                            return p5_malefic_debtor_order.index(p)
                         return 99
                 
-                real_malefics_sorted = sorted(real_malefics, key=get_p5_malefic_rank)
+                real_malefics_sorted = sorted(real_malefics_list, key=get_p5_malefic_rank)
                 
-                # Track what each malefic has pulled from the clone
-                step1_pulled_tracker = defaultdict(float)
+                # Initialize pulled_from_tracker for this clone
+                if 'pulled_from_tracker' not in clone:
+                    clone['pulled_from_tracker'] = {}
                 
                 for real_malefic in real_malefics_sorted:
-                    # Skip if this is the parent planet
-                    if real_malefic == current_planet:
-                        continue
-                    
-                    # Check Debt: real_malefic must have debt
+                    # Check Debt: real_malefic must have debt < -0.001
                     if phase5_data[real_malefic]['p5_current_debt'] >= -0.001:
                         continue
                     
-                    # Check Gap
-                    malefic_L = phase5_data[real_malefic]['L']
-                    gap = calc_angular_gap(malefic_L, clone_L)
+                    # Check Gap: Calculate angular gap between real_malefic and Clone
+                    gap = calc_angular_gap(phase5_data[real_malefic]['L'], clone['L'])
                     if gap > 22:
                         continue
                     
-                    # Check Capacity (Max_Allowed_Pull based on clone's remaining inventory)
+                    # Calculate Max_Allowed_Pull based on clone's total volume (sum of inventory)
+                    clone_volume = sum(clone['inventory'].values())
                     cap_pct = mix_dict.get(gap, 0)
+                    max_allowed_pull = clone_volume * (cap_pct / 100.0)
                     
-                    # Get available good currencies from clone
+                    # Track already pulled
+                    tracker_key = f"clone_{clone['parent']}_{clone['offset']}"
+                    already_pulled = clone['pulled_from_tracker'].get(f"{real_malefic}_from_clone", 0.0)
+                    
+                    remaining_capacity = max_allowed_pull - already_pulled
+                    if remaining_capacity <= 0.001:
+                        continue
+                    
+                    # Find Good Currency in Clone to pull
                     for c_key in list(clone['inventory'].keys()):
-                        c_val = clone['inventory'][c_key]
-                        if c_val <= 0.001:
+                        if not is_p5_good_currency(c_key):
                             continue
                         
-                        # Only pull Good currencies
-                        if 'Bad' in c_key:
-                            continue
-                        
-                        # Calculate max pull based on clone's initial currency for this interaction
-                        tracker_key = f"step1_{real_malefic}_{c_key}"
-                        already_pulled = step1_pulled_tracker.get(tracker_key, 0.0)
-                        max_allowed = c_val * (cap_pct / 100.0)
-                        remaining_capacity = max_allowed - already_pulled
-                        
-                        if remaining_capacity <= 0.001:
+                        avail = clone['inventory'].get(c_key, 0.0)
+                        if avail <= 0.001:
                             continue
                         
                         needed_debt = abs(phase5_data[real_malefic]['p5_current_debt'])
-                        available_in_clone = clone['inventory'][c_key]
                         
-                        take = min(1.0, needed_debt, available_in_clone, remaining_capacity)
+                        # Amount: min(1.0, needed_debt, available_in_clone, remaining_capacity)
+                        take = min(1.0, needed_debt, avail, remaining_capacity)
                         
                         if take > 0.001:
-                            # Transfer from Clone to Real Malefic
-                            clone['inventory'][c_key] -= take
+                            # Update Real Planet: Gains Good Currency, Debt Reduces
                             phase5_data[real_malefic]['p5_inventory'][c_key] += take
-                            
-                            # Real Planet: Debt Reduces (becomes less negative)
                             phase5_data[real_malefic]['p5_current_debt'] += take
                             
-                            # Clone: Debt Remains Unchanged
+                            # Update Clone: Loses currency, Debt Remains Unchanged
+                            clone['inventory'][c_key] -= take
                             
                             # Update tracker
-                            step1_pulled_tracker[tracker_key] = already_pulled + take
-                            something_happened = True
+                            clone['pulled_from_tracker'][f"{real_malefic}_from_clone"] = already_pulled + take
+                            already_pulled += take
+                            remaining_capacity -= take
+                            
+                            p5_something_happened = True
+                            
+                            # Check if malefic debt is cleared
+                            if phase5_data[real_malefic]['p5_current_debt'] >= -0.001:
+                                break
                 
-                # --------------------------------------------
                 # Step 2: Virtual Malefic Clone Pulls (Active Pulling)
-                # --------------------------------------------
-                
-                # Only runs if clone is Saturn or Mars (Active Types)
-                if clone['type'] == 'active' and clone['debt'] < -0.001:
-                    
-                    # Target: All Real Planets
+                # Only for Saturn or Mars clones (Active Types)
+                if clone['type'] == 'Active' and clone['debt'] < -0.001:
+                    # Targets: All Real Planets
                     all_planets = ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']
                     
                     # Sort targets by proximity (closest gap first)
-                    def get_gap_to_clone(p):
-                        return calc_angular_gap(phase5_data[p]['L'], clone_L)
+                    def get_proximity_to_clone(p):
+                        return calc_angular_gap(phase5_data[p]['L'], clone['L'])
                     
-                    sorted_targets = sorted(all_planets, key=get_gap_to_clone)
+                    targets_sorted = sorted(all_planets, key=get_proximity_to_clone)
                     
-                    # Track what clone has pulled from each target
-                    step2_pulled_tracker = defaultdict(float)
+                    # Initialize tracker for this step
+                    if 'clone_pulled_from' not in clone:
+                        clone['clone_pulled_from'] = {}
                     
-                    for target_planet in sorted_targets:
-                        # Skip parent planet
-                        if target_planet == current_planet:
-                            continue
+                    for target_planet in targets_sorted:
+                        if clone['debt'] >= -0.001:
+                            break
                         
                         # Check Gap
-                        target_L = phase5_data[target_planet]['L']
-                        gap = calc_angular_gap(clone_L, target_L)
+                        gap = calc_angular_gap(phase5_data[target_planet]['L'], clone['L'])
                         if gap > 22:
                             continue
                         
-                        # Check Capacity based on target's volume
-                        cap_pct = mix_dict.get(gap, 0)
+                        # Calculate Max_Allowed_Pull based on target's volume
                         target_volume = phase5_data[target_planet]['volume']
-                        max_pull_from_target = target_volume * (cap_pct / 100.0)
+                        cap_pct = mix_dict.get(gap, 0)
+                        max_allowed_pull = target_volume * (cap_pct / 100.0)
                         
-                        tracker_key = f"step2_{target_planet}"
-                        already_pulled = step2_pulled_tracker.get(tracker_key, 0.0)
-                        remaining_capacity = max_pull_from_target - already_pulled
+                        # Track already pulled from this target
+                        already_pulled_from_target = clone['clone_pulled_from'].get(target_planet, 0.0)
+                        remaining_capacity = max_allowed_pull - already_pulled_from_target
                         
                         if remaining_capacity <= 0.001:
                             continue
                         
-                        # Get currencies from target, sorted by rank score
-                        target_currencies = []
-                        for c_key, c_val in phase5_data[target_planet]['p5_inventory'].items():
+                        # Identify currencies in target
+                        # Priority 1: Good Currencies (sorted by rank score)
+                        # Priority 2: Bad Currencies
+                        
+                        target_inv = phase5_data[target_planet]['p5_inventory']
+                        
+                        # Get all currencies sorted by score
+                        good_currencies = []
+                        bad_currencies = []
+                        
+                        for c_key, c_val in target_inv.items():
                             if c_val > 0.001:
                                 # Self-Ban: Clone cannot pull "Good [Self]"
-                                if c_key == f"Good {current_planet}":
+                                if c_key == f"Good {clone['parent']}":
                                     continue
-                                score = get_phase5_currency_rank_score(c_key)
-                                is_good = 'Bad' not in c_key
-                                target_currencies.append({'key': c_key, 'val': c_val, 'score': score, 'is_good': is_good})
+                                
+                                if is_p5_good_currency(c_key):
+                                    good_currencies.append((c_key, c_val, get_phase5_currency_rank_score(c_key)))
+                                else:
+                                    bad_currencies.append((c_key, c_val, get_phase5_currency_rank_score(c_key)))
                         
-                        # Priority 1: Good Currencies (sorted by rank), Priority 2: Bad Currencies
-                        target_currencies.sort(key=lambda x: (-int(x['is_good']), -x['score']))
+                        # Sort by score descending
+                        good_currencies.sort(key=lambda x: -x[2])
+                        bad_currencies.sort(key=lambda x: -x[2])
                         
-                        for currency_info in target_currencies:
+                        # Try good currencies first
+                        all_currencies = good_currencies + bad_currencies
+                        
+                        for c_key, c_val, _ in all_currencies:
                             if clone['debt'] >= -0.001:
                                 break
                             
-                            c_key = currency_info['key']
-                            c_val = phase5_data[target_planet]['p5_inventory'][c_key]
+                            if remaining_capacity <= 0.001:
+                                break
                             
-                            if c_val <= 0.001:
+                            avail = target_inv.get(c_key, 0.0)
+                            if avail <= 0.001:
                                 continue
                             
                             clone_needed_debt = abs(clone['debt'])
                             
-                            take = min(1.0, clone_needed_debt, c_val, remaining_capacity)
+                            # Amount: min(1.0, clone_needed_debt, target_available, remaining_capacity)
+                            take = min(1.0, clone_needed_debt, avail, remaining_capacity)
                             
                             if take > 0.001:
-                                # Transfer from Real Planet to Clone
+                                # Update Real Planet: Loses currency, debt increases
                                 phase5_data[target_planet]['p5_inventory'][c_key] -= take
-                                clone['inventory'][c_key] = clone['inventory'].get(c_key, 0.0) + take
+                                phase5_data[target_planet]['p5_current_debt'] -= take
                                 
-                                # CRITICAL: Clone Debt Reduces for ANY currency (Good OR Bad)
-                                clone['debt'] += take
+                                # Update Clone: Gains currency, Debt reduces for ANY currency
+                                clone['inventory'][c_key] = clone['inventory'].get(c_key, 0.0) + take
+                                clone['debt'] += take  # Debt reduces (becomes less negative)
                                 
                                 # Update tracker
-                                step2_pulled_tracker[tracker_key] = already_pulled + take
+                                clone['clone_pulled_from'][target_planet] = already_pulled_from_target + take
+                                already_pulled_from_target += take
                                 remaining_capacity -= take
-                                something_happened = True
+                                
+                                p5_something_happened = True
                 
-                # --------------------------------------------
                 # Step 3: Real Benefics Pull (from Clone)
-                # --------------------------------------------
+                # Build list of real benefics
+                real_benefics_list = ['Jupiter', 'Venus', 'Mercury']
+                if not moon_is_malefic_p5:
+                    real_benefics_list.append('Moon')
                 
-                # Determine which planets are benefics (including dynamic Moon check)
-                real_benefics = ['Jupiter', 'Venus', 'Mercury']
-                
-                # Dynamic Moon check: Benefic if Bad Moon <= 0.001
-                if moon_bad_val <= 0.001:
-                    real_benefics.append('Moon')
-                
-                # Sort by Debt Percentage (Abs(Debt) / Volume) Descending
-                def get_debt_pct(p):
+                # Sort by Debt Percentage (Highest first)
+                def get_p5_benefic_debt_pct(p):
                     vol = phase5_data[p]['volume']
                     debt = abs(phase5_data[p]['p5_current_debt'])
                     if vol > 0:
                         return (debt / vol) * 100
                     return 0
                 
-                real_benefics_sorted = sorted(real_benefics, key=lambda p: -get_debt_pct(p))
-                
-                # Track what each benefic has pulled from the clone
-                step3_pulled_tracker = defaultdict(float)
+                real_benefics_sorted = sorted(real_benefics_list, key=lambda p: -get_p5_benefic_debt_pct(p))
                 
                 for real_benefic in real_benefics_sorted:
-                    # Skip if this is the parent planet
-                    if real_benefic == current_planet:
-                        continue
-                    
-                    # Check Debt: real_benefic must have debt
+                    # Check Debt
                     if phase5_data[real_benefic]['p5_current_debt'] >= -0.001:
                         continue
                     
                     # Check Gap
-                    benefic_L = phase5_data[real_benefic]['L']
-                    gap = calc_angular_gap(benefic_L, clone_L)
+                    gap = calc_angular_gap(phase5_data[real_benefic]['L'], clone['L'])
                     if gap > 22:
                         continue
                     
-                    # Check Capacity
+                    # Calculate Max_Allowed_Pull
+                    clone_volume = sum(clone['inventory'].values())
                     cap_pct = mix_dict.get(gap, 0)
+                    max_allowed_pull = clone_volume * (cap_pct / 100.0)
                     
-                    # Get available good currencies from clone, sorted by rank
-                    clone_currencies = []
-                    for c_key, c_val in clone['inventory'].items():
-                        if c_val > 0.001 and 'Bad' not in c_key:
-                            score = get_phase5_currency_rank_score(c_key)
-                            clone_currencies.append({'key': c_key, 'val': c_val, 'score': score})
+                    # Track already pulled
+                    tracker_key_ben = f"{real_benefic}_benefic_from_clone"
+                    already_pulled = clone['pulled_from_tracker'].get(tracker_key_ben, 0.0)
+                    remaining_capacity = max_allowed_pull - already_pulled
                     
-                    clone_currencies.sort(key=lambda x: -x['score'])
+                    if remaining_capacity <= 0.001:
+                        continue
                     
-                    for currency_info in clone_currencies:
-                        if phase5_data[real_benefic]['p5_current_debt'] >= -0.001:
-                            break
-                        
-                        c_key = currency_info['key']
-                        c_val = clone['inventory'][c_key]
-                        
-                        if c_val <= 0.001:
+                    # Find Good Currency in Clone to pull
+                    for c_key in list(clone['inventory'].keys()):
+                        if not is_p5_good_currency(c_key):
                             continue
                         
-                        tracker_key = f"step3_{real_benefic}_{c_key}"
-                        already_pulled = step3_pulled_tracker.get(tracker_key, 0.0)
-                        max_allowed = c_val * (cap_pct / 100.0)
-                        remaining_capacity = max_allowed - already_pulled
-                        
-                        if remaining_capacity <= 0.001:
+                        avail = clone['inventory'].get(c_key, 0.0)
+                        if avail <= 0.001:
                             continue
                         
                         needed_debt = abs(phase5_data[real_benefic]['p5_current_debt'])
-                        available_in_clone = clone['inventory'][c_key]
                         
-                        take = min(1.0, needed_debt, available_in_clone, remaining_capacity)
+                        # Amount
+                        take = min(1.0, needed_debt, avail, remaining_capacity)
                         
                         if take > 0.001:
-                            # Transfer from Clone to Real Benefic
-                            clone['inventory'][c_key] -= take
+                            # Update Real Planet: Gains Good Currency, Debt Reduces
                             phase5_data[real_benefic]['p5_inventory'][c_key] += take
-                            
-                            # Real Planet: Debt Reduces
                             phase5_data[real_benefic]['p5_current_debt'] += take
                             
-                            # Clone: Debt Remains Unchanged
+                            # Update Clone: Loses currency, Debt Remains Unchanged
+                            clone['inventory'][c_key] -= take
                             
                             # Update tracker
-                            step3_pulled_tracker[tracker_key] = already_pulled + take
-                            something_happened = True
-                
-                # End cycle if nothing happened
-                if not something_happened:
-                    break
+                            clone['pulled_from_tracker'][tracker_key_ben] = already_pulled + take
+                            already_pulled += take
+                            remaining_capacity -= take
+                            
+                            p5_something_happened = True
+                            
+                            if phase5_data[real_benefic]['p5_current_debt'] >= -0.001:
+                                break
             
-            # ========================================
-            # Part C: Logging & Disposal
-            # ========================================
-            
+            if not p5_something_happened:
+                break
+        
+        # Part C: Log clone's final state and destroy
+        for clone in clones:
             # Format remaining inventory
             inv_parts = []
             for k, v in clone['inventory'].items():
                 if v > 0.001:
                     inv_parts.append(f"{k}[{v:.2f}]")
-            remaining_inventory_str = ", ".join(inv_parts) if inv_parts else "-"
+            remaining_inv_str = ", ".join(inv_parts) if inv_parts else "-"
             
             # Format final debt
             if abs(clone['debt']) < 0.01:
@@ -2608,20 +2610,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             else:
                 final_debt_str = f"{clone['debt']:.2f}"
             
-            # Calculate aspect angle for display
-            aspect_angle = offset * 30  # offset is house number, so angle is offset * 30
-            
-            # Log to leftover_aspects
+            # Add to leftover_aspects
             leftover_aspects.append([
-                current_planet,
-                f"{aspect_angle}°",
-                remaining_inventory_str,
+                clone['parent'],
+                clone['offset'],
+                remaining_inv_str,
                 final_debt_str
             ])
-            
-            # Clone is now disposed (loop continues to next aspect)
     
-    # Step 5: Format Phase 5 Output (Real Planets)
+    # Step 5: Format Phase 5 Output
     phase5_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
@@ -2644,7 +2641,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]'])
     
-    # Create df_leftover_aspects DataFrame
+    # Create Leftover Aspects DataFrame
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
     
     # ============================================================
@@ -2935,7 +2932,7 @@ if st.session_state.chart_data:
     st.subheader("Currency Exchange Phase 5")
     st.dataframe(cd['df_phase5'], hide_index=True, use_container_width=True)
 
-    st.subheader("Virtual Clone Leftover Aspects (Phase 5)")
+    st.subheader("Leftover Aspects (Phase 5 Clones)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) — South Indian")
