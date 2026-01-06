@@ -57,13 +57,10 @@ status_data = {
     'Saturn': {'Uchcham': 'Libra', 'Moolathirigonam': 'Aquarius', 'Aatchi': 'Capricorn', 'Neecham': 'Aries'}
 }
 
-# Capacity percentages (default volume)
 capacity_dict = {
     'Saturn': 100, 'Mars': 100, 'Sun': 100, 'Jupiter': 100, 
     'Venus': 50, 'Mercury': 30, 'Moon': 100, 'Rahu': 100, 'Ketu': 50
 }
-# Good/Bad percentages
-# Ketu set to 0 Good, 100 Bad to ensure it holds 50 bad currency by default
 good_capacity_dict = {
     'Saturn': 0, 'Mars': 25, 'Sun': 50, 'Jupiter': 100, 
     'Venus': 100, 'Mercury': 100, 'Rahu': 0, 'Ketu': 0
@@ -73,28 +70,35 @@ bad_capacity_dict = {
     'Venus': 0, 'Mercury': 0, 'Rahu': 100, 'Ketu': 100
 }
 
-# Moon Tithi Capacities
 shukla_good = [100, 9, 16, 23, 30, 37, 44, 51, 58, 65, 72, 79, 86, 93, 100]
 shukla_bad = [0] * 15
 krishna_good = [93, 86, 79, 72, 65, 58, 51, 44, 37, 30, 23, 16, 9, 2, 0]
 krishna_bad = [7, 14, 21, 28, 35, 42, 49, 56, 63, 70, 77, 84, 91, 98, 100]
 
-# Tithi Names for Phase 1
 shukla_tithi_names = ['Shukla Pratipada', 'Shukla Dwitiya', 'Shukla Tritiya', 'Shukla Chaturthi', 'Shukla Panchami', 'Shukla Shashti', 'Shukla Saptami', 'Shukla Ashtami', 'Shukla Navami', 'Shukla Dashami', 'Shukla Ekadashi', 'Shukla Dwadashi', 'Shukla Trayodashi', 'Shukla Chaturdashi', 'Purnima']
 krishna_tithi_names = ['Krishna Pratipada', 'Krishna Dwitiya', 'Krishna Tritiya', 'Krishna Chaturthi', 'Krishna Panchami', 'Krishna Shashti', 'Krishna Saptami', 'Krishna Ashtami', 'Krishna Navami', 'Krishna Dashami', 'Krishna Ekadashi', 'Krishna Dwadashi', 'Krishna Trayodashi', 'Krishna Chaturdashi', 'Amavasya']
 
-# Single currency planets
 single_currency_planets = ['Venus', 'Jupiter', 'Mercury', 'Rahu', 'Ketu', 'Saturn']
 bad_currency_planets = ['Saturn', 'Rahu', 'Ketu']
 base_malefics = ['Saturn', 'Mars', 'Sun', 'Rahu']
-
-# Malefic planets list for Phase 1 priority logic
 malefic_planets = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
 
-# Mix Dictionary for Phase 1 - Angular Gap to Pull Percentage
+# MODIFICATION 3: Malefic Hierarchy for Navamsa Phase 1
+navamsa_malefic_hierarchy = {'Rahu': 1, 'Saturn': 2, 'Sun': 3, 'Mars': 4, 'Ketu': 5}
+
 mix_dict = {0:100,1:100,2:100,3:95,4:90,5:85,6:80,7:75,8:70,9:65,10:60,11:55,12:50,13:45,14:40,15:35,16:30,17:25,18:20,19:15,20:10,21:5,22:0}
 
-# ---- Astro helpers ----
+# MODIFICATION 1: Planet to ruled signs mapping
+planet_ruled_signs = {
+    'Sun': ['Leo'],
+    'Moon': ['Cancer'],
+    'Mars': ['Aries', 'Scorpio'],
+    'Mercury': ['Gemini', 'Virgo'],
+    'Jupiter': ['Sagittarius', 'Pisces'],
+    'Venus': ['Taurus', 'Libra'],
+    'Saturn': ['Capricorn', 'Aquarius']
+}
+
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
     return (base + (year - 2000) * rate) % 360
@@ -196,8 +200,19 @@ def get_sign_lord(sign):
     sign_idx = sign_names.index(sign)
     return sign_lords[sign_idx]
 
+def is_good_currency(c_key):
+    if 'Bad' in c_key:
+        return False
+    if c_key in ['Jupiter', 'Venus', 'Mercury']:
+        return True
+    if 'Good' in c_key:
+        return True
+    return False
+
+def is_sun_or_moon_currency(c_key):
+    return 'Sun' in c_key or 'Moon' in c_key
+
 def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
-    # parse time
     try:
         hour, minute = map(int, time_str.split(':'))
         if not (0<=hour<=23 and 0<=minute<=59): raise ValueError
@@ -219,19 +234,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     lon_sid = {p: get_sidereal_lon(lon_trop[p], ayan) for p in lon_trop}
     lagna_sid = get_sidereal_lon(get_ascendant(jd, lat, lon), ayan)
     
-    # --- Step 1: Identify Moon Phase (Paksha) ---
     sun_lon = lon_sid['sun']
     moon_lon = lon_sid['moon']
     diff = (moon_lon - sun_lon) % 360
     
-    # Waxing (Shukla): 0 -> 180 (Towards Full Moon)
-    # Waning (Krishna): 180 -> 360 (Towards New Moon)
     if diff < 180:
         paksha = 'Shukla'
     else:
         paksha = 'Krishna'
 
-    # Calculate Tithi (1-30)
     tithi_fraction = diff / 12
     tithi = int(tithi_fraction) + 1
     if tithi > 30: tithi = 30
@@ -246,13 +257,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if tithi_idx > 14: tithi_idx = 14
         moon_phase_name = krishna_tithi_names[tithi_idx]
 
-    # rasi houses
     house_planets_rasi = defaultdict(list)
     positions = {**lon_sid, 'asc': lagna_sid}
     for p, L in positions.items():
         house_planets_rasi[get_house(L, lagna_sid)].append(p.capitalize() if p != 'asc' else 'Asc')
 
-    # First pass: Calculate status and sign for all planets
     planet_status_map = {}
     planet_sign_map = {}
     planet_house_map = {}
@@ -273,39 +282,41 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             elif sign == mapping['Aatchi']: status = 'Aatchi'
         planet_status_map[planet_cap] = status
 
-    # --- Calculate Parivardhana Yoga ---
+    # MODIFICATION 1: Identify Uchcham planets and signs they rule
+    uchcham_ruled_signs = set()
+    for planet_cap, status in planet_status_map.items():
+        if status == 'Uchcham' and planet_cap in planet_ruled_signs:
+            for ruled_sign in planet_ruled_signs[planet_cap]:
+                uchcham_ruled_signs.add(ruled_sign)
+    
     parivardhana_map = {}
     planets_for_parivardhana = ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']
     
     for planet_a in planets_for_parivardhana:
-        sign_a = planet_sign_map[planet_a]  # Sign where planet A is placed
-        lord_of_sign_a = get_sign_lord(sign_a)  # Lord of that sign
+        sign_a = planet_sign_map[planet_a]
+        lord_of_sign_a = get_sign_lord(sign_a)
         
-        # Check if lord_of_sign_a is in a sign whose lord is planet_a
         if lord_of_sign_a in planet_sign_map:
-            sign_of_lord = planet_sign_map[lord_of_sign_a]  # Sign where the lord is placed
-            lord_of_that_sign = get_sign_lord(sign_of_lord)  # Lord of that sign
+            sign_of_lord = planet_sign_map[lord_of_sign_a]
+            lord_of_that_sign = get_sign_lord(sign_of_lord)
             
             if lord_of_that_sign == planet_a and planet_a != lord_of_sign_a:
                 house_a = get_house(lon_sid[planet_a.lower()], lagna_sid)
                 house_b = get_house(lon_sid[lord_of_sign_a.lower()], lagna_sid)
                 parivardhana_map[planet_a] = f"{lord_of_sign_a} (H{house_a}-H{house_b})"
     
-    # planets table
     rows = []
     planet_data = {}
     asc_deg = lagna_sid % 360; asc_sign = get_sign(asc_deg)
     a_nak, a_pada, a_ld, a_sl = get_nakshatra_details(asc_deg)
     dig_bala_asc = calculate_dig_bala('asc', asc_deg, lagna_sid)
     
-    # Vargothuva for Ascendant
     asc_nav_sign = get_navamsa_sign(asc_deg)
     asc_vargothuva = 'Yes' if asc_sign == asc_nav_sign else 'No'
     
     rows.append(['Asc', f"{asc_deg:.2f}", asc_sign, a_nak, a_pada, f"{a_ld}/{a_sl}", asc_vargothuva, '-',
                  f"{dig_bala_asc}%" if dig_bala_asc is not None else '', '', '', '', '', '', ''])
     
-    # Store Moon's initial good value for Cancer house pot (before any exchange)
     moon_initial_good_val = 0.0
     
     for p in ['sun','moon','mars','mercury','jupiter','venus','saturn','rahu','ketu']:
@@ -314,26 +325,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_cap = p.capitalize()
         sthana = sthana_bala_dict.get(planet_cap, [0]*12)[sign_names.index(sign)]
         
-        # Calculate Vargothuva status
         nav_sign = get_navamsa_sign(L)
         vargothuva = 'Yes' if sign == nav_sign else 'No'
-        
-        # Get Parivardhana status
         parivardhana = parivardhana_map.get(planet_cap, '-')
-        
-        # Get status from pre-calculated map
         status = planet_status_map[planet_cap]
             
         capacity = capacity_dict.get(planet_cap, None)
         volume = (capacity * sthana / 100.0) if capacity is not None else 0.0
         
-        # --- Step 2: Assign Good/Bad Percentages based on Phase ---
+        # MODIFICATION 1: Apply +10% volume boost if planet is in a sign ruled by Uchcham planet
+        if sign in uchcham_ruled_signs:
+            volume = volume * 1.10
+        
         moon_good_pct = 0
         moon_bad_pct = 0
         if planet_cap == 'Moon':
             if paksha == 'Shukla':
                 good_pct = shukla_good[tithi_idx]
-                bad_pct = shukla_bad[tithi_idx] # Always 0 for Shukla
+                bad_pct = shukla_bad[tithi_idx]
             else:
                 good_pct = krishna_good[tithi_idx]
                 bad_pct = krishna_bad[tithi_idx]
@@ -343,32 +352,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             good_pct = good_capacity_dict.get(planet_cap, 0)
             bad_pct = bad_capacity_dict.get(planet_cap, 0)
 
-        # Calculate Values
         good_val = volume * (good_pct / 100.0)
         bad_val = volume * (bad_pct / 100.0)
         
-        # Store Moon's initial good value for Cancer house pot
         if planet_cap == 'Moon':
             moon_initial_good_val = good_val
         
-        # --- Calculate Debt ---
         total_debt = 0.0
         has_debt = False
         updated_status = '-'
         is_neechabhangam = False
-        is_healthy_neecham_moon = False  # Flag for special Moon case
+        is_healthy_neecham_moon = False
         
-        # --- Check for Neecham status and handle accordingly ---
         if status == 'Neecham':
-            
-            # --- FIRST: Identify Healthy Neecham Moon ---
-            # Condition: Moon + Shukla Paksha + zero bad currency
             if planet_cap == 'Moon' and paksha == 'Shukla' and bad_val == 0:
                 is_healthy_neecham_moon = True
-                # Note: We do NOT calculate debt here yet. We wait to see if Neechabhangam applies
-                # so that currency can be added to good_val if applicable.
             
-            # --- THEN: Check for Neechabhangam (for status update & currency addition) ---
             house_lord = get_sign_lord(sign)
             house_lord_status = planet_status_map.get(house_lord, '-')
             
@@ -376,24 +375,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 updated_status = 'Neechabhangam'
                 is_neechabhangam = True
                 
-                # Add Currency for Neechabhangam
-                # (Logic applies to ALL planets including Healthy Moon, as per request)
-                # Add 40% of Capacity
                 nb_base_vol = capacity * 0.40
-                
-                # Split based on efficiency (good_pct/bad_pct)
                 neechabhangam_good_add = nb_base_vol * (good_pct / 100.0)
                 neechabhangam_bad_add = nb_base_vol * (bad_pct / 100.0)
                 
-                # Add to currency values
                 good_val += neechabhangam_good_add
                 bad_val += neechabhangam_bad_add
             else:
-                # --- Fallback Neechabhangam Check ---
-                # Check if neecham planet shares house with an uchcham or moolathirigonam planet
                 current_house = planet_house_map[planet_cap]
                 
-                # Find all planets in the same house
                 for other_planet in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
                     if other_planet != planet_cap:
                         other_house = planet_house_map.get(other_planet, -1)
@@ -402,46 +392,32 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             if other_status in ['Uchcham', 'Moolathirigonam']:
                                 updated_status = 'Neechabhangam'
                                 is_neechabhangam = True
-                                # Don't add currency for this fallback case
                                 break
             
-            # --- Calculate Debt for Neecham Planets ---
-            
             if is_healthy_neecham_moon:
-                # --- NEW LOGIC: Healthy Neecham Moon Debt Formula ---
-                # Formula: ((1.2 * good_capacity) - good_val)
-                # Note: good_val might include Neechabhangam currency if applicable.
-                
                 if capacity is not None:
                     good_capacity = capacity * (good_pct / 100.0)
                     total_debt = -((1.2 * good_capacity) - good_val)
                     has_debt = True
             else:
-                # --- STANDARD LOGIC: All other Neecham planets ---
-                # Formula: ((1.2 * capacity) - good_val)
                 if capacity is not None:
                     total_debt = -((1.2 * capacity) - good_val)
                     has_debt = True
                     
         else:
-            # Not Neecham or Neechabhangam - default debt is negative of total bad currency
-            # Applies to Ketu as well (if not Neecham) since bad_val will be high
             if bad_val > 0:
                 total_debt = -bad_val
                 has_debt = True
 
-        # Format debt string
         if has_debt:
             debt_str = f"{total_debt:.2f}"
         else:
             debt_str = '-'
         
-        # --- Format Currency String ---
         currency_parts = []
         if planet_cap in single_currency_planets:
             total_val = good_val + bad_val
             if total_val > 0:
-                # Saturn, Rahu, Ketu use "Bad X" prefix
                 if planet_cap in bad_currency_planets:
                     currency_parts.append(f"Bad {planet_cap}[{total_val:.2f}]")
                 else:
@@ -468,7 +444,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'moon_good_pct': moon_good_pct if planet_cap == 'Moon' else 0
         }
         
-        # Initialize final_inventory with planet's own currency
         if planet_cap in ['Jupiter', 'Venus', 'Mercury']:
             if good_val > 0: planet_data[planet_cap]['final_inventory'][planet_cap] = good_val
         elif planet_cap in ['Saturn', 'Rahu']:
@@ -485,11 +460,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 key = f"Bad {planet_cap}"
                 if planet_cap == 'Moon': key = "Bad Moon"
                 planet_data[planet_cap]['final_inventory'][key] = bad_val
-        
-        # REMOVED: Special Ketu Rule that added additional -50 flat debt
-        # Ketu's debt is now naturally derived from its bad currency (which is 50 by default)
 
-    # Build rows with all columns
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         data = planet_data[p]
         rows.append([
@@ -505,16 +476,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             data['debt']
         ])
     
-    # ============================================================
-    # NAVAMSA EXCHANGE LOGIC (Phase 1 - Mirror of Rasi Phase 1)
-    # ============================================================
-    
-    # Calculate Navamsa positions and houses for all planets
+    # NAVAMSA EXCHANGE LOGIC (Phase 1) - MODIFICATION 3: Fixed Malefic Hierarchy
     nav_lagna = (lagna_sid * 9) % 360
     navamsa_data = {}
-    navamsa_house_planets = defaultdict(list)  # house -> list of planet names
-    
-    # Store initial default debts for debt correction later
+    navamsa_house_planets = defaultdict(list)
     nav_initial_default_debts = {}
     
     for p in ['sun','moon','mars','mercury','jupiter','venus','saturn','rahu','ketu']:
@@ -524,10 +489,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_cap = p.capitalize()
         navamsa_house_planets[nav_house].append(planet_cap)
         
-        # MODIFICATION: Use volume from planet_data (which includes Sthana Bala) instead of raw capacity
         nav_volume = planet_data[planet_cap]['volume']
         
-        # Get good/bad percentages (same as before)
         if planet_cap == 'Moon':
             if paksha == 'Shukla':
                 good_pct = shukla_good[tithi_idx]
@@ -543,11 +506,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             nav_moon_good_pct = 0
             nav_moon_bad_pct = 0
         
-        # Calculate good/bad values
         nav_good_val = nav_volume * (good_pct / 100.0)
         nav_bad_val = nav_volume * (bad_pct / 100.0)
         
-        # Format default currency string for Navamsa
         nav_currency_parts = []
         if planet_cap in single_currency_planets:
             total_val = nav_good_val + nav_bad_val
@@ -564,15 +525,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         nav_default_currency_str = ", ".join(nav_currency_parts)
         
-        # Calculate initial debt for Navamsa (same logic as Phase 1 - debt = negative of bad currency)
         nav_debt = 0.0
         if nav_bad_val > 0:
             nav_debt = -nav_bad_val
         
-        # Store the initial default debt for debt correction
         nav_initial_default_debts[planet_cap] = nav_debt
         
-        # Initialize Navamsa inventory
         nav_inventory = defaultdict(float)
         if planet_cap in ['Jupiter', 'Venus', 'Mercury']:
             if nav_good_val > 0: nav_inventory[planet_cap] = nav_good_val
@@ -589,7 +547,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 key = f"Bad {planet_cap}"
                 nav_inventory[key] = nav_bad_val
         
-        # Store original inventory keys for tracking gained currencies
         original_keys = set(nav_inventory.keys())
         
         navamsa_data[planet_cap] = {
@@ -604,10 +561,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'nav_moon_bad_pct': nav_moon_bad_pct,
             'nav_original_keys': original_keys,
             'nav_gained_currencies': defaultdict(float),
-            'nav_debt': 0.0  # Track debt changes from exchange
+            'nav_debt': 0.0
         }
     
-    # Navamsa Debtor Rank (same logic as Phase 1)
     nav_debtor_rank = []
     nav_debtor_rank.append('Rahu')
     nav_debtor_rank.append('Sun')
@@ -633,7 +589,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
     nav_debtor_rank.append('Ketu')
     
-    # Navamsa Currency Rank Score function (same as Phase 1)
     def get_nav_currency_rank_score(p_name, c_key):
         if p_name == 'Moon':
             phase = moon_phase_name
@@ -664,22 +619,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if c_key == 'Bad Ketu': return 150
         return 0
     
-    # Helper function to check if currency is "Good"
-    def is_good_currency(c_key):
-        if 'Bad' in c_key:
-            return False
-        # These are inherently good currencies
-        if c_key in ['Jupiter', 'Venus', 'Mercury']:
-            return True
-        if 'Good' in c_key:
-            return True
-        return False
-    
-    # Helper function to check if currency is Sun or Moon currency
-    def is_sun_or_moon_currency(c_key):
-        return 'Sun' in c_key or 'Moon' in c_key
-    
-    # Navamsa Exchange Cycle - Only planets in SAME house can exchange
+    # MODIFICATION 3: Navamsa Exchange Cycle - Fixed Malefic Hierarchy
     nav_loop_active = True
     nav_cycle_limit = 200
     nav_cycles = 0
@@ -692,26 +632,34 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if navamsa_data[debtor]['nav_current_debt'] >= -0.001: continue
             
             debtor_house = navamsa_data[debtor]['nav_house']
-            
-            # Get planets in same Navamsa house
             same_house_planets = navamsa_house_planets[debtor_house]
             
-            # Determine if debtor is a Malefic for priority logic
             debtor_is_malefic = debtor in malefic_planets
+            debtor_malefic_rank = navamsa_malefic_hierarchy.get(debtor, 99)
             
             potential_targets = []
             for t_name in same_house_planets:
                 if t_name == debtor: continue
-                d_idx = nav_debtor_rank.index(debtor) if debtor in nav_debtor_rank else 99
-                t_idx = nav_debtor_rank.index(t_name) if t_name in nav_debtor_rank else 99
-                if d_idx > t_idx: continue 
+                
+                # MODIFICATION 3: Preserve Ketu logic - Ketu can only pull from Sun/Moon
                 if debtor == 'Ketu' and t_name not in ['Sun', 'Moon']: continue
+                
+                # MODIFICATION 3: Allow malefic-on-malefic interactions based on hierarchy
+                target_is_malefic = t_name in malefic_planets
+                
+                if debtor_is_malefic and target_is_malefic:
+                    target_malefic_rank = navamsa_malefic_hierarchy.get(t_name, 99)
+                    if debtor_malefic_rank >= target_malefic_rank:
+                        continue
+                else:
+                    d_idx = nav_debtor_rank.index(debtor) if debtor in nav_debtor_rank else 99
+                    t_idx = nav_debtor_rank.index(t_name) if t_name in nav_debtor_rank else 99
+                    if d_idx > t_idx: continue 
                 
                 inv = navamsa_data[t_name]['nav_inventory']
                 for key, val in inv.items():
                     if val > 0.001:
-                        # For Navamsa, same house = 100% pull capacity (gap = 0)
-                        max_pull = navamsa_data[t_name]['nav_volume'] * 1.0  # 100% since same house
+                        max_pull = navamsa_data[t_name]['nav_volume'] * 1.0
                         tracker_key = f"nav_pulled_from_{t_name}"
                         pulled = navamsa_data[debtor].get(tracker_key, 0.0)
                         
@@ -723,20 +671,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 'is_good': is_good
                             })
 
-            # Sort targets: For Malefics, prioritize Good currencies first
             if debtor_is_malefic:
-                # Sort by: is_good (True first), then score (highest first)
                 potential_targets.sort(key=lambda x: (-int(x['is_good']), -x['score']))
             else:
                 potential_targets.sort(key=lambda x: -x['score'])
             
-            # Check if any Good currency is available (for Malefic logic)
             good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
             
             for tgt in potential_targets:
                 if navamsa_data[debtor]['nav_current_debt'] >= -0.001: break
                 
-                # Malefic priority: Only pull Bad if no Good available
                 if debtor_is_malefic and not tgt['is_good'] and good_available:
                     continue
                 
@@ -753,23 +697,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 
                 if take > 0:
                     navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']] -= take
-                    # Increase debt (more negative) for currency lost
                     navamsa_data[tgt['planet']]['nav_current_debt'] -= take
-                    navamsa_data[tgt['planet']]['nav_debt'] -= take  # Track debt from losing currency
+                    navamsa_data[tgt['planet']]['nav_debt'] -= take
                     
-                    # Check if this is Ketu currency being consumed by non-Sun/Moon
                     is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
                     is_sun_or_moon = (debtor in ['Sun', 'Moon'])
                     
                     if is_ketu_currency and not is_sun_or_moon:
-                        # Transform Bad Ketu to Good Ketu for the gainer
                         navamsa_data[debtor]['nav_inventory']['Good Ketu'] += take
                         navamsa_data[debtor]['nav_gained_currencies']['Good Ketu'] += take
-                        # Good currency reduces debt
                         navamsa_data[debtor]['nav_current_debt'] += take
                         navamsa_data[debtor]['nav_debt'] += take
                     else:
-                        # Normal currency transfer
                         navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
                         navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
                         
@@ -777,43 +716,36 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         if tgt['planet'] in ['Saturn', 'Rahu'] and 'Bad' in tgt['key']: is_bad_currency = True
                         if tgt['planet'] == 'Moon' and 'Bad' in tgt['key']: is_bad_currency = True
                         
-                        # Special Ketu logic: If Ketu gains Sun or Moon currency, INCREASE debt
                         if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
-                            # Ketu gaining Sun/Moon currency increases its debt
                             navamsa_data[debtor]['nav_current_debt'] -= take
                             navamsa_data[debtor]['nav_debt'] -= take
                         elif is_bad_currency: 
                             navamsa_data[debtor]['nav_current_debt'] -= take
-                            navamsa_data[debtor]['nav_debt'] -= take  # Add to debt for bad currency gained
+                            navamsa_data[debtor]['nav_debt'] -= take
                         else: 
                             navamsa_data[debtor]['nav_current_debt'] += take
-                            navamsa_data[debtor]['nav_debt'] += take  # Reduce debt for good currency gained
+                            navamsa_data[debtor]['nav_debt'] += take
                     
                     navamsa_data[debtor][tracker_key] = pulled + take
                     nav_something_happened = True
                     
-                    # Recalculate good_available after each transaction
                     good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
         if not nav_something_happened: nav_loop_active = False
     
-    # Format Navamsa Exchange Output
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        # Format gained currencies
         gained = navamsa_data[p]['nav_gained_currencies']
         gained_parts = []
         for k, v in gained.items():
             if v > 0.001: gained_parts.append(f"{k}[{v:.2f}]")
         navamsa_data[p]['nav_gained_str'] = ", ".join(gained_parts) if gained_parts else "-"
         
-        # Format debt
         debt_val = navamsa_data[p]['nav_debt']
         if abs(debt_val) < 0.01:
             navamsa_data[p]['nav_debt_str'] = "0.00"
         else:
             navamsa_data[p]['nav_debt_str'] = f"{debt_val:.2f}"
     
-    # Create Navamsa Exchange DataFrame
     navamsa_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         nd = navamsa_data[p]
@@ -827,19 +759,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_navamsa_exchange = pd.DataFrame(navamsa_rows, columns=['Planet', 'Volume', 'Default Currency', 'Gained Currencies', 'Debt'])
     
-    # ============================================================
-    # NAVAMSA PHASE 2 LOGIC (Mirror of Rasi Phase 2)
-    # ============================================================
-    
-    # Determine if Moon is eligible for Navamsa Phase 2
+    # NAVAMSA PHASE 2 LOGIC
     nav_moon_is_benefic_p2 = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
-    
-    # Core benefics that can participate in Navamsa Phase 2
     nav_core_benefics_p2 = ['Jupiter', 'Venus', 'Mercury']
     if nav_moon_is_benefic_p2:
         nav_core_benefics_p2.append('Moon')
     
-    # Initialize Navamsa Phase 2 data from Navamsa Phase 1 final inventory
     navamsa_phase2_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         navamsa_phase2_data[p] = {
@@ -847,45 +772,34 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'navp2_current_debt': navamsa_data[p]['nav_current_debt'],
             'nav_volume': navamsa_data[p]['nav_volume'],
             'nav_house': navamsa_data[p]['nav_house'],
-            'navp2_gained_currencies': defaultdict(float),  # Track currencies gained in Phase 2
-            'navp2_carried_over': defaultdict(float),  # Track currencies carried over from Phase 1
-            'navp1_gained_currencies': defaultdict(float)  # Copy of Phase 1 gained currencies
+            'navp2_gained_currencies': defaultdict(float),
+            'navp2_carried_over': defaultdict(float),
+            'navp1_gained_currencies': defaultdict(float)
         }
-        # Copy Navamsa Phase 1 final inventory as carried over
         for k, v in navamsa_data[p]['nav_inventory'].items():
             navamsa_phase2_data[p]['navp2_inventory'][k] = v
-            navamsa_phase2_data[p]['navp2_carried_over'][k] = v  # Mark as carried over
+            navamsa_phase2_data[p]['navp2_carried_over'][k] = v
         
-        # Copy Phase 1 gained currencies for combined display later
         for k, v in navamsa_data[p]['nav_gained_currencies'].items():
             navamsa_phase2_data[p]['navp1_gained_currencies'][k] = v
     
-    # Check if Ketu holds any Sun or Moon currency - if so, prevent transformation
     ketu_has_sun_moon = False
     for k in navamsa_phase2_data['Ketu']['navp2_inventory'].keys():
         if is_sun_or_moon_currency(k) and navamsa_phase2_data['Ketu']['navp2_inventory'][k] > 0.001:
             ketu_has_sun_moon = True
             break
     
-    # TRANSFORM Bad Ketu to Good Ketu before Navamsa Phase 2 (only if no Sun/Moon currency)
-    # CRITICAL CHANGE: In Navamsa Phase 2, do NOT reduce debt for this transformation
     nav_bad_ketu_remaining = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Bad Ketu', 0.0)
     if nav_bad_ketu_remaining > 0 and not ketu_has_sun_moon:
-        # Transform Bad Ketu to Good Ketu (currency transformation only)
         navamsa_phase2_data['Ketu']['navp2_inventory']['Good Ketu'] = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Good Ketu', 0.0) + nav_bad_ketu_remaining
         navamsa_phase2_data['Ketu']['navp2_carried_over']['Good Ketu'] = navamsa_phase2_data['Ketu']['navp2_carried_over'].get('Good Ketu', 0.0) + nav_bad_ketu_remaining
         navamsa_phase2_data['Ketu']['navp2_inventory']['Bad Ketu'] = 0.0
         navamsa_phase2_data['Ketu']['navp2_carried_over']['Bad Ketu'] = 0.0
-        # CRITICAL: Do NOT reduce Ketu's debt for this transformation in Navamsa Phase 2
-        # The following line is REMOVED:
-        # navamsa_phase2_data['Ketu']['navp2_current_debt'] += nav_bad_ketu_remaining
     
-    # Add Ketu to benefics for Navamsa Phase 2 (only if it has Good currency and no Sun/Moon)
     ketu_good_currency = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Good Ketu', 0.0)
     if ketu_good_currency > 0 and not ketu_has_sun_moon:
         nav_core_benefics_p2.append('Ketu')
     
-    # Calculate Debt Percentage for eligible benefics in Navamsa
     nav_benefic_debt_pct = {}
     for p in nav_core_benefics_p2:
         volume = navamsa_phase2_data[p]['nav_volume']
@@ -896,10 +810,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             debt_pct = 0.0
         nav_benefic_debt_pct[p] = debt_pct
     
-    # Sort benefics by debt percentage (highest first) - this is the pulling order
     nav_sorted_benefics = sorted(nav_core_benefics_p2, key=lambda x: -nav_benefic_debt_pct[x])
     
-    # Navamsa Phase 2 Currency Rank Score (Moon ranked next to Jupiter)
     def get_navp2_currency_rank_score(p_name, c_key):
         if c_key == 'Jupiter': return 1000
         if c_key == 'Good Moon' or (p_name == 'Moon' and 'Good' in c_key): return 995
@@ -908,7 +820,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if c_key == 'Good Ketu': return 700
         return 0
     
-    # Navamsa Phase 2 Exchange Cycle - ONLY between planets in SAME Navamsa house
     navp2_loop_active = True
     navp2_cycle_limit = 200
     navp2_cycles = 0
@@ -918,7 +829,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         navp2_something_happened = False
         
         for puller in nav_sorted_benefics:
-            # Only pull if puller has debt (negative current_debt)
             if navamsa_phase2_data[puller]['navp2_current_debt'] >= -0.001: continue
             
             puller_debt_pct = nav_benefic_debt_pct[puller]
@@ -928,25 +838,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             for target in nav_core_benefics_p2:
                 if target == puller: continue
                 
-                # CRITICAL: Only same Navamsa house transactions allowed
                 target_house = navamsa_phase2_data[target]['nav_house']
                 if target_house != puller_house: continue
                 
-                # Ketu cannot exchange with Moon
                 if puller == 'Ketu' and target == 'Moon': continue
                 if puller == 'Moon' and target == 'Ketu': continue
                 
-                # Target must have LOWER debt percentage than puller
                 target_debt_pct = nav_benefic_debt_pct[target]
                 if target_debt_pct >= puller_debt_pct: continue
                 
-                # Get available currencies from target
                 inv = navamsa_phase2_data[target]['navp2_inventory']
                 for key, val in inv.items():
-                    # Only pull GOOD currencies in Phase 2
                     if 'Bad' in key: continue
                     if val > 0.001:
-                        # Same house = 100% pull capacity
                         max_pull = navamsa_phase2_data[target]['nav_volume'] * 1.0
                         tracker_key = f"navp2_pulled_from_{target}"
                         pulled = navamsa_phase2_data[puller].get(tracker_key, 0.0)
@@ -957,7 +861,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 'planet': target, 'key': key, 'score': score, 'max_pull': max_pull
                             })
             
-            # Sort by currency score (highest first)
             potential_targets.sort(key=lambda x: -x['score'])
             
             for tgt in potential_targets:
@@ -973,21 +876,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 take = min(1.0, avail, cap_space)
                 
                 if take > 0:
-                    # Transfer currency
                     navamsa_phase2_data[tgt['planet']]['navp2_inventory'][tgt['key']] -= take
                     navamsa_phase2_data[tgt['planet']]['navp2_current_debt'] -= take
                     navamsa_phase2_data[puller]['navp2_inventory'][tgt['key']] += take
-                    
-                    # Track as gained currency (not carried over)
                     navamsa_phase2_data[puller]['navp2_gained_currencies'][tgt['key']] += take
-                    
-                    # Good currency reduces debt (adds to current_debt making it less negative)
                     navamsa_phase2_data[puller]['navp2_current_debt'] += take
-                    
                     navamsa_phase2_data[puller][tracker_key] = pulled + take
                     navp2_something_happened = True
                     
-                    # Recalculate debt percentages after each transaction
                     for ben in nav_core_benefics_p2:
                         vol = navamsa_phase2_data[ben]['nav_volume']
                         dbt = abs(navamsa_phase2_data[ben]['navp2_current_debt'])
@@ -998,20 +894,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         if not navp2_something_happened: navp2_loop_active = False
     
-    # --- FORMAT NAVAMSA PHASE 2 OUTPUT ---
-    # Also calculate and store the corrected debt for use in Phase 3
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = navamsa_phase2_data[p]['navp2_inventory']
         carried = navamsa_phase2_data[p]['navp2_carried_over']
         gained_p2 = navamsa_phase2_data[p]['navp2_gained_currencies']
         gained_p1 = navamsa_phase2_data[p]['navp1_gained_currencies']
         
-        # Format carried over currencies (what remains from Phase 1)
         carried_parts = []
         own_keys = [p, f"Good {p}", f"Bad {p}"]
         if p == 'Moon': own_keys = ["Good Moon", "Bad Moon"]
         
-        # Calculate carried over (original inventory minus what was lost, excluding gained in P2)
         for k in carried.keys():
             current_val = inv.get(k, 0.0)
             gained_p2_val = gained_p2.get(k, 0.0)
@@ -1021,27 +913,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         navamsa_phase2_data[p]['currency_carried_str'] = ", ".join(carried_parts) if carried_parts else "-"
         
-        # Combine gained currencies from Phase 1 AND Phase 2
         combined_gained = defaultdict(float)
         for k, v in gained_p1.items():
             combined_gained[k] += v
         for k, v in gained_p2.items():
             combined_gained[k] += v
         
-        # Store combined gained for Phase 3 use
         navamsa_phase2_data[p]['combined_gained_p1_p2'] = combined_gained
         
-        # Format combined gained currencies
         gained_parts = []
         for k, v in combined_gained.items():
             if v > 0.001: gained_parts.append(f"{k}[{v:.2f}]")
         navamsa_phase2_data[p]['currency_gained_str'] = ", ".join(gained_parts) if gained_parts else "-"
         
-        # Debt correction: Add back the initial default debt (subtract since initial is negative)
         initial_debt = nav_initial_default_debts.get(p, 0.0)
         corrected_debt = navamsa_phase2_data[p]['navp2_current_debt'] - initial_debt
         
-        # Store the corrected debt value for Phase 3 initialization
         navamsa_phase2_data[p]['corrected_debt_p2'] = corrected_debt
         
         if abs(corrected_debt) < 0.01: 
@@ -1056,95 +943,64 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_navamsa_phase2 = pd.DataFrame(navamsa_phase2_rows, columns=['Planet', 'Inventory Carried Over', 'Gained Currency', 'Debt [Nav Phase 2]'])
     
-    # ============================================================
     # NAVAMSA PHASE 3 LOGIC - House Pot System
-    # ============================================================
-    
-    # 1. Initialize Phase 3 data from Phase 2
     navamsa_phase3_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        # Deep copy inventory from Phase 2
         navamsa_phase3_data[p] = {
             'navp3_inventory': defaultdict(float),
             'navp3_current_debt': navamsa_phase2_data[p]['navp2_current_debt'],
             'nav_volume': navamsa_phase2_data[p]['nav_volume'],
             'nav_house': navamsa_phase2_data[p]['nav_house'],
-            # CRITICAL: Initialize Phase 3 debt from Phase 2 corrected debt
             'navp3_debt': navamsa_phase2_data[p]['corrected_debt_p2'],
-            # Carry forward gained currencies from Phase 1 + Phase 2
             'navp3_gained_currencies': defaultdict(float),
-            # Track Good Moon gained specifically in Phase 3
             'navp3_good_moon_gained': 0.0,
-            # Store inventory carried over (for output formatting)
             'navp3_carried_over': defaultdict(float)
         }
-        # Copy Phase 2 final inventory
         for k, v in navamsa_phase2_data[p]['navp2_inventory'].items():
             navamsa_phase3_data[p]['navp3_inventory'][k] = v
             navamsa_phase3_data[p]['navp3_carried_over'][k] = v
         
-        # Copy combined gained currencies from Phase 1 + Phase 2
         for k, v in navamsa_phase2_data[p]['combined_gained_p1_p2'].items():
             navamsa_phase3_data[p]['navp3_gained_currencies'][k] = v
     
-    # 2. Initialize House Pots - "Good Moon" currency for each Navamsa house sign
-    # Get the sign for each Navamsa house (1-12)
     house_pot = {}
     house_pot_allocations = {
-        'Aries': 20,
-        'Taurus': 60,
-        'Gemini': 40,
-        'Cancer': moon_initial_good_val,  # Moon's initial Good currency value
-        'Leo': 30,
-        'Virgo': 60,
-        'Libra': 80,
-        'Scorpio': 20,
-        'Sagittarius': 100,
-        'Capricorn': 10,
-        'Aquarius': 10,
-        'Pisces': 80
+        'Aries': 20, 'Taurus': 60, 'Gemini': 40, 'Cancer': moon_initial_good_val,
+        'Leo': 30, 'Virgo': 60, 'Libra': 80, 'Scorpio': 20,
+        'Sagittarius': 100, 'Capricorn': 10, 'Aquarius': 10, 'Pisces': 80
     }
     
-    # Map each Navamsa house to its sign and assign pot value
     for h in range(1, 13):
         house_sign = get_sign((nav_lagna + (h - 1) * 30) % 360)
         house_pot[h] = house_pot_allocations.get(house_sign, 0)
     
-    # Build mapping of house -> planets in that house
     navp3_house_planets = defaultdict(list)
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         h = navamsa_phase3_data[p]['nav_house']
         navp3_house_planets[h].append(p)
     
-    # 3. Phase 3 Consumption Cycle
     navp3_cycle_limit = 200
     navp3_cycles = 0
     
-    # Standard Malefics and Benefics
     standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
     standard_benefics = ['Jupiter', 'Venus', 'Mercury']
-    
-    # Malefic debtor rank order (without Moon initially)
     malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
     while navp3_cycles < navp3_cycle_limit:
         navp3_cycles += 1
         navp3_something_happened = False
         
-        # Process each house
         for house_num in range(1, 13):
             if house_pot[house_num] <= 0.001:
-                continue  # No currency left in this house pot
+                continue
             
             planets_in_house = navp3_house_planets[house_num]
             if not planets_in_house:
-                continue  # No planets in this house
+                continue
             
-            # Classify Moon for this cycle based on its current Bad Moon inventory
             moon_bad_currency = navamsa_phase3_data['Moon']['navp3_inventory'].get('Bad Moon', 0.0)
             moon_is_malefic = moon_bad_currency > 0.001
             
-            # Build malefic list for this house
             house_malefics = []
             for p in planets_in_house:
                 if p in standard_malefics:
@@ -1152,7 +1008,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 elif p == 'Moon' and moon_is_malefic:
                     house_malefics.append(p)
             
-            # Build benefic list for this house
             house_benefics = []
             for p in planets_in_house:
                 if p in standard_benefics:
@@ -1160,8 +1015,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 elif p == 'Moon' and not moon_is_malefic:
                     house_benefics.append(p)
             
-            # Sort malefics by debtor rank
-            # Moon ranking (if malefic): Bad % > 25 -> before Mars, else after Mars
             def get_malefic_rank(p):
                 if p == 'Moon':
                     nav_vol = navamsa_phase3_data['Moon']['nav_volume']
@@ -1170,10 +1023,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     else:
                         bad_pct = 0
                     if bad_pct > 25:
-                        # Rank before Mars (Mars is at index 3)
                         return 2.5
                     else:
-                        # Rank after Mars
                         return 3.5
                 else:
                     if p in malefic_debtor_order:
@@ -1182,7 +1033,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             house_malefics_sorted = sorted(house_malefics, key=get_malefic_rank)
             
-            # Sort benefics by debt percentage (highest first)
             def get_benefic_debt_pct(p):
                 vol = navamsa_phase3_data[p]['nav_volume']
                 debt = abs(navamsa_phase3_data[p]['navp3_current_debt'])
@@ -1192,41 +1042,27 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             house_benefics_sorted = sorted(house_benefics, key=lambda p: -get_benefic_debt_pct(p))
             
-            # Phase A: Malefic Priority
             for malefic in house_malefics_sorted:
                 if house_pot[house_num] <= 0.001:
                     break
                 
                 debt = navamsa_phase3_data[malefic]['navp3_current_debt']
                 
-                # Calculate how much to consume
                 if debt < -0.001:
-                    # Has debt - consume to reduce debt
                     needed = abs(debt)
                     take = min(1.0, needed, house_pot[house_num])
                 else:
-                    # No debt - still consume from pot (bonus consumption rule)
                     take = min(1.0, house_pot[house_num])
                 
                 if take > 0.001:
-                    # Consume from pot
                     house_pot[house_num] -= take
-                    # Add Good Moon currency to inventory
                     navamsa_phase3_data[malefic]['navp3_inventory']['Good Moon'] += take
-                    # Reduce debt (make it less negative / more positive)
                     navamsa_phase3_data[malefic]['navp3_current_debt'] += take
-                    
-                    # CRITICAL: Track Good Moon gained in Phase 3
                     navamsa_phase3_data[malefic]['navp3_good_moon_gained'] += take
-                    # Add to gained currencies
                     navamsa_phase3_data[malefic]['navp3_gained_currencies']['Good Moon'] += take
-                    # CRITICAL: Reduce debt incrementally
                     navamsa_phase3_data[malefic]['navp3_debt'] += take
-                    
                     navp3_something_happened = True
             
-            # Phase B: Benefic Secondary
-            # Only runs if ALL malefics in this house have cleared debt OR no malefics
             all_malefics_cleared = True
             for malefic in house_malefics:
                 if navamsa_phase3_data[malefic]['navp3_current_debt'] < -0.001:
@@ -1240,36 +1076,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     
                     debt = navamsa_phase3_data[benefic]['navp3_current_debt']
                     
-                    # Calculate how much to consume
                     if debt < -0.001:
-                        # Has debt - consume to reduce debt
                         needed = abs(debt)
                         take = min(1.0, needed, house_pot[house_num])
                     else:
-                        # No debt - still consume from pot (bonus consumption rule)
                         take = min(1.0, house_pot[house_num])
                     
                     if take > 0.001:
-                        # Consume from pot
                         house_pot[house_num] -= take
-                        # Add Good Moon currency to inventory
                         navamsa_phase3_data[benefic]['navp3_inventory']['Good Moon'] += take
-                        # Reduce debt
                         navamsa_phase3_data[benefic]['navp3_current_debt'] += take
-                        
-                        # CRITICAL: Track Good Moon gained in Phase 3
                         navamsa_phase3_data[benefic]['navp3_good_moon_gained'] += take
-                        # Add to gained currencies
                         navamsa_phase3_data[benefic]['navp3_gained_currencies']['Good Moon'] += take
-                        # CRITICAL: Reduce debt incrementally
                         navamsa_phase3_data[benefic]['navp3_debt'] += take
-                        
                         navp3_something_happened = True
         
         if not navp3_something_happened:
             break
     
-    # 4. Format Phase 3 Output with new columns
     navamsa_phase3_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = navamsa_phase3_data[p]['navp3_inventory']
@@ -1277,15 +1101,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         gained = navamsa_phase3_data[p]['navp3_gained_currencies']
         good_moon_p3 = navamsa_phase3_data[p]['navp3_good_moon_gained']
         
-        # Format Inventory Carried Over (currencies held originally, minus what was lost)
-        # This is the inventory from Phase 2 minus what was lost, excluding Good Moon gained in P3
         carried_parts = []
         own_keys = [p, f"Good {p}", f"Bad {p}"]
         if p == 'Moon': own_keys = ["Good Moon", "Bad Moon"]
         
         for k in carried.keys():
             current_val = inv.get(k, 0.0)
-            # For Good Moon, subtract what was gained in Phase 3 to show carried over
             if k == 'Good Moon':
                 carried_val = current_val - good_moon_p3
             else:
@@ -1293,21 +1114,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if carried_val > 0.001:
                 carried_parts.append(f"{k}[{carried_val:.2f}]")
         
-        # Also check for other currencies in inventory that might not be in carried
         for k, v in inv.items():
             if k not in carried.keys() and k != 'Good Moon' and v > 0.001:
                 carried_parts.append(f"{k}[{v:.2f}]")
         
         inventory_carried_str = ", ".join(carried_parts) if carried_parts else "-"
         
-        # Format Gained Currencies (Cumulative from Ph1 + Ph2 + Ph3 Good Moon)
         gained_parts = []
         for k, v in gained.items():
             if v > 0.001: gained_parts.append(f"{k}[{v:.2f}]")
         gained_currencies_str = ", ".join(gained_parts) if gained_parts else "-"
         
-        # Format Debt [Nav Phase 3] - calculated incrementally
-        # Final debt = (Debt at end of Phase 2) + (Total Good Moon Gained in Phase 3)
         debt_val = navamsa_phase3_data[p]['navp3_debt']
         if abs(debt_val) < 0.01:
             debt_str = "0.00"
@@ -1318,15 +1135,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_navamsa_phase3 = pd.DataFrame(navamsa_phase3_rows, columns=['Planet', 'Inventory Carried Over', 'Gained Currencies', 'Debt [Nav Phase 3]'])
     
-    # ============================================================
-    # END OF NAVAMSA PHASE 3 LOGIC
-    # ============================================================
-    
-    # ============================================================
     # PHASE 1 CURRENCY EXCHANGE LOGIC (Rasi Chart)
-    # ============================================================
-    
-    # 1. DEBTOR RANK
     debtor_rank = []
     debtor_rank.append('Rahu')
     debtor_rank.append('Sun')
@@ -1339,20 +1148,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     moon_in_list = False
     
     if is_waning and moon_p['moon_phase'] == 'Amavasya':
-        debtor_rank.append('Moon') # Rank 4 (Amavasya)
+        debtor_rank.append('Moon')
         moon_in_list = True
         
-    debtor_rank.append('Mars') # Rank 5
+    debtor_rank.append('Mars')
     
     if is_waning and not moon_in_list:
         if bad_pct_moon > 25:
-            debtor_rank.append('Moon') # Rank 6 (Heavy)
+            debtor_rank.append('Moon')
         else:
-            debtor_rank.append('Moon') # Rank 7 (Light)
+            debtor_rank.append('Moon')
             
-    debtor_rank.append('Ketu') # Rank 8
+    debtor_rank.append('Ketu')
 
-    # 2. CURRENCY RANK (The Menu)
     def get_currency_rank_score(p_name, c_key):
         if p_name == 'Moon':
             phase = planet_data['Moon']['moon_phase']
@@ -1380,11 +1188,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if c_key == 'Bad Sun': return 250 
         if c_key == 'Bad Saturn': return 100 
         if c_key == 'Bad Rahu': return 100
-        # Bad Ketu treated as bad by Sun/Moon, but good by others
         if c_key == 'Bad Ketu': return 150
         return 0
 
-    # 3. CYCLE LOGIC
     loop_active = True
     cycle_limit = 200
     cycles = 0
@@ -1396,7 +1202,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         for debtor in debtor_rank:
             if planet_data[debtor]['current_debt'] >= -0.001: continue
             
-            # Determine if debtor is a Malefic for priority logic
             debtor_is_malefic = debtor in malefic_planets
             
             potential_targets = []
@@ -1430,20 +1235,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 'is_good': is_good
                             })
 
-            # Sort targets: For Malefics, prioritize Good currencies first
             if debtor_is_malefic:
-                # Sort by: is_good (True first), then score (highest first), then gap (closest first)
                 potential_targets.sort(key=lambda x: (-int(x['is_good']), -x['score'], x['gap']))
             else:
                 potential_targets.sort(key=lambda x: (-x['score'], x['gap']))
             
-            # Check if any Good currency is available (for Malefic logic)
             good_available = any(t['is_good'] and planet_data[t['planet']]['final_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
             
             for tgt in potential_targets:
                 if planet_data[debtor]['current_debt'] >= -0.001: break
                 
-                # Malefic priority: Only pull Bad if no Good available
                 if debtor_is_malefic and not tgt['is_good'] and good_available:
                     continue
                 
@@ -1462,24 +1263,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     planet_data[tgt['planet']]['final_inventory'][tgt['key']] -= take
                     planet_data[tgt['planet']]['current_debt'] -= take
                     
-                    # Check if this is Ketu currency being consumed by non-Sun/Moon
                     is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
                     is_sun_or_moon = (debtor in ['Sun', 'Moon'])
                     
                     if is_ketu_currency and not is_sun_or_moon:
-                        # Transform Bad Ketu to Good Ketu for the gainer
                         planet_data[debtor]['final_inventory']['Good Ketu'] += take
-                        # Debt DECREASES (becomes less negative) for the gainer
                         planet_data[debtor]['current_debt'] += take
                     else:
-                        # Normal currency transfer
                         planet_data[debtor]['final_inventory'][tgt['key']] += take
                         
                         is_bad_currency_flag = 'Bad' in tgt['key'] or tgt['key'] in ['Amavasya', 'Bad Saturn', 'Bad Rahu']
                         if tgt['planet'] in ['Saturn', 'Rahu'] and 'Bad' in tgt['key']: is_bad_currency_flag = True
                         if tgt['planet'] == 'Moon' and 'Bad' in tgt['key']: is_bad_currency_flag = True
                         
-                        # Special Ketu logic in Rasi Phase 1: If Ketu gains Sun or Moon currency, INCREASE debt
                         if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
                             planet_data[debtor]['current_debt'] -= take
                         elif is_bad_currency_flag: 
@@ -1490,12 +1286,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     planet_data[debtor][tracker_key] = pulled + take
                     something_happened = True
                     
-                    # Recalculate good_available after each transaction
                     good_available = any(t['is_good'] and planet_data[t['planet']]['final_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
         if not something_happened: loop_active = False
 
-    # --- FORMAT PHASE 1 OUTPUT ---
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = planet_data[p]['final_inventory']
         parts = []
@@ -1517,30 +1311,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
     df_phase1 = pd.DataFrame(phase1_rows, columns=['Planet', 'Currency [Phase 1]', 'Debt [Phase 1]'])
     
-    # ============================================================
-    # END OF PHASE 1 LOGIC
-    # ============================================================
-    
-    # ============================================================
     # PHASE 2 CURRENCY EXCHANGE LOGIC (Rasi Chart)
-    # ============================================================
-    
-    # Phase 2: Redistributive cycle among Benefics only
-    # Eligible Benefics: Jupiter, Venus, Mercury, and Moon (if Shukla or Purnima)
-    # NEW: Ketu also participates after transforming Bad Ketu to Good Ketu
-    
-    # Determine if Moon is eligible for Phase 2
     moon_is_benefic_p2 = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
     
-    # Core benefics that can participate in Phase 2
     core_benefics_p2 = ['Jupiter', 'Venus', 'Mercury']
     if moon_is_benefic_p2:
         core_benefics_p2.append('Moon')
     
-    # Malefics excluded from Phase 2 (except Ketu which transforms)
     malefics_p2 = ['Saturn', 'Rahu', 'Mars', 'Sun']
     
-    # Initialize Phase 2 inventory from Phase 1 final inventory (deep copy)
     phase2_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         phase2_data[p] = {
@@ -1549,33 +1328,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'volume': planet_data[p]['volume'],
             'L': planet_data[p]['L']
         }
-        # Copy Phase 1 final inventory
         for k, v in planet_data[p]['final_inventory'].items():
             phase2_data[p]['p2_inventory'][k] = v
     
-    # Check if Ketu holds any Sun or Moon currency - if so, prevent transformation
     rasi_ketu_has_sun_moon = False
     for k in phase2_data['Ketu']['p2_inventory'].keys():
         if is_sun_or_moon_currency(k) and phase2_data['Ketu']['p2_inventory'][k] > 0.001:
             rasi_ketu_has_sun_moon = True
             break
     
-    # TRANSFORM Bad Ketu to Good Ketu before Phase 2 (only if no Sun/Moon currency)
-    # If Ketu has Bad Ketu currency remaining, transform it and reduce debt
     bad_ketu_remaining = phase2_data['Ketu']['p2_inventory'].get('Bad Ketu', 0.0)
     if bad_ketu_remaining > 0 and not rasi_ketu_has_sun_moon:
-        # Transform Bad Ketu to Good Ketu
         phase2_data['Ketu']['p2_inventory']['Good Ketu'] = phase2_data['Ketu']['p2_inventory'].get('Good Ketu', 0.0) + bad_ketu_remaining
         phase2_data['Ketu']['p2_inventory']['Bad Ketu'] = 0.0
-        # Reduce Ketu's debt by the amount of currency it holds
         phase2_data['Ketu']['p2_current_debt'] += bad_ketu_remaining
     
-    # Add Ketu to benefics for Phase 2 (only if no Sun/Moon currency)
     if not rasi_ketu_has_sun_moon:
         core_benefics_p2.append('Ketu')
     
-    # Calculate Debt Percentage for eligible benefics
-    # Debt Percentage = (|Debt Phase 1| / Volume) × 100
     benefic_debt_pct = {}
     for p in core_benefics_p2:
         volume = phase2_data[p]['volume']
@@ -1586,10 +1356,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             debt_pct = 0.0
         benefic_debt_pct[p] = debt_pct
     
-    # Sort benefics by debt percentage (highest first) - this is the pulling order
     sorted_benefics = sorted(core_benefics_p2, key=lambda x: -benefic_debt_pct[x])
     
-    # Phase 2 Currency Rank Score (Moon ranked next to Jupiter)
     def get_p2_currency_rank_score(p_name, c_key):
         if c_key == 'Jupiter': return 1000
         if c_key == 'Good Moon' or (p_name == 'Moon' and 'Good' in c_key): return 995
@@ -1598,7 +1366,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if c_key == 'Good Ketu': return 700
         return 0
     
-    # Phase 2 Exchange Cycle
     p2_loop_active = True
     p2_cycle_limit = 200
     p2_cycles = 0
@@ -1608,7 +1375,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         p2_something_happened = False
         
         for puller in sorted_benefics:
-            # Only pull if puller has debt (negative current_debt)
             if phase2_data[puller]['p2_current_debt'] >= -0.001: continue
             
             puller_debt_pct = benefic_debt_pct[puller]
@@ -1617,15 +1383,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             for target in core_benefics_p2:
                 if target == puller: continue
                 
-                # Ketu cannot exchange with Moon
                 if puller == 'Ketu' and target == 'Moon': continue
                 if puller == 'Moon' and target == 'Ketu': continue
                 
-                # Target must have LOWER debt percentage than puller
                 target_debt_pct = benefic_debt_pct[target]
                 if target_debt_pct >= puller_debt_pct: continue
                 
-                # Check angular proximity (0° to 22°)
                 L1 = phase2_data[puller]['L']
                 L2 = phase2_data[target]['L']
                 diff = abs(L1 - L2)
@@ -1633,10 +1396,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 gap = int(diff)
                 if gap > 22: continue
                 
-                # Get available currencies from target
                 inv = phase2_data[target]['p2_inventory']
                 for key, val in inv.items():
-                    # Only pull GOOD currencies in Phase 2
                     if 'Bad' in key: continue
                     if val > 0.001:
                         cap_pct = mix_dict.get(gap, 0)
@@ -1650,7 +1411,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 'planet': target, 'key': key, 'score': score, 'gap': gap, 'max_pull': max_pull
                             })
             
-            # Sort by currency score (highest first), then by gap (closest first)
             potential_targets.sort(key=lambda x: (-x['score'], x['gap']))
             
             for tgt in potential_targets:
@@ -1666,18 +1426,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 take = min(1.0, avail, cap_space)
                 
                 if take > 0:
-                    # Transfer currency
                     phase2_data[tgt['planet']]['p2_inventory'][tgt['key']] -= take
                     phase2_data[tgt['planet']]['p2_current_debt'] -= take
                     phase2_data[puller]['p2_inventory'][tgt['key']] += take
-                    
-                    # Good currency reduces debt (adds to current_debt making it less negative)
                     phase2_data[puller]['p2_current_debt'] += take
-                    
                     phase2_data[puller][tracker_key] = pulled + take
                     p2_something_happened = True
                     
-                    # Recalculate debt percentages after each transaction
                     for ben in core_benefics_p2:
                         vol = phase2_data[ben]['volume']
                         dbt = abs(phase2_data[ben]['p2_current_debt'])
@@ -1688,7 +1443,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         if not p2_something_happened: p2_loop_active = False
     
-    # --- FORMAT PHASE 2 OUTPUT ---
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase2_data[p]['p2_inventory']
         parts = []
@@ -1710,22 +1464,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase2 = pd.DataFrame(phase2_rows, columns=['Planet', 'Currency [Phase 2]', 'Debt [Phase 2]'])
     
-    # ============================================================
-    # END OF PHASE 2 LOGIC
-    # ============================================================
-    
-    # ============================================================
-    # GLOBAL RESERVE INITIALIZATION (MODIFIED)
-    # ============================================================
-    # Initialize house_reserves to support multiple currency types per house
-    # Structure: {sign_name: {currency_type: amount}}
+    # GLOBAL RESERVE INITIALIZATION
     house_reserves = defaultdict(lambda: defaultdict(float))
     
-    # ============================================================
     # PHASE 3 CURRENCY EXCHANGE LOGIC (Rasi Chart) - 11th House Pot System
-    # ============================================================
-    
-    # 1. Initialization (Inheritance) - Deep copy from Phase 2
     phase3_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         phase3_data[p] = {
@@ -1733,53 +1475,36 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'p3_current_debt': phase2_data[p]['p2_current_debt'],
             'volume': phase2_data[p]['volume'],
             'L': phase2_data[p]['L'],
-            'rasi_house': planet_house_map[p]  # Get the Rasi house for this planet
+            'rasi_house': planet_house_map[p]
         }
-        # Copy Phase 2 final inventory
         for k, v in phase2_data[p]['p2_inventory'].items():
             phase3_data[p]['p3_inventory'][k] = v
     
-    # The 10% Navamsa Rule: Add 10% of Navamsa Phase 3 Gained Currencies and Debt
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        # Get Navamsa Phase 3 gained currencies
         navp3_gained = navamsa_phase3_data[p]['navp3_gained_currencies']
         
-        # Add 10% of each gained currency to Rasi Phase 3 inventory
         for k, v in navp3_gained.items():
             if v > 0.001:
                 add_amount = v * 0.10
                 phase3_data[p]['p3_inventory'][k] += add_amount
         
-        # Get Navamsa Phase 3 final debt (the corrected one with Good Moon gains)
         navp3_debt = navamsa_phase3_data[p]['navp3_debt']
-        
-        # Add 10% of Navamsa Phase 3 debt to Rasi Phase 3 current debt
-        # Note: If navp3_debt is negative, adding 10% makes it more negative
         phase3_data[p]['p3_current_debt'] += navp3_debt * 0.10
     
-    # 2. The 11th House Pot Setup
-    # Identify which planets are in House 11 of the Rasi Chart
     planets_in_house_11 = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         if phase3_data[p]['rasi_house'] == 11:
             planets_in_house_11.append(p)
     
-    # Create the floating pot with 50.0 "Good Moon" currency
     house_11_pot = 50.0
-    
-    # Identify the Sign Name of the 11th House for reserve tracking
     house_11_sign = get_sign((lagna_sid + (11 - 1) * 30) % 360)
     
-    # 3. The Consumption Cycle (only if there are planets in House 11)
     if planets_in_house_11:
         p3_cycle_limit = 200
         p3_cycles = 0
         
-        # Standard Malefics and Benefics for Phase 3
         p3_standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
         p3_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
-        
-        # Debtor rank from Phase 1 for malefics
         p3_malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
         
         while p3_cycles < p3_cycle_limit:
@@ -1787,14 +1512,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             p3_something_happened = False
             
             if house_11_pot <= 0.001:
-                break  # No currency left in pot
+                break
             
-            # Step A: Dynamic Classification (Per Cycle)
-            # Check Moon's Bad Moon currency to classify as malefic or benefic
             moon_bad_currency_p3 = phase3_data['Moon']['p3_inventory'].get('Bad Moon', 0.0)
             moon_is_malefic_p3 = moon_bad_currency_p3 > 0.001
             
-            # Build malefic list for House 11
             house_11_malefics = []
             for p in planets_in_house_11:
                 if p in p3_standard_malefics:
@@ -1802,7 +1524,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 elif p == 'Moon' and moon_is_malefic_p3:
                     house_11_malefics.append(p)
             
-            # Build benefic list for House 11
             house_11_benefics = []
             for p in planets_in_house_11:
                 if p in p3_standard_benefics:
@@ -1810,8 +1531,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 elif p == 'Moon' and not moon_is_malefic_p3:
                     house_11_benefics.append(p)
             
-            # Sort malefics by debtor rank
-            # Moon ranking (if malefic): Bad % > 25 -> before Mars, else after Mars
             def get_p3_malefic_rank(p):
                 if p == 'Moon':
                     vol = phase3_data['Moon']['volume']
@@ -1820,10 +1539,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     else:
                         bad_pct = 0
                     if bad_pct > 25:
-                        # Rank before Mars (Mars is at index 3)
                         return 2.5
                     else:
-                        # Rank after Mars
                         return 3.5
                 else:
                     if p in p3_malefic_debtor_order:
@@ -1832,7 +1549,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             house_11_malefics_sorted = sorted(house_11_malefics, key=get_p3_malefic_rank)
             
-            # Sort benefics by debt percentage (highest first)
             def get_p3_benefic_debt_pct(p):
                 vol = phase3_data[p]['volume']
                 debt = abs(phase3_data[p]['p3_current_debt'])
@@ -1842,30 +1558,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             house_11_benefics_sorted = sorted(house_11_benefics, key=lambda p: -get_p3_benefic_debt_pct(p))
             
-            # Step B: Execution Hierarchy
-            # Priority 1: Malefic Phase
             for malefic in house_11_malefics_sorted:
                 if house_11_pot <= 0.001:
                     break
                 
                 debt = phase3_data[malefic]['p3_current_debt']
                 
-                # Only consume if planet has debt (< -0.001)
                 if debt < -0.001:
                     needed = abs(debt)
                     take = min(1.0, needed, house_11_pot)
                     
                     if take > 0.001:
-                        # Consume from pot
                         house_11_pot -= take
-                        # Add Good Moon currency to inventory
                         phase3_data[malefic]['p3_inventory']['Good Moon'] += take
-                        # Reduce debt (make it less negative)
                         phase3_data[malefic]['p3_current_debt'] += take
                         p3_something_happened = True
             
-            # Priority 2: Benefic Phase
-            # Only runs if ALL malefics in House 11 have cleared debt OR no malefics
             all_malefics_cleared = True
             for malefic in house_11_malefics:
                 if phase3_data[malefic]['p3_current_debt'] < -0.001:
@@ -1879,28 +1587,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     
                     debt = phase3_data[benefic]['p3_current_debt']
                     
-                    # Only consume if planet has debt
                     if debt < -0.001:
                         needed = abs(debt)
                         take = min(1.0, needed, house_11_pot)
                         
                         if take > 0.001:
-                            # Consume from pot
                             house_11_pot -= take
-                            # Add Good Moon currency to inventory
                             phase3_data[benefic]['p3_inventory']['Good Moon'] += take
-                            # Reduce debt
                             phase3_data[benefic]['p3_current_debt'] += take
                             p3_something_happened = True
             
             if not p3_something_happened:
                 break
     
-    # 4. Capture Phase 3 Leftovers into Reserve (MODIFIED)
     if house_11_pot > 0.001:
         house_reserves[house_11_sign]['Good Moon'] += house_11_pot
     
-    # 5. Format Phase 3 Output
     phase3_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase3_data[p]['p3_inventory']
@@ -1923,15 +1625,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase3 = pd.DataFrame(phase3_rows, columns=['Planet', 'Currency [Phase 3]', 'Debt [Phase 3]'])
     
-    # ============================================================
-    # END OF PHASE 3 LOGIC
-    # ============================================================
-    
-    # ============================================================
     # PHASE 4 CURRENCY EXCHANGE LOGIC (Rasi Chart) - Gift Pots System
-    # ============================================================
-    
-    # Step 1: Initialization - Deep copy from Phase 3
     phase4_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         phase4_data[p] = {
@@ -1940,68 +1634,48 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'volume': phase3_data[p]['volume'],
             'L': phase3_data[p]['L'],
             'rasi_house': phase3_data[p]['rasi_house'],
-            'sign': planet_sign_map[p]  # Get the Rasi sign for this planet
+            'sign': planet_sign_map[p]
         }
-        # Copy Phase 3 final inventory
         for k, v in phase3_data[p]['p3_inventory'].items():
             phase4_data[p]['p4_inventory'][k] = v
     
-    # Step 2: Initialize Gift Pots for 4 specific signs (MODIFIED)
-    # Formula: multiplier * (Gifter's Sthana Balam / 100)
-    # gift_pot_config: {sign_name: (gifter_planet, multiplier)}
     gift_pot_config = {
-        'Sagittarius': ('Jupiter', 100),   # 100 * Jupiter's Sthana Balam
-        'Pisces': ('Jupiter', 80),          # 80 * Jupiter's Sthana Balam
-        'Libra': ('Venus', 80),             # 80 * Venus's Sthana Balam
-        'Taurus': ('Venus', 60)             # 60 * Venus's Sthana Balam
+        'Sagittarius': ('Jupiter', 100),
+        'Pisces': ('Jupiter', 80),
+        'Libra': ('Venus', 80),
+        'Taurus': ('Venus', 60)
     }
     
-    # Calculate pot values for each sign
     pot_inventory = {}
     pot_currency_type = {}
     
     for sign_name, (gifter, multiplier) in gift_pot_config.items():
-        # Get gifter's Sthana Balam from planet_data (stored as percentage value like 80)
         gifter_sthana = planet_data[gifter]['sthana']
-        
-        # Calculate pot value: multiplier * (sthana / 100)
         pot_value = multiplier * (gifter_sthana / 100.0)
-        
         pot_inventory[sign_name] = pot_value
-        
-        # Currency type for Jupiter and Venus (these are inherently good single currencies)
-        pot_currency_type[sign_name] = gifter  # e.g., "Jupiter", "Venus"
+        pot_currency_type[sign_name] = gifter
     
-    # Step 3: Consumption Cycle - Process each of the 4 signs
-    # Standard Malefics and Benefics for Phase 4 (same as Phase 3)
     p4_standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
     p4_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
-    
-    # Debtor rank for malefics
     p4_malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
     for target_sign in ['Sagittarius', 'Pisces', 'Libra', 'Taurus']:
-        # Get the pot for this sign
         sign_pot = pot_inventory[target_sign]
         currency_type = pot_currency_type[target_sign]
         
-        # Skip if pot is empty
         if sign_pot <= 0.001:
             continue
         
-        # Identify which planets are in this sign
         planets_in_sign = []
         for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
             if phase4_data[p]['sign'] == target_sign:
                 planets_in_sign.append(p)
         
-        # Skip if no planets in this sign - add entire pot to reserves (MODIFIED)
         if not planets_in_sign:
             house_reserves[target_sign][currency_type] += sign_pot
             pot_inventory[target_sign] = 0.0
             continue
         
-        # Consumption cycle
         p4_cycle_limit = 200
         p4_cycles = 0
         
@@ -2010,14 +1684,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             p4_something_happened = False
             
             if sign_pot <= 0.001:
-                break  # No currency left in pot
+                break
             
-            # Dynamic Classification (Per Cycle)
-            # Check Moon's Bad Moon currency to classify as malefic or benefic
             moon_bad_currency_p4 = phase4_data['Moon']['p4_inventory'].get('Bad Moon', 0.0)
             moon_is_malefic_p4 = moon_bad_currency_p4 > 0.001
             
-            # Build malefic list for this sign
             sign_malefics = []
             for p in planets_in_sign:
                 if p in p4_standard_malefics:
@@ -2025,7 +1696,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 elif p == 'Moon' and moon_is_malefic_p4:
                     sign_malefics.append(p)
             
-            # Build benefic list for this sign
             sign_benefics = []
             for p in planets_in_sign:
                 if p in p4_standard_benefics:
@@ -2033,8 +1703,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 elif p == 'Moon' and not moon_is_malefic_p4:
                     sign_benefics.append(p)
             
-            # Sort malefics by debtor rank
-            # Moon ranking (if malefic): Bad % > 25 -> before Mars, else after Mars
             def get_p4_malefic_rank(p):
                 if p == 'Moon':
                     vol = phase4_data['Moon']['volume']
@@ -2043,10 +1711,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     else:
                         bad_pct = 0
                     if bad_pct > 25:
-                        # Rank before Mars (Mars is at index 3)
                         return 2.5
                     else:
-                        # Rank after Mars
                         return 3.5
                 else:
                     if p in p4_malefic_debtor_order:
@@ -2055,7 +1721,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             sign_malefics_sorted = sorted(sign_malefics, key=get_p4_malefic_rank)
             
-            # Sort benefics by debt percentage (highest first)
             def get_p4_benefic_debt_pct(p):
                 vol = phase4_data[p]['volume']
                 debt = abs(phase4_data[p]['p4_current_debt'])
@@ -2065,29 +1730,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             sign_benefics_sorted = sorted(sign_benefics, key=lambda p: -get_p4_benefic_debt_pct(p))
             
-            # Execution - Phase A (Malefics)
             for malefic in sign_malefics_sorted:
                 if sign_pot <= 0.001:
                     break
                 
                 debt = phase4_data[malefic]['p4_current_debt']
                 
-                # Only consume if planet has debt (< -0.001) - STRICT DEBT QUENCHING
                 if debt < -0.001:
                     needed = abs(debt)
                     take = min(1.0, needed, sign_pot)
                     
                     if take > 0.001:
-                        # Consume from pot
                         sign_pot -= take
-                        # Add currency to inventory
                         phase4_data[malefic]['p4_inventory'][currency_type] += take
-                        # Reduce debt (make it less negative)
                         phase4_data[malefic]['p4_current_debt'] += take
                         p4_something_happened = True
             
-            # Execution - Phase B (Benefics)
-            # Only runs if ALL malefics in this sign have cleared debt OR no malefics
             all_malefics_cleared = True
             for malefic in sign_malefics:
                 if phase4_data[malefic]['p4_current_debt'] < -0.001:
@@ -2101,33 +1759,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     
                     debt = phase4_data[benefic]['p4_current_debt']
                     
-                    # MODIFIED: Only consume if benefic has debt - STRICT DEBT QUENCHING
-                    # Removed the bonus consumption rule for benefics
                     if debt < -0.001:
-                        # Has debt - consume to reduce debt
                         needed = abs(debt)
                         take = min(1.0, needed, sign_pot)
                         
                         if take > 0.001:
-                            # Consume from pot
                             sign_pot -= take
-                            # Add currency to inventory
                             phase4_data[benefic]['p4_inventory'][currency_type] += take
-                            # Reduce debt
                             phase4_data[benefic]['p4_current_debt'] += take
                             p4_something_happened = True
             
             if not p4_something_happened:
                 break
         
-        # Update the pot inventory after processing this sign
         pot_inventory[target_sign] = sign_pot
         
-        # Capture Phase 4 Leftovers into Reserve for this sign (MODIFIED)
         if sign_pot > 0.001:
             house_reserves[target_sign][currency_type] += sign_pot
     
-    # Step 4: Format Phase 4 Output
     phase4_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase4_data[p]['p4_inventory']
@@ -2150,15 +1799,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase4 = pd.DataFrame(phase4_rows, columns=['Planet', 'Currency [Phase 4]', 'Debt [Phase 4]'])
     
-    # ============================================================
-    # END OF PHASE 4 LOGIC
-    # ============================================================
-    
-    # ============================================================
     # PHASE 5 CURRENCY EXCHANGE LOGIC - Virtual Aspect Clones
-    # ============================================================
+    # MODIFICATION 2: Reordered Steps
+    # Step 1: Virtual Malefic Clones Pull (Active Pulling) - currency marked as "Wasted"
+    # Step 2: Real Malefics Pull (from Clone's original inventory only)
+    # Step 3: Real Benefics Pull (from Clone's original inventory only)
     
-    # Step 1: Deep copy phase4_data into phase5_data (Live State)
     phase5_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         phase5_data[p] = {
@@ -2168,19 +1814,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'L': phase4_data[p]['L'],
             'rasi_house': phase4_data[p]['rasi_house'],
             'sign': phase4_data[p]['sign'],
-            'bad_inv': 0.0  # Track bad inventory for Moon status
+            'bad_inv': 0.0
         }
-        # Copy Phase 4 final inventory
         for k, v in phase4_data[p]['p4_inventory'].items():
             phase5_data[p]['p5_inventory'][k] = v
             if 'Bad' in k:
                 phase5_data[p]['bad_inv'] += v
     
-    # Phase 5 Constants
     P5_STANDARD_MALEFICS = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu']
     P5_STANDARD_BENEFICS = ['Jupiter', 'Venus', 'Mercury']
     
-    # Aspect Rules Dictionary
     ASPECT_RULES = {
         'Saturn': {3: 0.25, 7: 1.0, 10: 0.75},
         'Mars': {4: 0.40, 7: 1.0, 8: 0.25},
@@ -2190,21 +1833,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'Moon': {4: 0.25, 6: 0.50, 7: 1.0, 8: 0.50, 10: 0.25}
     }
     
-    # Phase 5 Debtor Rank for Real Malefics
     P5_MALEFIC_DEBTOR_RANK = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
-    # Leftover aspects log
     leftover_aspects = []
     
-    # Phase 5 Currency Rank Score (Updated for Phase 5)
     def get_p5_currency_rank_score(c_key):
-        """Updated scoring for Phase 5 - Good Saturn/Mars now high priority"""
         if c_key == 'Jupiter': return 990
         if c_key == 'Venus': return 980
         if c_key == 'Mercury': return 970
         if c_key == 'Good Moon': return 950
-        if c_key == 'Good Saturn': return 780  # HIGH - Benefics want this
-        if c_key == 'Good Mars': return 770    # HIGH - Benefics want this
+        if c_key == 'Good Saturn': return 780
+        if c_key == 'Good Mars': return 770
         if c_key == 'Good Sun': return 760
         if c_key == 'Good Ketu': return 700
         if c_key == 'Bad Moon': return 300
@@ -2215,15 +1854,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if c_key == 'Bad Ketu': return 150
         return 0
     
-    # Helper function to check if Moon is currently Malefic in Phase 5
     def is_moon_malefic_p5():
         return phase5_data['Moon']['bad_inv'] > 0.001
     
-    # Master Execution Sequence
     PLANET_SEQUENCE = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
     
     for current_planet in PLANET_SEQUENCE:
-        # Skip if planet has no aspects defined
         if current_planet not in ASPECT_RULES:
             continue
         
@@ -2232,25 +1868,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         parent_L = parent_data['L']
         parent_debt = parent_data['p5_current_debt']
         
-        # ============================================
-        # Part A: Clone Creation (The Set)
-        # ============================================
-        clones = []  # List to hold all clones for this planet
+        # Part A: Clone Creation
+        clones = []
         
         for offset, aspect_pct in aspect_offsets.items():
-            # Calculate Clone Location
             clone_L = (parent_L + (offset - 1) * 30) % 360
-            
-            # Get parent's Good currencies from Live State
             parent_inv = parent_data['p5_inventory']
             
-            # Calculate clone inventory based on planet type
             clone_inventory = defaultdict(float)
             clone_debt = 0.0
-            clone_type = 'Passive'  # Default
+            clone_type = 'Passive'
             
             if current_planet == 'Saturn':
-                # SATURN RULE: Divide all Good currencies by 2, sum, multiply by aspect %
                 good_sum = 0.0
                 for k, v in parent_inv.items():
                     if is_good_currency(k) and v > 0.001:
@@ -2260,30 +1889,26 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if clone_value > 0.001:
                     clone_inventory['Good Saturn'] = clone_value
                 
-                # Debt: Live_Real_Debt * Aspect_Percentage
                 clone_debt = parent_debt * aspect_pct
-                clone_type = 'Active'  # Saturn clones can pull
+                clone_type = 'Active'
                 
             elif current_planet == 'Mars':
-                # MARS RULE: Keep Good Mars as is, divide others by 2, sum, multiply by aspect %
                 good_sum = 0.0
                 for k, v in parent_inv.items():
                     if is_good_currency(k) and v > 0.001:
                         if k == 'Good Mars':
-                            good_sum += v  # Keep as is
+                            good_sum += v
                         else:
-                            good_sum += v / 2.0  # Divide by 2
+                            good_sum += v / 2.0
                 
                 clone_value = aspect_pct * good_sum
                 if clone_value > 0.001:
                     clone_inventory['Good Mars'] = clone_value
                 
-                # Debt: Live_Real_Debt * Aspect_Percentage
                 clone_debt = parent_debt * aspect_pct
-                clone_type = 'Active'  # Mars clones can pull
+                clone_type = 'Active'
                 
             elif current_planet in ['Jupiter', 'Venus', 'Mercury']:
-                # BENEFIC RULE: Extract Good currencies, rename to planet name
                 good_sum = 0.0
                 for k, v in parent_inv.items():
                     if is_good_currency(k) and v > 0.001:
@@ -2293,12 +1918,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if clone_value > 0.001:
                     clone_inventory[current_planet] = clone_value
                 
-                # Debt: 0 (Born debt-free)
                 clone_debt = 0.0
-                clone_type = 'Passive'  # Cannot pull
+                clone_type = 'Passive'
                 
             elif current_planet == 'Moon':
-                # MOON RULE (ALWAYS BENEFIC clone): Good Moon + (Sum Others / 2)
                 good_moon_val = parent_inv.get('Good Moon', 0.0)
                 other_good_sum = 0.0
                 for k, v in parent_inv.items():
@@ -2310,25 +1933,29 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if clone_value > 0.001:
                     clone_inventory['Good Moon'] = clone_value
                 
-                # Debt: 0 (Moon clones are always Benefic/Passive)
                 clone_debt = 0.0
                 clone_type = 'Passive'
             
-            # Create the clone object
+            # MODIFICATION 2: Store original inventory and wasted inventory separately
+            original_inventory = defaultdict(float)
+            for k, v in clone_inventory.items():
+                original_inventory[k] = v
+            
             clone = {
                 'parent': current_planet,
                 'offset': offset,
                 'aspect_pct': aspect_pct,
                 'L': clone_L,
                 'inventory': clone_inventory,
+                'original_inventory': original_inventory,
+                'wasted_inventory': defaultdict(float),
                 'debt': clone_debt,
                 'type': clone_type
             }
             clones.append(clone)
         
-        # ============================================
-        # Part B: The Interaction Cycle (The Loop)
-        # ============================================
+        # Part B: The Interaction Cycle
+        # MODIFICATION 2: Reordered - Step 1 is Active Pulling, Step 2 is Real Malefics Pull
         p5_cycle_limit = 500
         p5_cycles = 0
         
@@ -2337,83 +1964,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             p5_something_happened = False
             
             for clone in clones:
-                # Skip if clone has no currency
-                total_clone_currency = sum(clone['inventory'].values())
-                if total_clone_currency <= 0.001:
-                    continue
-                
                 clone_L = clone['L']
                 
-                # ----------------------------------------
-                # Step 1: Real Malefics Pull (from Clone)
-                # ----------------------------------------
-                real_malefics = list(P5_MALEFIC_DEBTOR_RANK)
-                if is_moon_malefic_p5() and 'Moon' not in real_malefics:
-                    moon_vol = phase5_data['Moon']['volume']
-                    if moon_vol > 0:
-                        bad_pct = (phase5_data['Moon']['bad_inv'] / moon_vol) * 100
-                        if bad_pct > 25:
-                            mars_idx = real_malefics.index('Mars')
-                            real_malefics.insert(mars_idx, 'Moon')
-                        else:
-                            mars_idx = real_malefics.index('Mars')
-                            real_malefics.insert(mars_idx + 1, 'Moon')
-                
-                for malefic in real_malefics:
-                    if phase5_data[malefic]['p5_current_debt'] >= -0.001:
-                        continue
-                    
-                    malefic_L = phase5_data[malefic]['L']
-                    diff = abs(malefic_L - clone_L)
-                    if diff > 180: diff = 360 - diff
-                    gap = int(diff)
-                    if gap > 22:
-                        continue
-                    
-                    total_clone_vol = sum(clone['inventory'].values())
-                    cap_pct = mix_dict.get(gap, 0)
-                    max_allowed_pull = total_clone_vol * (cap_pct / 100.0)
-                    
-                    tracker_key = f"p5_pulled_from_clone_{clone['parent']}_{clone['offset']}"
-                    already_pulled = phase5_data[malefic].get(tracker_key, 0.0)
-                    remaining_capacity = max_allowed_pull - already_pulled
-                    
-                    if remaining_capacity <= 0.001:
-                        continue
-                    
-                    available_currencies = []
-                    for k, v in clone['inventory'].items():
-                        if v > 0.001 and is_good_currency(k):
-                            score = get_p5_currency_rank_score(k)
-                            available_currencies.append({'key': k, 'value': v, 'score': score})
-                    
-                    available_currencies.sort(key=lambda x: -x['score'])
-                    
-                    for curr in available_currencies:
-                        if phase5_data[malefic]['p5_current_debt'] >= -0.001:
-                            break
-                        if remaining_capacity <= 0.001:
-                            break
-                        
-                        avail = clone['inventory'][curr['key']]
-                        if avail <= 0.001:
-                            continue
-                        
-                        needed_debt = abs(phase5_data[malefic]['p5_current_debt'])
-                        take = min(1.0, needed_debt, avail, remaining_capacity)
-                        
-                        if take > 0.001:
-                            clone['inventory'][curr['key']] -= take
-                            phase5_data[malefic]['p5_inventory'][curr['key']] += take
-                            phase5_data[malefic]['p5_current_debt'] += take
-                            phase5_data[malefic][tracker_key] = already_pulled + take
-                            remaining_capacity -= take
-                            already_pulled += take
-                            p5_something_happened = True
-                
-                # ----------------------------------------
-                # Step 2: Virtual Malefic Clones Pull (Active Pulling)
-                # ----------------------------------------
+                # MODIFICATION 2: NEW Step 1 - Virtual Malefic Clones Pull (Active Pulling)
                 if clone['type'] == 'Active' and clone['debt'] < -0.001:
                     clone_parent = clone['parent']
                     
@@ -2482,15 +2035,26 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             
                             if take > 0.001:
                                 phase5_data[target_planet]['p5_inventory'][curr['key']] -= take
-                                clone['inventory'][curr['key']] = clone['inventory'].get(curr['key'], 0.0) + take
                                 phase5_data[target_planet]['p5_current_debt'] -= take
+                                
+                                # MODIFICATION 2: Add to clone's inventory AND mark as wasted
+                                clone['inventory'][curr['key']] = clone['inventory'].get(curr['key'], 0.0) + take
+                                clone['wasted_inventory'][curr['key']] = clone['wasted_inventory'].get(curr['key'], 0.0) + take
+                                
                                 clone['debt'] += take
+                                
                                 clone[tracker_key] = already_pulled + take
                                 remaining_capacity -= take
                                 already_pulled += take
                                 p5_something_happened = True
                         
-                        if clone['debt'] < -0.001:
+                        good_still_available = any(
+                            target_inv.get(c['key'], 0) > 0.001 
+                            for c in good_currencies 
+                            if c['key'] != banned_currency
+                        )
+                        
+                        if clone['debt'] < -0.001 and not good_still_available:
                             for curr in bad_currencies:
                                 if clone['debt'] >= -0.001:
                                     break
@@ -2506,90 +2070,191 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 
                                 if take > 0.001:
                                     phase5_data[target_planet]['p5_inventory'][curr['key']] -= take
-                                    clone['inventory'][curr['key']] = clone['inventory'].get(curr['key'], 0.0) + take
                                     phase5_data[target_planet]['p5_current_debt'] -= take
                                     if 'Bad' in curr['key']:
                                         phase5_data[target_planet]['bad_inv'] -= take
+                                    
+                                    clone['inventory'][curr['key']] = clone['inventory'].get(curr['key'], 0.0) + take
+                                    clone['wasted_inventory'][curr['key']] = clone['wasted_inventory'].get(curr['key'], 0.0) + take
+                                    
                                     clone['debt'] += take
+                                    
                                     clone[tracker_key] = already_pulled + take
                                     remaining_capacity -= take
                                     already_pulled += take
                                     p5_something_happened = True
                 
-                # ----------------------------------------
-                # Step 3: Real Benefics Pull (from Clone)
-                # ----------------------------------------
-                real_benefics = list(P5_STANDARD_BENEFICS)
-                if not is_moon_malefic_p5():
-                    real_benefics.append('Moon')
+                # MODIFICATION 2: NEW Step 2 - Real Malefics Pull (from Clone's original inventory only)
+                total_original_remaining = 0.0
+                for k in clone['original_inventory'].keys():
+                    taken_key = f'taken_from_original_{k}'
+                    taken = clone.get(taken_key, 0.0)
+                    remaining = clone['original_inventory'][k] - taken
+                    if remaining > 0.001:
+                        total_original_remaining += remaining
                 
-                def get_benefic_debt_pct_p5(p):
-                    vol = phase5_data[p]['volume']
-                    debt = abs(phase5_data[p]['p5_current_debt'])
-                    if vol > 0:
-                        return (debt / vol) * 100
-                    return 0
-                
-                real_benefics_sorted = sorted(real_benefics, key=lambda p: -get_benefic_debt_pct_p5(p))
-                
-                for benefic in real_benefics_sorted:
-                    if phase5_data[benefic]['p5_current_debt'] >= -0.001:
-                        continue
+                if total_original_remaining > 0.001:
+                    real_malefics = list(P5_MALEFIC_DEBTOR_RANK)
+                    if is_moon_malefic_p5() and 'Moon' not in real_malefics:
+                        moon_vol = phase5_data['Moon']['volume']
+                        if moon_vol > 0:
+                            bad_pct = (phase5_data['Moon']['bad_inv'] / moon_vol) * 100
+                            if bad_pct > 25:
+                                mars_idx = real_malefics.index('Mars')
+                                real_malefics.insert(mars_idx, 'Moon')
+                            else:
+                                mars_idx = real_malefics.index('Mars')
+                                real_malefics.insert(mars_idx + 1, 'Moon')
                     
-                    benefic_L = phase5_data[benefic]['L']
-                    diff = abs(benefic_L - clone_L)
-                    if diff > 180: diff = 360 - diff
-                    gap = int(diff)
-                    if gap > 22:
-                        continue
-                    
-                    total_clone_vol = sum(clone['inventory'].values())
-                    cap_pct = mix_dict.get(gap, 0)
-                    max_allowed_pull = total_clone_vol * (cap_pct / 100.0)
-                    
-                    tracker_key = f"p5_benefic_pulled_from_clone_{clone['parent']}_{clone['offset']}"
-                    already_pulled = phase5_data[benefic].get(tracker_key, 0.0)
-                    remaining_capacity = max_allowed_pull - already_pulled
-                    
-                    if remaining_capacity <= 0.001:
-                        continue
-                    
-                    available_currencies = []
-                    for k, v in clone['inventory'].items():
-                        if v > 0.001 and is_good_currency(k):
-                            score = get_p5_currency_rank_score(k)
-                            available_currencies.append({'key': k, 'value': v, 'score': score})
-                    
-                    available_currencies.sort(key=lambda x: -x['score'])
-                    
-                    for curr in available_currencies:
-                        if phase5_data[benefic]['p5_current_debt'] >= -0.001:
-                            break
-                        if remaining_capacity <= 0.001:
-                            break
-                        
-                        avail = clone['inventory'][curr['key']]
-                        if avail <= 0.001:
+                    for malefic in real_malefics:
+                        if phase5_data[malefic]['p5_current_debt'] >= -0.001:
                             continue
                         
-                        needed_debt = abs(phase5_data[benefic]['p5_current_debt'])
-                        take = min(1.0, needed_debt, avail, remaining_capacity)
+                        malefic_L = phase5_data[malefic]['L']
+                        diff = abs(malefic_L - clone_L)
+                        if diff > 180: diff = 360 - diff
+                        gap = int(diff)
+                        if gap > 22:
+                            continue
                         
-                        if take > 0.001:
-                            clone['inventory'][curr['key']] -= take
-                            phase5_data[benefic]['p5_inventory'][curr['key']] += take
-                            phase5_data[benefic]['p5_current_debt'] += take
-                            phase5_data[benefic][tracker_key] = already_pulled + take
-                            remaining_capacity -= take
-                            already_pulled += take
-                            p5_something_happened = True
+                        total_original_vol = sum(clone['original_inventory'].values())
+                        cap_pct = mix_dict.get(gap, 0)
+                        max_allowed_pull = total_original_vol * (cap_pct / 100.0)
+                        
+                        tracker_key = f"p5_pulled_from_clone_{clone['parent']}_{clone['offset']}"
+                        already_pulled = phase5_data[malefic].get(tracker_key, 0.0)
+                        remaining_capacity = max_allowed_pull - already_pulled
+                        
+                        if remaining_capacity <= 0.001:
+                            continue
+                        
+                        available_currencies = []
+                        for k, orig_v in clone['original_inventory'].items():
+                            taken_key = f'taken_from_original_{k}'
+                            taken = clone.get(taken_key, 0.0)
+                            remaining_original = orig_v - taken
+                            if remaining_original > 0.001 and is_good_currency(k):
+                                score = get_p5_currency_rank_score(k)
+                                available_currencies.append({'key': k, 'remaining': remaining_original, 'score': score})
+                        
+                        available_currencies.sort(key=lambda x: -x['score'])
+                        
+                        for curr in available_currencies:
+                            if phase5_data[malefic]['p5_current_debt'] >= -0.001:
+                                break
+                            if remaining_capacity <= 0.001:
+                                break
+                            
+                            taken_key = f"taken_from_original_{curr['key']}"
+                            taken = clone.get(taken_key, 0.0)
+                            remaining_original = clone['original_inventory'][curr['key']] - taken
+                            
+                            if remaining_original <= 0.001:
+                                continue
+                            
+                            needed_debt = abs(phase5_data[malefic]['p5_current_debt'])
+                            take = min(1.0, needed_debt, remaining_original, remaining_capacity)
+                            
+                            if take > 0.001:
+                                clone[taken_key] = taken + take
+                                clone['inventory'][curr['key']] -= take
+                                
+                                phase5_data[malefic]['p5_inventory'][curr['key']] += take
+                                phase5_data[malefic]['p5_current_debt'] += take
+                                
+                                phase5_data[malefic][tracker_key] = already_pulled + take
+                                remaining_capacity -= take
+                                already_pulled += take
+                                p5_something_happened = True
+                
+                # Step 3: Real Benefics Pull (from Clone's original inventory only)
+                total_original_remaining = 0.0
+                for k in clone['original_inventory'].keys():
+                    taken_key = f'taken_from_original_{k}'
+                    taken = clone.get(taken_key, 0.0)
+                    remaining = clone['original_inventory'][k] - taken
+                    if remaining > 0.001:
+                        total_original_remaining += remaining
+                
+                if total_original_remaining > 0.001:
+                    real_benefics = list(P5_STANDARD_BENEFICS)
+                    if not is_moon_malefic_p5():
+                        real_benefics.append('Moon')
+                    
+                    def get_benefic_debt_pct_p5(p):
+                        vol = phase5_data[p]['volume']
+                        debt = abs(phase5_data[p]['p5_current_debt'])
+                        if vol > 0:
+                            return (debt / vol) * 100
+                        return 0
+                    
+                    real_benefics_sorted = sorted(real_benefics, key=lambda p: -get_benefic_debt_pct_p5(p))
+                    
+                    for benefic in real_benefics_sorted:
+                        if phase5_data[benefic]['p5_current_debt'] >= -0.001:
+                            continue
+                        
+                        benefic_L = phase5_data[benefic]['L']
+                        diff = abs(benefic_L - clone_L)
+                        if diff > 180: diff = 360 - diff
+                        gap = int(diff)
+                        if gap > 22:
+                            continue
+                        
+                        total_original_vol = sum(clone['original_inventory'].values())
+                        cap_pct = mix_dict.get(gap, 0)
+                        max_allowed_pull = total_original_vol * (cap_pct / 100.0)
+                        
+                        tracker_key = f"p5_benefic_pulled_from_clone_{clone['parent']}_{clone['offset']}"
+                        already_pulled = phase5_data[benefic].get(tracker_key, 0.0)
+                        remaining_capacity = max_allowed_pull - already_pulled
+                        
+                        if remaining_capacity <= 0.001:
+                            continue
+                        
+                        available_currencies = []
+                        for k, orig_v in clone['original_inventory'].items():
+                            taken_key = f'taken_from_original_{k}'
+                            taken = clone.get(taken_key, 0.0)
+                            remaining_original = orig_v - taken
+                            if remaining_original > 0.001 and is_good_currency(k):
+                                score = get_p5_currency_rank_score(k)
+                                available_currencies.append({'key': k, 'remaining': remaining_original, 'score': score})
+                        
+                        available_currencies.sort(key=lambda x: -x['score'])
+                        
+                        for curr in available_currencies:
+                            if phase5_data[benefic]['p5_current_debt'] >= -0.001:
+                                break
+                            if remaining_capacity <= 0.001:
+                                break
+                            
+                            taken_key = f"taken_from_original_{curr['key']}"
+                            taken = clone.get(taken_key, 0.0)
+                            remaining_original = clone['original_inventory'][curr['key']] - taken
+                            
+                            if remaining_original <= 0.001:
+                                continue
+                            
+                            needed_debt = abs(phase5_data[benefic]['p5_current_debt'])
+                            take = min(1.0, needed_debt, remaining_original, remaining_capacity)
+                            
+                            if take > 0.001:
+                                clone[taken_key] = taken + take
+                                clone['inventory'][curr['key']] -= take
+                                
+                                phase5_data[benefic]['p5_inventory'][curr['key']] += take
+                                phase5_data[benefic]['p5_current_debt'] += take
+                                
+                                phase5_data[benefic][tracker_key] = already_pulled + take
+                                remaining_capacity -= take
+                                already_pulled += take
+                                p5_something_happened = True
             
             if not p5_something_happened:
                 break
         
-        # ============================================
         # Part C: Logging & Disposal
-        # ============================================
         for clone in clones:
             inv_parts = []
             for k, v in clone['inventory'].items():
@@ -2609,9 +2274,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 debt_str
             ])
     
-    # ============================================
     # Format Phase 5 Output
-    # ============================================
     phase5_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
@@ -2635,45 +2298,30 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
     
-    # ============================================================
-    # END OF PHASE 5 LOGIC
-    # ============================================================
-    
-    # ============================================================
-    # CREATE HOUSE RESERVES DATAFRAME (MODIFIED)
-    # ============================================================
-    # List all 12 signs in zodiac order with formatted currency amounts
+    # CREATE HOUSE RESERVES DATAFRAME
     reserve_rows = []
-    for sign_name in sign_names:  # Aries to Pisces
+    for sign_name in sign_names:
         currency_dict = house_reserves[sign_name]
         
-        # Format the currency string: CurrencyName[Amount], ...
         currency_parts = []
         for currency_type, amount in currency_dict.items():
             if amount > 0.001:
                 currency_parts.append(f"{currency_type}[{amount:.2f}]")
         
-        # If no reserves, display '-'
         reserve_str = ", ".join(currency_parts) if currency_parts else "-"
         reserve_rows.append([sign_name, reserve_str])
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
-    
-    # ============================================================
-    # END OF HOUSE RESERVES
-    # ============================================================
     
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
                                              'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
                                              'Volume', 'Default Currencies', 'Debt'])
 
-    # df_rasi
     df_rasi = pd.DataFrame([[f"House {h}", get_sign((lagna_sid+(h-1)*30)%360), 
                              ', '.join(sorted(house_planets_rasi[h])) if house_planets_rasi[h] else 'Empty'] 
                             for h in range(1,13)], columns=['House','Sign','Planets'])
 
-    # navamsa
     house_planets_nav = defaultdict(list)
     for p,L in lon_sid.items():
         nav_lon = (L*9) % 360
@@ -2684,7 +2332,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             ', '.join(sorted(house_planets_nav[h])) if house_planets_nav[h] else 'Empty'] 
                            for h in range(1,13)], columns=['House','Sign','Planets'])
 
-    # aspects table
     lagna_sign = get_sign(lagna_sid)
     aspects_dict = {'Sun':[7],'Moon':[7],'Mars':[4,7,8],'Mercury':[7],'Jupiter':[5,7,9],'Venus':[7],'Saturn':[3,7,10]}
     planet_to_house = {p.capitalize(): get_house(lon_sid[p], lagna_sid) for p in lon_sid}
@@ -2703,7 +2350,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                              ', '.join(asp) if asp else 'None', lord, f"House {lord_house}"])
     df_house_status = pd.DataFrame(house_status, columns=['House','Planets','Aspects from','Lord','Lord in'])
 
-    # dasa tree
     moon_lon = lon_sid['moon']
     idx, bal = generate_vimshottari_dasa(moon_lon)
     full_first = years[idx]; passed = full_first - bal
@@ -2731,7 +2377,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav
     }
 
-# ---- South Indian plotter ----
+# South Indian plotter
 def plot_south_indian_style(ax, house_to_planets, lagna_sign, title):
     sign_positions = {'Pisces':(0,3),'Aries':(1,3),'Taurus':(2,3),'Gemini':(3,3),
                       'Cancer':(3,2),'Leo':(3,1),'Virgo':(3,0),
@@ -2764,7 +2410,7 @@ def plot_south_indian_style(ax, house_to_planets, lagna_sign, title):
     ax.set_title(title, fontsize=3.6, fontweight='normal')
     ax.axis('off')
 
-# ---- Streamlit UI ----
+# Streamlit UI
 st.set_page_config(page_title="Buvi Horoscope", layout="wide")
 st.markdown("""
 <style>
@@ -2795,7 +2441,7 @@ def get_geolocator():
 geocode = get_geolocator()
 _tf = TimezoneFinder()
 
-def tz_for_latlon(lat: float, lon: float):
+def tz_for_latlon(lat, lon):
     tzname = _tf.timezone_at(lng=lon, lat=lat)
     if not tzname: return pytz.UTC
     return pytz.timezone(tzname)
@@ -2820,9 +2466,6 @@ def collect_periods_at_depth(periods, target_depth, cur_depth=1, acc=None):
             collect_periods_at_depth(subs, target_depth, cur_depth+1, acc)
     return acc
 
-# =========================
-# Birth Details
-# =========================
 st.subheader("Birth Details")
 name = st.text_input("Name", placeholder="Enter full name")
 c1, c2, c3 = st.columns(3)
@@ -2876,9 +2519,6 @@ def show_png(fig):
     fig.tight_layout(pad=0.10)
     st.pyplot(fig, use_container_width=False, dpi=300)
 
-# =========================
-# Outputs
-# =========================
 if st.session_state.chart_data:
     cd = st.session_state.chart_data
     st.markdown("---")
@@ -2886,7 +2526,7 @@ if st.session_state.chart_data:
     <div class="summary-box">
         <h3>Chart Summary</h3>
         <div class="summary-item"><strong>Name:</strong> {cd['name']}</div>
-        <div class="summary-item"><strong>Lagna:</strong> {cd['lagna_sign']} ({cd['lagna_sid']:.2f}°)</div>
+        <div class="summary-item"><strong>Lagna:</strong> {cd['lagna_sign']} ({cd['lagna_sid']:.2f}deg)</div>
         <div class="summary-item"><strong>Rasi (Moon Sign):</strong> {cd['moon_rasi']}</div>
         <div class="summary-item"><strong>Nakshatra:</strong> {cd['moon_nakshatra']} (Pada {cd['moon_pada']})</div>
     </div>
@@ -2895,7 +2535,6 @@ if st.session_state.chart_data:
     st.subheader("Planetary Positions")
     st.dataframe(cd['df_planets'], hide_index=True, use_container_width=True)
 
-    # House Bonus Points (Reserve) - Placed immediately below Planetary Positions
     st.subheader("House Bonus Points (Reserve)")
     st.dataframe(cd['df_house_reserves'], hide_index=True, use_container_width=True)
 
@@ -2926,7 +2565,7 @@ if st.session_state.chart_data:
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
 
-    st.subheader("Rasi (D1) & Navamsa (D9) — South Indian")
+    st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
     size = (1.8, 1.8)
     fig1, ax1 = plt.subplots(figsize=size)
@@ -2943,7 +2582,6 @@ if st.session_state.chart_data:
     dasa_rows = [{'Planet': lord, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'dasa')} for lord, s, e, _ in cd['dasa_periods_filtered']]
     st.dataframe(pd.DataFrame(dasa_rows), hide_index=True, use_container_width=True)
 
-    # Dasa Drill-down
     dp = cd['dasa_periods_filtered']
     if cd['max_depth'] >= 2:
         with st.expander("View Sub-periods", expanded=False):
@@ -2952,8 +2590,7 @@ if st.session_state.chart_data:
             bhuktis = dp[d_opt.index(sel)][3]
             st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'bhukti')} for l,s,e,_ in bhuktis]), hide_index=True, use_container_width=True)
 
-    # Current Micro-Periods
-    st.subheader("Current City → Live Micro-Periods")
+    st.subheader("Current City - Live Micro-Periods")
     current_city_query = st.text_input("Enter your CURRENT city", placeholder="e.g., Chennai", key="current_city_input")
     depth_choice = st.selectbox("Depth to inspect", ["Sukshma", "Prana", "Sub-Prana"])
     
@@ -2967,7 +2604,7 @@ if st.session_state.chart_data:
                     active_path = find_active_path_to_depth(dp, now_utc_naive, _DEPTH_NAME_TO_INT[depth_choice])
                     flat_at_depth = collect_periods_at_depth(dp, _DEPTH_NAME_TO_INT[depth_choice])
                     
-                    st.success(f"Time zone: {tz.zone} • Local now: {now_local.strftime('%Y-%m-%d %H:%M')}")
+                    st.success(f"Time zone: {tz.zone} | Local now: {now_local.strftime('%Y-%m-%d %H:%M')}")
                     if active_path:
                         tbl = []
                         idx_found = -1
