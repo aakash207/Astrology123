@@ -2478,7 +2478,58 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_house_points = pd.DataFrame(hp_rows,
         columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes', 'Total Score'])
     # ---- END HOUSE POINTS ----
-    
+
+    # ---- BENEFIC PLANET STRENGTHS ----
+    _bs_benefics = ['Jupiter', 'Venus', 'Mercury', 'Moon']
+    _bs_rows = []
+    for _bs_p in _bs_benefics:
+        # (a) Dig Bala – 25%
+        _db_raw = planet_data[_bs_p].get('dig_bala') or 0
+        _dig_score = (_db_raw / 100.0) * 25.0
+
+        # (b) Sthana Bala – 50%
+        _sb_raw = planet_data[_bs_p].get('sthana') or 0
+        _sthana_score = (_sb_raw / 100.0) * 50.0
+
+        # (c) Kalapurusha House Subathuvam (KHS) – 10%
+        _ruled = planet_ruled_signs.get(_bs_p, [])
+        _ruled_totals = []
+        for _rs in _ruled:
+            _ruled_totals.append(aspect_score.get(_rs, 0.0) + occupant_score.get(_rs, 0.0))
+        _avg_ruled = sum(_ruled_totals) / len(_ruled_totals) if _ruled_totals else 0.0
+        if _avg_ruled >= 100:
+            _khs_score = 10.0
+        elif _avg_ruled >= 50:
+            _khs_score = 5.0
+        else:
+            _khs_score = 0.0
+
+        # (d) Own House Aspect – 10%
+        _own_asp_score = 0.0
+        for _cl in all_leftover_clones:
+            if _cl['parent'] == _bs_p:
+                _cl_L = phase5_data[_bs_p]['L']
+                _cl_target = get_sign((_cl_L + (_cl['offset'] - 1) * 30) % 360)
+                if _cl_target in _ruled:
+                    _own_asp_score = 10.0
+                    break
+
+        # (e) Kona Strength – 5% of current total if in house 1, 5, or 9
+        _rh = planet_data[_bs_p].get('rasi_house', 0)
+        if _rh in (1, 5, 9):
+            _current_sub = _dig_score + _sthana_score + _khs_score + _own_asp_score
+            _kona_score = _current_sub * 0.05
+        else:
+            _kona_score = 0.0
+
+        _total_str = _dig_score + _sthana_score + _khs_score + _own_asp_score + _kona_score
+        _brkdn = (f"Dig: {_dig_score:.2f} + Sthana: {_sthana_score:.2f} + "
+                  f"KHS: {_khs_score:.2f} + Own Asp: {_own_asp_score:.2f} + Kona: {_kona_score:.2f}")
+        _bs_rows.append([_bs_p, f"{_total_str:.2f}", _brkdn])
+
+    df_benefic_strength = pd.DataFrame(_bs_rows, columns=['Planet', 'Total Score', 'Breakdown'])
+    # ---- END BENEFIC PLANET STRENGTHS ----
+
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
                                              'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
@@ -2534,6 +2585,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
+        'df_benefic_strength': df_benefic_strength,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2733,6 +2785,9 @@ if st.session_state.chart_data:
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
+
+    st.subheader("Benefic Planet Strengths")
+    st.dataframe(cd['df_benefic_strength'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
