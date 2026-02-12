@@ -2535,12 +2535,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         columns=['Planet', 'Total Strength', 'Score Breakdown'])
 
     # Update planet_data and rows with overridden Sthana Bala for negative-status planets
+    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
     if _overridden_sthana:
         for row in rows:
             p_name = row[0]
             if p_name in _overridden_sthana:
                 row[9] = f"{_overridden_sthana[p_name]:.2f}%"
                 planet_data[p_name]['sthana'] = _overridden_sthana[p_name]
+        # Recreate df_planets so it reflects the overridden Sthana Bala values
+        df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
+                                                 'Parivardhana',
+                                                 'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
+                                                 'Volume', 'Default Currencies', 'Debt'])
     # ---- END PLANET STRENGTHS ----
 
     # ── 4. BUILD DATAFRAME ──
