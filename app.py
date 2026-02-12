@@ -419,9 +419,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if bad_val > 0:
                 total_debt = initial_debt_adjustment + (-bad_val)
                 has_debt = True
-            elif initial_debt_adjustment != 0:
-                total_debt = initial_debt_adjustment
-                has_debt = True
+        
+        # Ensure has_debt is set if there's any debt (including initial_debt_adjustment)
+        if total_debt != 0 and not has_debt:
+            has_debt = True
 
         if has_debt:
             debt_str = f"{total_debt:.2f}"
