@@ -2507,6 +2507,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     for _ps_p in _ps_planets:
         _db = planet_data[_ps_p].get('dig_bala') or 0
         _sb = planet_data[_ps_p].get('sthana') or 0
+
+        # Override Sthana with max positive aspect inventory for negative-status planets
+        _ps_status = planet_data[_ps_p].get('updated_status') or planet_data[_ps_p].get('status', '')
+        if _ps_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+            _good_sum = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
+                           if v > 0.001 and is_good_currency(k))
+            _sb = _good_sum
+
         _khs_val = _ps_khs(_ps_p)
         _asp_val = _ps_own_asp(_ps_p)
         _rh = phase5_data[_ps_p]['rasi_house']
