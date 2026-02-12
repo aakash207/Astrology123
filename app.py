@@ -2516,13 +2516,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             s_dig = (_db / 100.0) * 60.0
             s_sth = (_sb / 100.0) * 30.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
-            s_bonus = base_total * 0.05 if _rh in (1, 4, 7, 10) else 0.0
+            s_bonus = 5.0 if _rh in (1, 4, 7, 10) else 0.0
         else:
             # Benefic: Dig 30%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
             s_dig = (_db / 100.0) * 30.0
             s_sth = (_sb / 100.0) * 60.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
-            s_bonus = base_total * 0.05 if _rh in (1, 5, 9) else 0.0
+            s_bonus = 5.0 if _rh in (1, 5, 9) else 0.0
 
         final = base_total + s_bonus
         brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f} + "
