@@ -2479,56 +2479,63 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes', 'Total Score'])
     # ---- END HOUSE POINTS ----
 
-    # ---- BENEFIC PLANET STRENGTHS ----
-    _bs_benefics = ['Jupiter', 'Venus', 'Mercury', 'Moon']
-    _bs_rows = []
-    for _bs_p in _bs_benefics:
-        # (a) Dig Bala – 25%
-        _db_raw = planet_data[_bs_p].get('dig_bala') or 0
-        _dig_score = (_db_raw / 100.0) * 25.0
+    # ---- PLANET STRENGTHS ANALYSIS ----
+    planet_strength_rows = []
+    _ps_all_planets = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
 
-        # (b) Sthana Bala – 50%
-        _sb_raw = planet_data[_bs_p].get('sthana') or 0
-        _sthana_score = (_sb_raw / 100.0) * 50.0
+    def _ps_khs(p_name):
+        """KHS: avg Total Score of ruled signs / 10, capped at 10."""
+        ruled = planet_ruled_signs.get(p_name, [])
+        if not ruled:
+            return 0.0
+        total = 0.0
+        for rs in ruled:
+            total += aspect_score.get(rs, 0.0) + occupant_score.get(rs, 0.0)
+        avg = total / len(ruled)
+        khs = avg / 10.0
+        return min(khs, 10.0)
 
-        # (c) Kalapurusha House Subathuvam (KHS) – 10%
-        _ruled = planet_ruled_signs.get(_bs_p, [])
-        _ruled_totals = []
-        for _rs in _ruled:
-            _ruled_totals.append(aspect_score.get(_rs, 0.0) + occupant_score.get(_rs, 0.0))
-        _avg_ruled = sum(_ruled_totals) / len(_ruled_totals) if _ruled_totals else 0.0
-        if _avg_ruled >= 100:
-            _khs_score = 10.0
-        elif _avg_ruled >= 50:
-            _khs_score = 5.0
+    def _ps_own_asp(p_name):
+        """10.0 if any leftover clone of this planet aspects a sign it rules."""
+        ruled = planet_ruled_signs.get(p_name, [])
+        if not ruled:
+            return 0.0
+        p_L = phase5_data[p_name]['L']
+        for cl in all_leftover_clones:
+            if cl['parent'] == p_name:
+                t_sign = get_sign((p_L + (cl['offset'] - 1) * 30) % 360)
+                if t_sign in ruled:
+                    return 10.0
+        return 0.0
+
+    for _ps_p in _ps_all_planets:
+        _db = planet_data[_ps_p].get('dig_bala') or 0
+        _sb = planet_data[_ps_p].get('sthana') or 0
+        _khs_val = _ps_khs(_ps_p)
+        _asp_val = _ps_own_asp(_ps_p)
+        _rh = phase5_data[_ps_p]['rasi_house']
+
+        if _hp_is_malefic(_ps_p):
+            # Malefic: Dig 50%, Sthana 25%, KHS 10%, Asp 10%, Kendra 5%
+            s_dig = (_db / 100.0) * 50.0
+            s_sth = (_sb / 100.0) * 25.0
+            base_total = s_dig + s_sth + _khs_val + _asp_val
+            s_bonus = base_total * 0.05 if _rh in (1, 4, 7, 10) else 0.0
         else:
-            _khs_score = 0.0
+            # Benefic: Dig 25%, Sthana 50%, KHS 10%, Asp 10%, Kona 5%
+            s_dig = (_db / 100.0) * 25.0
+            s_sth = (_sb / 100.0) * 50.0
+            base_total = s_dig + s_sth + _khs_val + _asp_val
+            s_bonus = base_total * 0.05 if _rh in (1, 5, 9) else 0.0
 
-        # (d) Own House Aspect – 10%
-        _own_asp_score = 0.0
-        for _cl in all_leftover_clones:
-            if _cl['parent'] == _bs_p:
-                _cl_L = phase5_data[_bs_p]['L']
-                _cl_target = get_sign((_cl_L + (_cl['offset'] - 1) * 30) % 360)
-                if _cl_target in _ruled:
-                    _own_asp_score = 10.0
-                    break
+        final = base_total + s_bonus
+        brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f} + "
+                 f"KHS:{_khs_val:.2f} + Asp:{_asp_val:.2f} + Bonus:{s_bonus:.2f}")
+        planet_strength_rows.append([_ps_p, f"{final:.2f}", brkdn])
 
-        # (e) Kona Strength – 5% of current total if in house 1, 5, or 9
-        _rh = planet_data[_bs_p].get('rasi_house', 0)
-        if _rh in (1, 5, 9):
-            _current_sub = _dig_score + _sthana_score + _khs_score + _own_asp_score
-            _kona_score = _current_sub * 0.05
-        else:
-            _kona_score = 0.0
-
-        _total_str = _dig_score + _sthana_score + _khs_score + _own_asp_score + _kona_score
-        _brkdn = (f"Dig: {_dig_score:.2f} + Sthana: {_sthana_score:.2f} + "
-                  f"KHS: {_khs_score:.2f} + Own Asp: {_own_asp_score:.2f} + Kona: {_kona_score:.2f}")
-        _bs_rows.append([_bs_p, f"{_total_str:.2f}", _brkdn])
-
-    df_benefic_strength = pd.DataFrame(_bs_rows, columns=['Planet', 'Total Score', 'Breakdown'])
-    # ---- END BENEFIC PLANET STRENGTHS ----
+    df_planet_strengths = pd.DataFrame(planet_strength_rows,
+        columns=['Planet', 'Total Strength', 'Score Breakdown'])
+    # ---- END PLANET STRENGTHS ----
 
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
@@ -2585,7 +2592,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
-        'df_benefic_strength': df_benefic_strength,
+        'df_planet_strengths': df_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2786,8 +2793,8 @@ if st.session_state.chart_data:
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
 
-    st.subheader("Benefic Planet Strengths")
-    st.dataframe(cd['df_benefic_strength'], hide_index=True, use_container_width=True)
+    st.subheader("Planet Strengths")
+    st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
