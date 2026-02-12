@@ -2360,6 +2360,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'Rahu': 'Good Rahu', 'Ketu': 'Good Ketu', 'Moon': 'Good Moon'
     }
 
+    # ── Lagna Lord Protection ──
+    lagna_lord = get_sign_lord(lagna_sign)
+    is_malefic_lagna_lord = (
+        lagna_lord in ('Sun', 'Mars', 'Saturn')
+        or (lagna_lord == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
+    )
+
     # ── 1. ASPECT SCORE (from Phase 5 leftover clones) ──
     for clone in all_leftover_clones:
         parent = clone['parent']
@@ -2370,9 +2377,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if _hp_is_malefic(parent):
             # Rule A – Debt Penalty (not exclusive with Rule B)
             if clone['debt'] < -0.001:
-                penalty = abs(clone['debt'])
-                aspect_score[target_sign] -= penalty
-                aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
+                if parent == lagna_lord and is_malefic_lagna_lord:
+                    penalty = abs(clone['debt']) / 2.0
+                    aspect_score[target_sign] -= penalty
+                    aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2)")
+                else:
+                    penalty = abs(clone['debt'])
+                    aspect_score[target_sign] -= penalty
+                    aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
 
             # Rule B – Own Good / 2
             own_key = _own_good_key.get(parent)
@@ -2405,9 +2417,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if _hp_is_malefic(occ):
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
                 total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-                net = total_good - total_bad
-                occupant_score[s] += net
-                occupant_notes[s].append(f"{occ}(Good-Bad)")
+                if occ == lagna_lord and is_malefic_lagna_lord:
+                    total_bad = total_bad / 2.0
+                    net = total_good - total_bad
+                    occupant_score[s] += net
+                    occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL])")
+                else:
+                    net = total_good - total_bad
+                    occupant_score[s] += net
+                    occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
                 if total_good > 0.001:
