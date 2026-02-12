@@ -2379,9 +2379,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if own_key:
                 own_val = clone['inventory'].get(own_key, 0.0)
                 if own_val > 0.001:
-                    bonus = own_val / 2.0
+                    bonus = own_val
                     aspect_score[target_sign] += bonus
-                    aspect_sources[target_sign].append(f"{parent}(Own Good/2)")
+                    aspect_sources[target_sign].append(f"{parent}(Own Good)")
         else:
             # Benefic – sum all good currencies
             good_total = 0.0
@@ -2436,10 +2436,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     for s in sign_names:
         a_src = ', '.join(aspect_sources[s]) if aspect_sources[s] else '-'
         o_src = ', '.join(occupant_notes[s]) if occupant_notes[s] else '-'
-        hp_rows.append([s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src])
+        total_score = aspect_score[s] + occupant_score[s]
+        hp_rows.append([s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src, f"{total_score:.2f}"])
 
     df_house_points = pd.DataFrame(hp_rows,
-        columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes'])
+        columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes', 'Total Score'])
     # ---- END HOUSE POINTS ----
     
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
