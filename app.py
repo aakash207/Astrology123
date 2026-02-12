@@ -2534,19 +2534,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
         columns=['Planet', 'Total Strength', 'Score Breakdown'])
 
-    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
-    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
-    if _overridden_sthana:
-        for row in rows:
-            p_name = row[0]
-            if p_name in _overridden_sthana:
-                row[9] = f"{_overridden_sthana[p_name]:.2f}%"
-                planet_data[p_name]['sthana'] = _overridden_sthana[p_name]
-        # Recreate df_planets so it reflects the overridden Sthana Bala values
-        df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
-                                                 'Parivardhana',
-                                                 'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
-                                                 'Volume', 'Default Currencies', 'Debt'])
+    # Build Updated Planet Strengths table showing overridden Sthana for Neecham/Neechabhangam
+    updated_ps_rows = []
+    for _ps_p in _ps_planets:
+        orig_sthana = planet_data[_ps_p]['sthana']
+        if _ps_p in _overridden_sthana:
+            used_sthana = _overridden_sthana[_ps_p]
+            sthana_note = f"{used_sthana:.2f} (Phase 5 Good Currency)"
+        else:
+            used_sthana = orig_sthana
+            sthana_note = f"{used_sthana}"
+        updated_ps_rows.append([
+            _ps_p,
+            f"{orig_sthana}%",
+            sthana_note,
+            f"{planet_final_strengths[_ps_p]:.2f}"
+        ])
+    df_updated_planet_strengths = pd.DataFrame(updated_ps_rows,
+        columns=['Planet', 'Original Sthana', 'Used Sthana', 'Final Strength'])
     # ---- END PLANET STRENGTHS ----
 
     # ── 4. BUILD DATAFRAME ──
@@ -2635,6 +2640,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
+        'df_updated_planet_strengths': df_updated_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2838,6 +2844,8 @@ if st.session_state.chart_data:
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
 
+    st.subheader("Updated Planet Strengths (Neecham/Neechabhangam Override)")
+    st.dataframe(cd['df_updated_planet_strengths'], hide_index=True, use_container_width=True)
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
     size = (1.8, 1.8)
