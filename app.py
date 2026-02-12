@@ -2481,22 +2481,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # ---- PLANET STRENGTHS ANALYSIS ----
     planet_strength_rows = []
-    _ps_all_planets = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
+    _ps_planets = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn']
 
     def _ps_khs(p_name):
-        """KHS: avg Total Score of ruled signs / 10, capped at 10."""
         ruled = planet_ruled_signs.get(p_name, [])
         if not ruled:
             return 0.0
-        total = 0.0
-        for rs in ruled:
-            total += aspect_score.get(rs, 0.0) + occupant_score.get(rs, 0.0)
+        total = sum(aspect_score.get(rs, 0.0) + occupant_score.get(rs, 0.0) for rs in ruled)
         avg = total / len(ruled)
         khs = avg / 10.0
         return min(khs, 10.0)
 
     def _ps_own_asp(p_name):
-        """10.0 if any leftover clone of this planet aspects a sign it rules."""
         ruled = planet_ruled_signs.get(p_name, [])
         if not ruled:
             return 0.0
@@ -2508,7 +2504,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     return 10.0
         return 0.0
 
-    for _ps_p in _ps_all_planets:
+    for _ps_p in _ps_planets:
         _db = planet_data[_ps_p].get('dig_bala') or 0
         _sb = planet_data[_ps_p].get('sthana') or 0
         _khs_val = _ps_khs(_ps_p)
@@ -2516,15 +2512,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _rh = phase5_data[_ps_p]['rasi_house']
 
         if _hp_is_malefic(_ps_p):
-            # Malefic: Dig 50%, Sthana 25%, KHS 10%, Asp 10%, Kendra 5%
-            s_dig = (_db / 100.0) * 50.0
-            s_sth = (_sb / 100.0) * 25.0
+            # Malefic: Dig 60%, Sthana 30%, KHS 10%, Asp 10%, Kendra 5%
+            s_dig = (_db / 100.0) * 60.0
+            s_sth = (_sb / 100.0) * 30.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
             s_bonus = base_total * 0.05 if _rh in (1, 4, 7, 10) else 0.0
         else:
-            # Benefic: Dig 25%, Sthana 50%, KHS 10%, Asp 10%, Kona 5%
-            s_dig = (_db / 100.0) * 25.0
-            s_sth = (_sb / 100.0) * 50.0
+            # Benefic: Dig 30%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
+            s_dig = (_db / 100.0) * 30.0
+            s_sth = (_sb / 100.0) * 60.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
             s_bonus = base_total * 0.05 if _rh in (1, 5, 9) else 0.0
 
