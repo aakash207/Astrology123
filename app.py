@@ -337,20 +337,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if sign in uchcham_ruled_signs:
             volume = volume * 1.10
         
-        # STATUS-BASED VOLUME / DEBT ADJUSTMENTS
-        # Positive statuses boost volume; Neecham penalises via debt
-        if status == 'Uchcham':
-            volume = volume * 1.20
-        elif status == 'Moolathirigonam':
-            volume = volume * 1.16
-        elif status == 'Aatchi':
-            volume = volume * 1.12
-        
-        # Neecham: 20% of volume applied as negative debt (set here,
-        # may be further modified by the Neechabhangam block below)
-        status_neecham_debt = 0.0
-        if status == 'Neecham':
-            status_neecham_debt = -(volume * 0.20)
+        # --- Sign Lord Status: boost volume or track debt penalty ---
+        lord_neecham_penalty = 0.0
+        _sign_lord = get_sign_lord(sign)
+        if _sign_lord and _sign_lord in planet_status_map:
+            _lord_status = planet_status_map[_sign_lord]
+            if _lord_status == 'Uchcham':
+                volume = volume * 1.20
+            elif _lord_status == 'Moolathirigonam':
+                volume = volume * 1.16
+            elif _lord_status == 'Aatchi':
+                volume = volume * 1.12
+            elif _lord_status == 'Neecham':
+                lord_neecham_penalty = volume * 0.20
+        # --- End Sign Lord Status ---
         
         moon_good_pct = 0
         moon_bad_pct = 0
@@ -373,8 +373,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if planet_cap == 'Moon':
             moon_initial_good_val = good_val
         
-        total_debt = status_neecham_debt  # seed with status-based Neecham penalty (0 unless Neecham)
-        has_debt = (status_neecham_debt != 0.0)
+        total_debt = 0.0
+        has_debt = False
         updated_status = '-'
         is_neechabhangam = False
         is_healthy_neecham_moon = False
@@ -423,6 +423,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if bad_val > 0:
                 total_debt = -bad_val
                 has_debt = True
+
+        # Apply Sign Lord Neecham penalty to debt
+        if lord_neecham_penalty > 0:
+            total_debt -= lord_neecham_penalty
+            has_debt = True
 
         if has_debt:
             debt_str = f"{total_debt:.2f}"
