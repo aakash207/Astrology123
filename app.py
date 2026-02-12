@@ -2493,15 +2493,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     return 10.0
         return 0.0
 
+    _overridden_sthana = {}   # track planets whose sthana was overridden
+
     for _ps_p in _ps_planets:
         _db = planet_data[_ps_p].get('dig_bala') or 0
         _sb = planet_data[_ps_p].get('sthana') or 0
 
         # Override Sthana with good currency sum for negative-status planets
-        _ps_status = planet_data[_ps_p].get('updated_status') or planet_data[_ps_p].get('status', '')
-        if _ps_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+        _neg_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
+        _ps_st = planet_data[_ps_p].get('status', '')
+        _ps_ust = planet_data[_ps_p].get('updated_status', '')
+        if _ps_st in _neg_statuses or _ps_ust in _neg_statuses:
             _sb = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
                       if v > 0.001 and is_good_currency(k))
+            _overridden_sthana[_ps_p] = _sb
 
         _khs_val = _ps_khs(_ps_p)
         _asp_val = _ps_own_asp(_ps_p)
@@ -2528,6 +2533,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
         columns=['Planet', 'Total Strength', 'Score Breakdown'])
+
+    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
+    if _overridden_sthana:
+        for row in rows:
+            p_name = row[0]
+            if p_name in _overridden_sthana:
+                row[9] = f"{_overridden_sthana[p_name]:.2f}%"
+                planet_data[p_name]['sthana'] = _overridden_sthana[p_name]
     # ---- END PLANET STRENGTHS ----
 
     # ── 4. BUILD DATAFRAME ──
