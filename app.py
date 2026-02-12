@@ -337,6 +337,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if sign in uchcham_ruled_signs:
             volume = volume * 1.10
         
+        # STATUS-BASED VOLUME / DEBT ADJUSTMENTS
+        # Positive statuses boost volume; Neecham penalises via debt
+        if status == 'Uchcham':
+            volume = volume * 1.20
+        elif status == 'Moolathirigonam':
+            volume = volume * 1.16
+        elif status == 'Aatchi':
+            volume = volume * 1.12
+        
+        # Neecham: 20% of volume applied as negative debt (set here,
+        # may be further modified by the Neechabhangam block below)
+        status_neecham_debt = 0.0
+        if status == 'Neecham':
+            status_neecham_debt = -(volume * 0.20)
+        
         moon_good_pct = 0
         moon_bad_pct = 0
         if planet_cap == 'Moon':
@@ -358,8 +373,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if planet_cap == 'Moon':
             moon_initial_good_val = good_val
         
-        total_debt = 0.0
-        has_debt = False
+        total_debt = status_neecham_debt  # seed with status-based Neecham penalty (0 unless Neecham)
+        has_debt = (status_neecham_debt != 0.0)
         updated_status = '-'
         is_neechabhangam = False
         is_healthy_neecham_moon = False
