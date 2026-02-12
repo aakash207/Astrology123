@@ -1856,6 +1856,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     P5_MALEFIC_DEBTOR_RANK = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
     leftover_aspects = []
+    all_leftover_clones = []
     
     def get_p5_currency_rank_score(c_key):
         if c_key == 'Jupiter': return 990
@@ -2293,6 +2294,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 inv_str,
                 debt_str
             ])
+            all_leftover_clones.append(clone)
     
     # Format Phase 5 Output
     phase5_rows = []
@@ -2332,6 +2334,44 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         reserve_rows.append([sign_name, reserve_str])
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
+    
+    # ---- HOUSE POINTS ANALYSIS ----
+    house_points_score = {s: 0.0 for s in sign_names}
+    house_points_sources = {s: [] for s in sign_names}
+    
+    hp_malefics = {'Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu'}
+    
+    for clone in all_leftover_clones:
+        parent = clone['parent']
+        parent_L = phase5_data[parent]['L']
+        target_lon = (parent_L + (clone['offset'] - 1) * 30) % 360
+        target_sign = get_sign(target_lon)
+        
+        if parent in hp_malefics:
+            # Case A: Malefic with debt
+            if clone['debt'] < -0.001:
+                penalty = abs(clone['debt'])
+                house_points_score[target_sign] -= penalty
+                house_points_sources[target_sign].append(f"{parent}(Malefic Debt, Asp {clone['offset']})")
+            # Case B: Malefic with no debt -> skip
+        else:
+            # Case C: Benefic — sum all good currencies in inventory
+            good_total = 0.0
+            for c_key, c_val in clone['inventory'].items():
+                if c_val > 0.001 and is_good_currency(c_key):
+                    good_total += c_val
+            if good_total > 0.001:
+                house_points_score[target_sign] += good_total
+                house_points_sources[target_sign].append(f"{parent}(Benefic Bonus, Asp {clone['offset']})")
+    
+    hp_rows = []
+    for s in sign_names:
+        score = house_points_score[s]
+        sources = ', '.join(house_points_sources[s]) if house_points_sources[s] else '-'
+        hp_rows.append([s, f"{score:.2f}", sources])
+    
+    df_house_points = pd.DataFrame(hp_rows, columns=['House Sign', 'Final Points', 'Sources'])
+    # ---- END HOUSE POINTS ----
     
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
@@ -2387,7 +2427,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
-        'df_house_reserves': df_house_reserves,
+        'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2584,6 +2624,9 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
+
+    st.subheader("House Points Analysis")
+    st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
