@@ -2497,12 +2497,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _db = planet_data[_ps_p].get('dig_bala') or 0
         _sb = planet_data[_ps_p].get('sthana') or 0
 
-        # Override Sthana with max positive aspect inventory for negative-status planets
         _ps_status = planet_data[_ps_p].get('updated_status') or planet_data[_ps_p].get('status', '')
-        if _ps_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
-            _good_sum = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
-                           if v > 0.001 and is_good_currency(k))
-            _sb = _good_sum
+        _is_negative = _ps_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
 
         _khs_val = _ps_khs(_ps_p)
         _asp_val = _ps_own_asp(_ps_p)
@@ -2511,13 +2507,23 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if _hp_is_malefic(_ps_p):
             # Malefic: Dig 60%, Sthana 30%, KHS 10%, Asp 10%, Kendra 5%
             s_dig = (_db / 100.0) * 60.0
-            s_sth = (_sb / 100.0) * 30.0
+            if _is_negative:
+                _good_sum = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
+                               if v > 0.001 and is_good_currency(k))
+                s_sth = _good_sum * (30.0 / 100.0)
+            else:
+                s_sth = (_sb / 100.0) * 30.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
             s_bonus = 5.0 if _rh in (1, 4, 7, 10) else 0.0
         else:
             # Benefic: Dig 30%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
             s_dig = (_db / 100.0) * 30.0
-            s_sth = (_sb / 100.0) * 60.0
+            if _is_negative:
+                _good_sum = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
+                               if v > 0.001 and is_good_currency(k))
+                s_sth = _good_sum * (60.0 / 100.0)
+            else:
+                s_sth = (_sb / 100.0) * 60.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
             s_bonus = 5.0 if _rh in (1, 5, 9) else 0.0
 
@@ -2552,7 +2558,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         hl_score = score_str + score_curr
         note_string = f"{lord}: Str({score_str:.2f}) + Curr({score_curr:.2f})"
 
-        total_score = aspect_score[s] + occupant_score[s] + hl_score
+        total_score = aspect_score[s] + occupant_score[s]
         hp_rows.append([s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{hl_score:.2f}", note_string, f"{total_score:.2f}"])
 
