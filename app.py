@@ -2335,42 +2335,111 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
     
-    # ---- HOUSE POINTS ANALYSIS ----
-    house_points_score = {s: 0.0 for s in sign_names}
-    house_points_sources = {s: [] for s in sign_names}
-    
-    hp_malefics = {'Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu'}
-    
+    # ---- HOUSE POINTS ANALYSIS (v2) ----
+    aspect_score   = {s: 0.0 for s in sign_names}
+    aspect_sources = {s: [] for s in sign_names}
+    occupant_score = {s: 0.0 for s in sign_names}
+    occupant_notes = {s: [] for s in sign_names}
+
+    # Helper: classify a parent planet as malefic/benefic based on Phase 5 inventory
+    hp_static_malefics = {'Saturn', 'Mars', 'Sun', 'Rahu'}
+    hp_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
+
+    def _hp_is_malefic(planet_name):
+        if planet_name in hp_static_malefics:
+            return True
+        if planet_name == 'Moon':
+            return phase5_data['Moon']['bad_inv'] > 0.001
+        if planet_name == 'Ketu':
+            return phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001
+        return False
+
+    # Own-good currency key mapping for malefics
+    _own_good_key = {
+        'Saturn': 'Good Saturn', 'Mars': 'Good Mars', 'Sun': 'Good Sun',
+        'Rahu': 'Good Rahu', 'Ketu': 'Good Ketu', 'Moon': 'Good Moon'
+    }
+
+    # ── 1. ASPECT SCORE (from Phase 5 leftover clones) ──
     for clone in all_leftover_clones:
         parent = clone['parent']
         parent_L = phase5_data[parent]['L']
         target_lon = (parent_L + (clone['offset'] - 1) * 30) % 360
         target_sign = get_sign(target_lon)
-        
-        if parent in hp_malefics:
-            # Case A: Malefic with debt
+
+        if _hp_is_malefic(parent):
+            # Rule A – Debt Penalty (not exclusive with Rule B)
             if clone['debt'] < -0.001:
                 penalty = abs(clone['debt'])
-                house_points_score[target_sign] -= penalty
-                house_points_sources[target_sign].append(f"{parent}(Malefic Debt, Asp {clone['offset']})")
-            # Case B: Malefic with no debt -> skip
+                aspect_score[target_sign] -= penalty
+                aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
+
+            # Rule B – Own Good / 2
+            own_key = _own_good_key.get(parent)
+            if own_key:
+                own_val = clone['inventory'].get(own_key, 0.0)
+                if own_val > 0.001:
+                    bonus = own_val / 2.0
+                    aspect_score[target_sign] += bonus
+                    aspect_sources[target_sign].append(f"{parent}(Own Good/2)")
         else:
-            # Case C: Benefic — sum all good currencies in inventory
+            # Benefic – sum all good currencies
             good_total = 0.0
             for c_key, c_val in clone['inventory'].items():
                 if c_val > 0.001 and is_good_currency(c_key):
                     good_total += c_val
             if good_total > 0.001:
-                house_points_score[target_sign] += good_total
-                house_points_sources[target_sign].append(f"{parent}(Benefic Bonus, Asp {clone['offset']})")
-    
+                aspect_score[target_sign] += good_total
+                aspect_sources[target_sign].append(f"{parent}(Benefic Bonus)")
+
+    # ── 2. OCCUPANT SCORE (Phase 5 final inventory of planets in each house) ──
+    # Build sign→planets mapping from planet_sign_map
+    sign_occupants = defaultdict(list)
+    for p_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        occ_sign = planet_sign_map[p_name]
+        sign_occupants[occ_sign].append(p_name)
+
+    for s in sign_names:
+        for occ in sign_occupants.get(s, []):
+            inv = phase5_data[occ]['p5_inventory']
+            if _hp_is_malefic(occ):
+                total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+                total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+                net = total_good - total_bad
+                occupant_score[s] += net
+                occupant_notes[s].append(f"{occ}(Good-Bad)")
+            else:
+                total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+                if total_good > 0.001:
+                    occupant_score[s] += total_good
+                    occupant_notes[s].append(f"{occ}(Benefic Sum)")
+
+    # ── 3. BONUS ADJUSTMENT – deduct used Phase 4 gift pots ──
+    hp_gift_pot_config = {
+        'Sagittarius': ('Jupiter', 100),
+        'Pisces': ('Jupiter', 80),
+        'Libra': ('Venus', 80),
+        'Taurus': ('Venus', 60)
+    }
+    for gift_sign, (gifter, multiplier) in hp_gift_pot_config.items():
+        gifter_sthana = planet_data[gifter]['sthana']
+        original_pot = multiplier * (gifter_sthana / 100.0)
+        # Unused reserve = sum of all currency amounts stored for this sign
+        unused_reserve = sum(v for v in house_reserves[gift_sign].values() if v > 0.001)
+        used_amount = original_pot - unused_reserve
+        if used_amount > 0.001:
+            occupant_score[gift_sign] -= used_amount
+            occupant_notes[gift_sign].append(f"Less Used Bonus[-{used_amount:.2f}]")
+
+    # ── 4. BUILD DATAFRAME ──
     hp_rows = []
     for s in sign_names:
-        score = house_points_score[s]
-        sources = ', '.join(house_points_sources[s]) if house_points_sources[s] else '-'
-        hp_rows.append([s, f"{score:.2f}", sources])
-    
-    df_house_points = pd.DataFrame(hp_rows, columns=['House Sign', 'Final Points', 'Sources'])
+        a_src = ', '.join(aspect_sources[s]) if aspect_sources[s] else '-'
+        o_src = ', '.join(occupant_notes[s]) if occupant_notes[s] else '-'
+        hp_rows.append([s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src])
+
+    df_house_points = pd.DataFrame(hp_rows,
+        columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes'])
     # ---- END HOUSE POINTS ----
     
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
