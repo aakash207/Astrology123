@@ -2361,7 +2361,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     }
 
     # ── Lagna Lord Protection ──
-    lagna_lord = get_sign_lord(get_sign(lagna_sid))
+    lagna_sign_hp = get_sign(lagna_sid)
+    lagna_lord = get_sign_lord(lagna_sign_hp)
     is_malefic_lagna_lord = (
         lagna_lord in ('Sun', 'Mars', 'Saturn')
         or (lagna_lord == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
@@ -2377,10 +2378,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if _hp_is_malefic(parent):
             # Rule A – Debt Penalty (not exclusive with Rule B)
             if clone['debt'] < -0.001:
-                if parent == lagna_lord and is_malefic_lagna_lord:
+                if parent == lagna_lord and is_malefic_lagna_lord and target_sign == lagna_sign_hp:
                     penalty = abs(clone['debt']) / 2.0
                     aspect_score[target_sign] -= penalty
-                    aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2)")
+                    aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2 [Lagna])")
                 else:
                     penalty = abs(clone['debt'])
                     aspect_score[target_sign] -= penalty
@@ -2417,11 +2418,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if _hp_is_malefic(occ):
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
                 total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-                if occ == lagna_lord and is_malefic_lagna_lord:
+                if occ == lagna_lord and is_malefic_lagna_lord and s == lagna_sign_hp:
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL])")
+                    occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
                 else:
                     net = total_good - total_bad
                     occupant_score[s] += net
