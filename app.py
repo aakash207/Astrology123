@@ -2361,7 +2361,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     }
 
     # ── Lagna Lord Protection ──
-    lagna_lord = get_sign_lord(lagna_sign)
+    lagna_lord = get_sign_lord(get_sign(lagna_sid))
     is_malefic_lagna_lord = (
         lagna_lord in ('Sun', 'Mars', 'Saturn')
         or (lagna_lord == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
