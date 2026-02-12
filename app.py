@@ -1827,27 +1827,36 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     phase5_data = {}
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        # Scale Phase 5 values by Sthana Bala to cap aspect strength
-        sthana_p5 = planet_data[p]['sthana']
-        scale_p5 = sthana_p5 / 120.0
-
-        raw_debt = phase4_data[p]['p4_current_debt']
-        raw_volume = phase4_data[p]['volume']
-
         phase5_data[p] = {
             'p5_inventory': defaultdict(float),
-            'p5_current_debt': raw_debt * scale_p5,
-            'volume': raw_volume * scale_p5,
+            'p5_current_debt': phase4_data[p]['p4_current_debt'],
+            'volume': phase4_data[p]['volume'],
             'L': phase4_data[p]['L'],
             'rasi_house': phase4_data[p]['rasi_house'],
             'sign': phase4_data[p]['sign'],
             'bad_inv': 0.0
         }
         for k, v in phase4_data[p]['p4_inventory'].items():
-            scaled_v = v * scale_p5
-            phase5_data[p]['p5_inventory'][k] = scaled_v
+            phase5_data[p]['p5_inventory'][k] = v
             if 'Bad' in k:
-                phase5_data[p]['bad_inv'] += scaled_v
+                phase5_data[p]['bad_inv'] += v
+
+        # ── Sthana-based scaling for Malefic Neecham/Neechabhangam planets ──
+        _p5_is_malefic = (
+            p in ('Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu')
+            or (p == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
+        )
+        _p5_status = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
+        if _p5_is_malefic and _p5_status in ('Neecham', 'Neechabhangam'):
+            _sf = planet_data[p]['sthana'] / 120.0
+            phase5_data[p]['p5_current_debt'] *= _sf
+            phase5_data[p]['volume'] *= _sf
+            scaled_bad = 0.0
+            for k in phase5_data[p]['p5_inventory']:
+                phase5_data[p]['p5_inventory'][k] *= _sf
+                if 'Bad' in k:
+                    scaled_bad += phase5_data[p]['p5_inventory'][k]
+            phase5_data[p]['bad_inv'] = scaled_bad
     
     P5_STANDARD_MALEFICS = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu']
     P5_STANDARD_BENEFICS = ['Jupiter', 'Venus', 'Mercury']
