@@ -2336,17 +2336,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             limit = 100.0
 
         cap = capacity_dict.get(p, 100)
-        raw_norm_A = (net_token / cap) * 100.0 if cap else 0.0
-        raw_norm_B = (adj_token / cap) * 100.0 if cap else 0.0
+        vol = phase5_data[p]['volume']
+        raw_norm_A = (net_token / vol) * 100.0 if vol > 0.001 else 0.0
+        raw_norm_B = (adj_token / vol) * 100.0 if vol > 0.001 else 0.0
         final_norm_A = min(limit, raw_norm_A)
         final_norm_B = min(limit, raw_norm_B)
 
         lord_norm_scores[p] = final_norm_B
-        norm_rows.append([p, cap, f"{net_token:.2f}", f"{final_norm_A:.2f}",
+        norm_rows.append([p, cap, f"{vol:.2f}", f"{net_token:.2f}", f"{final_norm_A:.2f}",
                           f"{adj_token:.2f}", f"{final_norm_B:.2f}"])
 
     df_normalized_planets = pd.DataFrame(norm_rows,
-        columns=['Planet', 'Capacity', 'Net Token (Raw)', 'Norm Score',
+        columns=['Planet', 'Capacity', 'Volume', 'Net Token (Raw)', 'Norm Score',
                  'Adj Token (Lord)', 'Norm Lord Score'])
     # ── END NORMALIZED PLANET TOKENS ──
 
