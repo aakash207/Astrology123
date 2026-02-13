@@ -2337,8 +2337,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         cap = capacity_dict.get(p, 100)
         vol = phase5_data[p]['volume']
-        raw_norm_A = (net_token / vol) * 100.0 if vol > 0.001 else 0.0
-        raw_norm_B = (adj_token / vol) * 100.0 if vol > 0.001 else 0.0
+        # For Moon, use its initial volume from planet_data as the divisor
+        # (Moon's capacity is dynamic based on Tithi)
+        if p == 'Moon':
+            norm_divisor = planet_data['Moon']['volume']
+        else:
+            norm_divisor = vol
+        raw_norm_A = (net_token / norm_divisor) * 100.0 if norm_divisor > 0.001 else 0.0
+        raw_norm_B = (adj_token / norm_divisor) * 100.0 if norm_divisor > 0.001 else 0.0
         final_norm_A = min(limit, raw_norm_A)
         final_norm_B = min(limit, raw_norm_B)
 
