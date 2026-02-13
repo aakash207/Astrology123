@@ -2483,6 +2483,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                       if v > 0.001 and is_good_currency(k))
             _overridden_sthana[_ps_p] = _sb
 
+        # Parivardhana Yoga: override Sthana with swapped sign score
+        _pari_note = ''
+        _pari_entry = parivardhana_map.get(_ps_p, '')
+        if _pari_entry and not _is_negative:
+            _partner_name = _pari_entry.split(' (')[0]
+            _partner_sign = planet_sign_map.get(_partner_name, '')
+            if _partner_sign and _partner_sign in sign_names:
+                _partner_idx = sign_names.index(_partner_sign)
+                _sb = sthana_bala_dict.get(_ps_p, [0]*12)[_partner_idx]
+                _pari_note = f'(Pari->{_partner_sign})'
+
         _khs_val = _ps_khs(_ps_p)
         _asp_val = _ps_own_asp(_ps_p)
         _rh = phase5_data[_ps_p]['rasi_house']
@@ -2523,7 +2534,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         final = base_total + s_bonus
         planet_final_strengths[_ps_p] = final
-        brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f} + "
+        brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f}{_pari_note} + "
                  f"KHS:{_khs_val:.2f} + Asp:{_asp_val:.2f} + "
                  f"HLord:{_hl_adj:+.2f}({_ps_lord}={_lord_st}) + Bonus:{s_bonus:.2f}")
         planet_strength_rows.append([_ps_p, f"{final:.2f}", brkdn])
