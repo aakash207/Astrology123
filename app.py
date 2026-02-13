@@ -1840,23 +1840,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             phase5_data[p]['p5_inventory'][k] = v
             if 'Bad' in k:
                 phase5_data[p]['bad_inv'] += v
-
-        # ── Sthana-based scaling for Malefic Neecham/Neechabhangam planets ──
-        _p5_is_malefic = (
-            p in ('Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu')
-            or (p == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
-        )
-        _p5_status = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
-        if _p5_is_malefic and _p5_status in ('Neecham', 'Neechabhangam'):
-            _sf = planet_data[p]['sthana'] / 120.0
-            phase5_data[p]['p5_current_debt'] *= _sf
-            phase5_data[p]['volume'] *= _sf
-            scaled_bad = 0.0
-            for k in phase5_data[p]['p5_inventory']:
-                phase5_data[p]['p5_inventory'][k] *= _sf
-                if 'Bad' in k:
-                    scaled_bad += phase5_data[p]['p5_inventory'][k]
-            phase5_data[p]['bad_inv'] = scaled_bad
     
     P5_STANDARD_MALEFICS = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu']
     P5_STANDARD_BENEFICS = ['Jupiter', 'Venus', 'Mercury']
@@ -1905,6 +1888,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         parent_data = phase5_data[current_planet]
         parent_L = parent_data['L']
         parent_debt = parent_data['p5_current_debt']
+
+        # Local scaling for Malefic Neecham/Neechabhangam planets (applied to clones only)
+        _cp_is_malefic = (
+            current_planet in ('Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu')
+            or (current_planet == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
+        )
+        _cp_status = planet_data[current_planet].get('updated_status') or planet_data[current_planet].get('status', '')
+        if _cp_is_malefic and _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+            scaling_factor = planet_data[current_planet]['sthana'] / 120.0
+        else:
+            scaling_factor = 1.0
         
         # Part A: Clone Creation
         clones = []
@@ -1923,11 +1917,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     if is_good_currency(k) and v > 0.001:
                         good_sum += v / 2.0
                 
-                clone_value = aspect_pct * good_sum
+                clone_value = aspect_pct * good_sum * scaling_factor
                 if clone_value > 0.001:
                     clone_inventory['Good Saturn'] = clone_value
                 
-                clone_debt = parent_debt * aspect_pct
+                clone_debt = parent_debt * aspect_pct * scaling_factor
                 clone_type = 'Active'
                 
             elif current_planet == 'Mars':
@@ -1939,11 +1933,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         else:
                             good_sum += v / 2.0
                 
-                clone_value = aspect_pct * good_sum
+                clone_value = aspect_pct * good_sum * scaling_factor
                 if clone_value > 0.001:
                     clone_inventory['Good Mars'] = clone_value
                 
-                clone_debt = parent_debt * aspect_pct
+                clone_debt = parent_debt * aspect_pct * scaling_factor
                 clone_type = 'Active'
                 
             elif current_planet in ['Jupiter', 'Venus', 'Mercury']:
@@ -1952,7 +1946,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     if is_good_currency(k) and v > 0.001:
                         good_sum += v
                 
-                clone_value = aspect_pct * good_sum
+                clone_value = aspect_pct * good_sum * scaling_factor
                 if clone_value > 0.001:
                     clone_inventory[current_planet] = clone_value
                 
@@ -1967,7 +1961,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         other_good_sum += v
                 
                 total_value = good_moon_val + (other_good_sum / 2.0)
-                clone_value = aspect_pct * total_value
+                clone_value = aspect_pct * total_value * scaling_factor
                 if clone_value > 0.001:
                     clone_inventory['Good Moon'] = clone_value
                 
@@ -2534,24 +2528,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
         columns=['Planet', 'Total Strength', 'Score Breakdown'])
 
-    # Build Updated Planet Strengths table showing overridden Sthana for Neecham/Neechabhangam
-    updated_ps_rows = []
-    for _ps_p in _ps_planets:
-        orig_sthana = planet_data[_ps_p]['sthana']
-        if _ps_p in _overridden_sthana:
-            used_sthana = _overridden_sthana[_ps_p]
-            sthana_note = f"{used_sthana:.2f} (Phase 5 Good Currency)"
-        else:
-            used_sthana = orig_sthana
-            sthana_note = f"{used_sthana}"
-        updated_ps_rows.append([
-            _ps_p,
-            f"{orig_sthana}%",
-            sthana_note,
-            f"{planet_final_strengths[_ps_p]:.2f}"
-        ])
-    df_updated_planet_strengths = pd.DataFrame(updated_ps_rows,
-        columns=['Planet', 'Original Sthana', 'Used Sthana', 'Final Strength'])
+    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
+    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
+    if _overridden_sthana:
+        for row in rows:
+            p_name = row[0]
+            if p_name in _overridden_sthana:
+                row[9] = f"{_overridden_sthana[p_name]:.2f}%"
+                planet_data[p_name]['sthana'] = _overridden_sthana[p_name]
+        # Recreate df_planets so it reflects the overridden Sthana Bala values
+        df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
+                                                 'Parivardhana',
+                                                 'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
+                                                 'Volume', 'Default Currencies', 'Debt'])
     # ---- END PLANET STRENGTHS ----
 
     # ── 4. BUILD DATAFRAME ──
@@ -2640,7 +2629,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
-        'df_updated_planet_strengths': df_updated_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2844,8 +2832,6 @@ if st.session_state.chart_data:
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
 
-    st.subheader("Updated Planet Strengths (Neecham/Neechabhangam Override)")
-    st.dataframe(cd['df_updated_planet_strengths'], hide_index=True, use_container_width=True)
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
     size = (1.8, 1.8)
