@@ -2311,66 +2311,43 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
 
-    # ── NORMALIZED PLANET TOKENS (for House Lord Score) ──
+    # ── NORMALIZED PLANET TOKENS ──
     lord_norm_scores = {}
     norm_rows = []
     neecham_statuses = ['Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga']
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
-        base_capacity = capacity_dict.get(p, 100)
-        sthana = planet_data[p].get('sthana', 100) if p in planet_data else 100
-        cap = base_capacity * (sthana / 100.0)  # actual capacity factoring sthana
-        uncap = base_capacity * (100.0 / 100.0)  # capacity assuming sthana = 100%
-
         good_sum = sum(v for k, v in inv.items() if is_good_currency(k))
         bad_sum = sum(v for k, v in inv.items() if 'Bad' in k)
         own_bad_key = f"Bad {p}"
         own_bad_val = inv.get(own_bad_key, 0.0)
 
-        # Net Token (Raw): good - bad
-        net_tokens = good_sum - bad_sum
-        # Adj Token (Lord): good - (bad - own_bad)  i.e. exclude own bad
-        adj_tokens = good_sum - (bad_sum - own_bad_val)
+        # Score A (Standard Net): good - bad
+        net_token = good_sum - bad_sum
+        # Score B (Adjusted for Lord): good - (bad - own_bad)  i.e. exclude own bad
+        adj_token = good_sum - (bad_sum - own_bad_val)
 
-        # Determine cap limit
-        _p_st = planet_data[p].get('status', '') if p in planet_data else ''
-        _p_ust = planet_data[p].get('updated_status', '') if p in planet_data else ''
-        if _p_st in neecham_statuses or _p_ust in neecham_statuses:
+        # Cap limit: 120 for Neecham planets, 100 otherwise
+        p_st = planet_data[p].get('status', '')
+        p_ust = planet_data[p].get('updated_status', '')
+        if p_st in neecham_statuses or p_ust in neecham_statuses:
             limit = 120.0
         else:
             limit = 100.0
 
-        # Standard Normalized Scores (based on actual capacity)
-        raw_norm_A = (net_tokens / cap) * 100.0 if cap else 0.0
-        raw_norm_B = (adj_tokens / cap) * 100.0 if cap else 0.0
+        cap = capacity_dict.get(p, 100)
+        raw_norm_A = (net_token / cap) * 100.0 if cap else 0.0
+        raw_norm_B = (adj_token / cap) * 100.0 if cap else 0.0
         final_norm_A = min(limit, raw_norm_A)
         final_norm_B = min(limit, raw_norm_B)
 
-        # Uncapped Scores (assuming sthana = 100% for all)
-        uncapped_raw_A = (net_tokens / uncap) * 100.0 if uncap else 0.0
-        uncapped_raw_B = (adj_tokens / uncap) * 100.0 if uncap else 0.0
-        final_uncapped_A = min(limit, uncapped_raw_A)
-        final_uncapped_B = min(limit, uncapped_raw_B)
-
-        # Currency Percentage String
-        currency_parts = []
-        for k, v in inv.items():
-            if v > 0.001:
-                pct = (v / cap) * 100.0 if cap else 0.0
-                currency_parts.append(f"{k}: {pct:.1f}%")
-        currency_str = ', '.join(currency_parts) if currency_parts else '-'
-
         lord_norm_scores[p] = final_norm_B
-        norm_rows.append([p, cap,
-                          f"{net_tokens:.2f}", f"{final_norm_A:.2f}",
-                          f"{adj_tokens:.2f}", f"{final_norm_B:.2f}",
-                          f"{final_uncapped_A:.2f}", f"{final_uncapped_B:.2f}",
-                          currency_str])
+        norm_rows.append([p, cap, f"{net_token:.2f}", f"{final_norm_A:.2f}",
+                          f"{adj_token:.2f}", f"{final_norm_B:.2f}"])
 
     df_normalized_planets = pd.DataFrame(norm_rows,
         columns=['Planet', 'Capacity', 'Net Token (Raw)', 'Norm Score',
-                 'Adj Token (Lord)', 'Norm Lord Score',
-                 'Uncapped Norm', 'Uncapped Lord Score', 'Currency % Held'])
+                 'Adj Token (Lord)', 'Norm Lord Score'])
     # ── END NORMALIZED PLANET TOKENS ──
 
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
@@ -2907,7 +2884,7 @@ if st.session_state.chart_data:
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
 
-    st.subheader("Normalised Planet Scores")
+    st.subheader("Normalized Planet Tokens")
     st.dataframe(cd['df_normalized_planets'], hide_index=True, use_container_width=True)
 
     st.subheader("House Points Analysis")
