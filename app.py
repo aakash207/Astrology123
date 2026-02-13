@@ -2487,6 +2487,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _asp_val = _ps_own_asp(_ps_p)
         _rh = phase5_data[_ps_p]['rasi_house']
 
+        # House Lord Status bonus/penalty
+        _ps_sign = phase5_data[_ps_p]['sign']
+        _ps_lord = get_sign_lord(_ps_sign)
+        _lord_st = planet_status_map.get(_ps_lord, '-') if _ps_lord else '-'
+        if _lord_st == 'Uchcham':
+            _hl_adj = 10.0
+        elif _lord_st == 'Moolathirigonam':
+            _hl_adj = 8.0
+        elif _lord_st == 'Aatchi':
+            _hl_adj = 6.0
+        elif _lord_st == 'Neecham':
+            _hl_adj = -10.0
+        else:
+            _hl_adj = 0.0
+
         if _hp_is_malefic(_ps_p):
             # Malefic: Dig 60%, Sthana 40%, KHS 10%, Asp 10%, Kendra 5%
             s_dig = (_db / 100.0) * 60.0
@@ -2494,7 +2509,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 s_sth = _sb * (40.0 / 100.0)
             else:
                 s_sth = (_sb / 100.0) * 40.0
-            base_total = s_dig + s_sth + _khs_val + _asp_val
+            base_total = s_dig + s_sth + _khs_val + _asp_val + _hl_adj
             s_bonus = 5.0 if _rh in (1, 4, 7, 10) else 0.0
         else:
             # Benefic: Dig 40%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
@@ -2503,13 +2518,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 s_sth = _sb * (60.0 / 100.0)
             else:
                 s_sth = (_sb / 100.0) * 60.0
-            base_total = s_dig + s_sth + _khs_val + _asp_val
+            base_total = s_dig + s_sth + _khs_val + _asp_val + _hl_adj
             s_bonus = 5.0 if _rh in (1, 5, 9) else 0.0
 
         final = base_total + s_bonus
         planet_final_strengths[_ps_p] = final
         brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f} + "
-                 f"KHS:{_khs_val:.2f} + Asp:{_asp_val:.2f} + Bonus:{s_bonus:.2f}")
+                 f"KHS:{_khs_val:.2f} + Asp:{_asp_val:.2f} + "
+                 f"HLord:{_hl_adj:+.2f}({_ps_lord}={_lord_st}) + Bonus:{s_bonus:.2f}")
         planet_strength_rows.append([_ps_p, f"{final:.2f}", brkdn])
 
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
