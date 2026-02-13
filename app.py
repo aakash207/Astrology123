@@ -2305,9 +2305,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         d_p5 = phase5_data[p]
-        phase5_rows.append([p, d_p5['currency_p5'], d_p5['debt_p5']])
+        inv = phase5_data[p]['p5_inventory']
+        net_score = sum(v if is_good_currency(k) else -v for k, v in inv.items())
+        phase5_rows.append([p, d_p5['currency_p5'], d_p5['debt_p5'], f"{net_score:.2f}"])
     
-    df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]'])
+    df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
     
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
     
