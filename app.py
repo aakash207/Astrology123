@@ -2310,52 +2310,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         phase5_rows.append([p, d_p5['currency_p5'], d_p5['debt_p5'], f"{net_score:.2f}"])
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
-
-    # ── NORMALIZED PLANET TOKENS ──
-    lord_norm_scores = {}
-    norm_rows = []
-    neecham_statuses = ['Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga']
-    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        inv = phase5_data[p]['p5_inventory']
-        good_sum = sum(v for k, v in inv.items() if is_good_currency(k))
-        bad_sum = sum(v for k, v in inv.items() if 'Bad' in k)
-        own_bad_key = f"Bad {p}"
-        own_bad_val = inv.get(own_bad_key, 0.0)
-
-        # Score A (Standard Net): good - bad
-        net_token = good_sum - bad_sum
-        # Score B (Adjusted for Lord): good - (bad - own_bad)  i.e. exclude own bad
-        adj_token = good_sum - (bad_sum - own_bad_val)
-
-        # Cap limit: 120 for Neecham planets, 100 otherwise
-        p_st = planet_data[p].get('status', '')
-        p_ust = planet_data[p].get('updated_status', '')
-        if p_st in neecham_statuses or p_ust in neecham_statuses:
-            limit = 120.0
-        else:
-            limit = 100.0
-
-        cap = capacity_dict.get(p, 100)
-        vol = phase5_data[p]['volume']
-
-        # Normalize by total_holding (good + bad) for all planets
-        total_holding = good_sum + bad_sum
-        norm_divisor = total_holding if total_holding > 0.001 else 1.0
-
-        raw_norm_A = (net_token / norm_divisor) * 100.0
-        raw_norm_B = (adj_token / norm_divisor) * 100.0
-        final_norm_A = min(limit, raw_norm_A)
-        final_norm_B = min(limit, raw_norm_B)
-
-        lord_norm_scores[p] = final_norm_B
-        norm_rows.append([p, cap, f"{vol:.2f}", f"{net_token:.2f}", f"{final_norm_A:.2f}",
-                          f"{adj_token:.2f}", f"{final_norm_B:.2f}"])
-
-    df_normalized_planets = pd.DataFrame(norm_rows,
-        columns=['Planet', 'Capacity', 'Volume', 'Net Token (Raw)', 'Norm Score',
-                 'Adj Token (Lord)', 'Norm Lord Score'])
-    # ── END NORMALIZED PLANET TOKENS ──
-
+    
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
     
     # CREATE HOUSE RESERVES DATAFRAME
@@ -2614,12 +2569,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         house_planetary_score = aspect_score[s] + occupant_score[s]
 
-        # House Lord Score = (lord strength / 2) + (normalized lord score / 2)
+        # House Lord Score = (lord strength / 2) + (lord net currency / 2)
+        # Exclude the lord's own bad currency from net calculation
         lord = get_sign_lord(s)
         lord_strength = planet_final_strengths.get(lord, 0.0)
-        norm_lord_score = lord_norm_scores.get(lord, 0.0)
-        hl_score = (lord_strength / 2.0) + (norm_lord_score / 2.0)
-        hl_notes = f"{lord}: Str({lord_strength/2.0:.2f}) + NormScore({norm_lord_score/2.0:.2f})"
+        inv = phase5_data[lord]['p5_inventory']
+        lord_good = sum(v for k, v in inv.items() if is_good_currency(k))
+        lord_bad = sum(v for k, v in inv.items() if 'Bad' in k)
+        own_bad_key = f"Bad {lord}"
+        own_bad_val = inv.get(own_bad_key, 0.0)
+        lord_net_currency = lord_good - lord_bad + own_bad_val
+        hl_score = (lord_strength / 2.0) + (lord_net_currency / 2.0)
+        hl_notes = f"{lord}: Str({lord_strength/2.0:.2f}) + NetCurr({lord_net_currency/2.0:.2f})"
 
         # Total House Points = (House Planetary Score / 2) + (House Lord Score / 2)
         total_hp = (house_planetary_score / 2.0) + (hl_score / 2.0)
@@ -2692,7 +2653,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
-        'df_planet_strengths': df_planet_strengths, 'df_normalized_planets': df_normalized_planets,
+        'df_planet_strengths': df_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -2889,9 +2850,6 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
-
-    st.subheader("Normalized Planet Tokens")
-    st.dataframe(cd['df_normalized_planets'], hide_index=True, use_container_width=True)
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
