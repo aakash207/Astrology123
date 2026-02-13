@@ -2561,7 +2561,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # ── 4. BUILD DATAFRAME ──
     hp_rows = []
-    for s in sign_names:
+    _hp_lagna_idx = sign_names.index(get_sign(lagna_sid))
+    for h_num in range(1, 13):
+        s = sign_names[(_hp_lagna_idx + h_num - 1) % 12]
         a_src = ', '.join(aspect_sources[s]) if aspect_sources[s] else '-'
         o_src = ', '.join(occupant_notes[s]) if occupant_notes[s] else '-'
 
@@ -2584,13 +2586,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         total_hp = (house_planetary_score / 2.0) + (hl_score / 2.0)
         total_hp_notes = f"HPS({house_planetary_score/2.0:.2f}) + HLS({hl_score/2.0:.2f})"
 
-        hp_rows.append([s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
+        hp_rows.append([h_num, s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{house_planetary_score:.2f}",
                         f"{hl_score:.2f}", hl_notes,
                         f"{total_hp:.2f}", total_hp_notes])
 
     df_house_points = pd.DataFrame(hp_rows,
-        columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes',
+        columns=['House', 'House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes',
                  'House Planetary Score',
                  'House Lord Score', 'House Lord Score Notes',
                  'Total House Points', 'Total House Points Notes'])
