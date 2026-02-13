@@ -2497,7 +2497,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _neg_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
         _ps_st = planet_data[_ps_p].get('status', '')
         _ps_ust = planet_data[_ps_p].get('updated_status', '')
-        if _ps_st in _neg_statuses or _ps_ust in _neg_statuses:
+        _is_negative = _ps_st in _neg_statuses or _ps_ust in _neg_statuses
+        if _is_negative:
             _sb = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
                       if v > 0.001 and is_good_currency(k))
             _overridden_sthana[_ps_p] = _sb
@@ -2507,15 +2508,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _rh = phase5_data[_ps_p]['rasi_house']
 
         if _hp_is_malefic(_ps_p):
-            # Malefic: Dig 60%, Sthana 30%, KHS 10%, Asp 10%, Kendra 5%
+            # Malefic: Dig 60%, Sthana 40%, KHS 10%, Asp 10%, Kendra 5%
             s_dig = (_db / 100.0) * 60.0
-            s_sth = (_sb / 100.0) * 30.0
+            if _is_negative:
+                s_sth = _sb * (40.0 / 100.0)
+            else:
+                s_sth = (_sb / 100.0) * 40.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
             s_bonus = 5.0 if _rh in (1, 4, 7, 10) else 0.0
         else:
-            # Benefic: Dig 30%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
-            s_dig = (_db / 100.0) * 30.0
-            s_sth = (_sb / 100.0) * 60.0
+            # Benefic: Dig 40%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
+            s_dig = (_db / 100.0) * 40.0
+            if _is_negative:
+                s_sth = _sb * (60.0 / 100.0)
+            else:
+                s_sth = (_sb / 100.0) * 60.0
             base_total = s_dig + s_sth + _khs_val + _asp_val
             s_bonus = 5.0 if _rh in (1, 5, 9) else 0.0
 
