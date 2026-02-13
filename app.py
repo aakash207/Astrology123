@@ -337,21 +337,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if sign in uchcham_ruled_signs:
             volume = volume * 1.10
         
-        # --- Sign Lord Status: boost volume or track debt penalty ---
-        lord_neecham_penalty = 0.0
-        _sign_lord = get_sign_lord(sign)
-        if _sign_lord and _sign_lord in planet_status_map:
-            _lord_status = planet_status_map[_sign_lord]
-            if _lord_status == 'Uchcham':
-                volume = volume * 1.20
-            elif _lord_status == 'Moolathirigonam':
-                volume = volume * 1.16
-            elif _lord_status == 'Aatchi':
-                volume = volume * 1.12
-            elif _lord_status == 'Neecham':
-                lord_neecham_penalty = volume * 0.20
-        # --- End Sign Lord Status ---
-        
         moon_good_pct = 0
         moon_bad_pct = 0
         if planet_cap == 'Moon':
@@ -423,11 +408,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if bad_val > 0:
                 total_debt = -bad_val
                 has_debt = True
-
-        # Apply Sign Lord Neecham penalty to debt
-        if lord_neecham_penalty > 0:
-            total_debt -= lord_neecham_penalty
-            has_debt = True
 
         if has_debt:
             debt_str = f"{total_debt:.2f}"
