@@ -2331,22 +2331,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ---- NORMALIZED PLANET SCORE ----
     _ns_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
     _ns_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
+    _neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
 
     normalized_rows = []
     normalized_scores_dict = {}  # for use in House Points later
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
         p5_debt = phase5_data[p]['p5_current_debt']  # usually negative
-        abs_debt = abs(p5_debt)
+        p_capacity = capacity_dict.get(p, 100)
 
-        # Step A: Inventory totals
-        total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
-        total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-        self_bad   = inv.get(f'Bad {p}', 0.0)
+        # --- Variable Definitions ---
+        total_good  = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+        total_bad   = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+        self_bad    = inv.get(f'Bad {p}', 0.0)
         foreign_bad = max(total_bad - self_bad, 0.0)
-        total_holding = total_good + total_bad
 
-        # Step B: Classify Malefic / Benefic
+        # Status & Classification
+        _ns_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
+        is_neecha = _ns_st in _neecha_statuses
+
         if p in _ns_static_malefics:
             is_malefic = True
         elif p == 'Moon':
@@ -2354,31 +2357,60 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             is_malefic = False  # Jupiter, Venus, Mercury
 
-        # Step C: Multiplier (Neecha scale)
-        _ns_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
-        neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
-        multiplier = 120 if _ns_st in neecha_statuses else 100
+        # --- 3-Case Logic ---
+        if is_neecha:
+            # ===== CASE 3: Neecha Override =====
+            multiplier = 120
+            score = 120.0
+            if p5_debt < 0:
+                norm_debt = ((abs(p5_debt) / 1.2) / p_capacity) * 100
+                score = 120.0 - norm_debt
+            final_score = max(min(score, 120.0), 0.0)
 
-        # Step D: Denominator — same for both paths
-        denom = total_holding + abs_debt
-        if denom < 0.1:
-            denom = 0.1
+            calc_note = (f"[CASE3-Neecha] Score=120 - NormDebt("
+                         f"(|{p5_debt:.2f}|/1.2)/{p_capacity})*100 = {final_score:.2f} | "
+                         f"Capacity={p_capacity}, Debt={p5_debt:.2f}")
 
-        # Step E: Numerator — differs by nature
-        if is_malefic:
-            num = total_good + self_bad
-            calc_note = (f"[Malefic] Num({total_good:.2f}G+{self_bad:.2f}SB) / "
-                         f"Denom({total_holding:.2f}H+{abs_debt:.2f}D) * {multiplier} | "
-                         f"ForeignBad={foreign_bad:.2f}")
+        elif is_malefic:
+            # ===== CASE 2: Standard Malefic =====
+            multiplier = 100
+
+            # Deductor 1: Foreign Bad overwhelms Good
+            if total_good < foreign_bad:
+                deductor1 = ((foreign_bad - total_good) / p_capacity) * 100
+            else:
+                deductor1 = 0.0
+
+            # Deductor 2: Debt penalty when Good exceeds Self Bad
+            deductor2 = 0.0
+            if total_good > self_bad and p5_debt < 0:
+                diff_foreign_good = total_good - self_bad
+                update_diff = foreign_bad - diff_foreign_good
+                deductor2 = (update_diff / p_capacity) * 100
+
+            score = 100.0 - (deductor1 + deductor2)
+            final_score = max(min(score, 100.0), 0.0)
+
+            calc_note = (f"[CASE2-Malefic] 100 - (D1[{deductor1:.2f}] + D2[{deductor2:.2f}]) = {final_score:.2f} | "
+                         f"TotalGood={total_good:.2f}, SelfBad={self_bad:.2f}, "
+                         f"ForeignBad={foreign_bad:.2f}, Debt={p5_debt:.2f}, Cap={p_capacity}")
+
         else:
-            num = total_good
-            calc_note = (f"[Benefic] Num({total_good:.2f}G) / "
-                         f"Denom({total_holding:.2f}H+{abs_debt:.2f}D) * {multiplier} | "
-                         f"TotalBad={total_bad:.2f}, SelfBad={self_bad:.2f}")
+            # ===== CASE 1: Standard Benefic =====
+            multiplier = 100
+            a_val = total_good + ((-1 * p5_debt) - self_bad)
+            b_val = total_good - (total_bad - self_bad)
 
-        # Step F: Score & cap
-        raw_score = (num / denom) * multiplier
-        final_score = min(raw_score, multiplier)
+            if a_val < 0.001:
+                score = 0.0
+            else:
+                score = (b_val / a_val) * 100
+
+            final_score = max(min(score, 100.0), 0.0)
+
+            calc_note = (f"[CASE1-Benefic] (B[{b_val:.2f}] / A[{a_val:.2f}]) * 100 = {final_score:.2f} | "
+                         f"TotalGood={total_good:.2f}, TotalBad={total_bad:.2f}, "
+                         f"SelfBad={self_bad:.2f}, Debt={p5_debt:.2f}")
 
         normalized_scores_dict[p] = final_score
         normalized_rows.append([p, f"{final_score:.2f}", calc_note, multiplier])
