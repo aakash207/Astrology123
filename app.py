@@ -2329,6 +2329,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
 
     # ---- NORMALIZED PLANET SCORE ----
+    # Static malefics (always use Volume-based logic)
+    _ns_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu'}
+    # Static benefics (always use Inventory-based logic)
+    _ns_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
+
     normalized_rows = []
     normalized_scores_dict = {}  # for use in House Points later
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
@@ -2339,32 +2344,62 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         total_good = sum(v for k, v in inv.items() if is_good_currency(k) and v > 0.001)
         total_bad  = sum(v for k, v in inv.items() if 'Bad' in k and v > 0.001)
         self_bad   = inv.get(f'Bad {p}', 0.0)
+        foreign_bad = max(total_bad - self_bad, 0.0)
 
-        # Factor A (Denominator): Total Good + (abs(Debt) - Self Bad)
-        factor_a = total_good + (abs(p5_debt) - self_bad)
-        if factor_a < 0.1:
-            factor_a = 0.1  # avoid division by zero
-
-        # Factor B (Numerator): Total Good - (Total Bad - Self Bad)
-        factor_b = total_good - (total_bad - self_bad)
-        if factor_b < 0:
-            factor_b = 0.0
+        # Classify planet as malefic or benefic for this calculation
+        # Moon is malefic only if it holds "Bad Moon" (its own bad currency)
+        # Ketu is malefic if it holds ANY bad currency
+        if p in _ns_static_malefics:
+            is_malefic = True
+        elif p == 'Moon':
+            is_malefic = inv.get('Bad Moon', 0.0) > 0.001
+        elif p == 'Ketu':
+            is_malefic = total_bad > 0.001
+        else:
+            is_malefic = False  # Jupiter, Venus, Mercury
 
         # Determine multiplier from planet status
         _ns_st  = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
         neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
         multiplier = 120 if _ns_st in neecha_statuses else 100
 
+        if is_malefic:
+            # --- VOLUME-BASED LOGIC (for Malefics) ---
+            # Denominator: Total Potential = Volume + abs(Debt)
+            factor_a = p5_volume + abs(p5_debt)
+            if factor_a < 0.1:
+                factor_a = 0.1
+
+            # Numerator: Effective Yield = Volume - abs(Debt) - Foreign Bad
+            # (self_bad is NOT subtracted; it counts as valid for its own planet)
+            factor_b = p5_volume - abs(p5_debt) - foreign_bad
+            if factor_b < 0:
+                factor_b = 0.0
+
+            calc_note = (f"[Malefic-VolBased] Vol={p5_volume:.2f}, Debt={p5_debt:.2f}, "
+                         f"TotalBad={total_bad:.2f}, SelfBad={self_bad:.2f}, ForeignBad={foreign_bad:.2f} | "
+                         f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
+        else:
+            # --- INVENTORY-BASED LOGIC (for Benefics) ---
+            # Denominator: Total Good + (abs(Debt) - Self Bad)
+            factor_a = total_good + (abs(p5_debt) - self_bad)
+            if factor_a < 0.1:
+                factor_a = 0.1
+
+            # Numerator: Total Good - (Total Bad - Self Bad)
+            factor_b = total_good - (total_bad - self_bad)
+            if factor_b < 0:
+                factor_b = 0.0
+
+            calc_note = (f"[Benefic-InvBased] TotalGood={total_good:.2f}, TotalBad={total_bad:.2f}, "
+                         f"SelfBad={self_bad:.2f}, Debt={p5_debt:.2f}, Vol={p5_volume:.2f} | "
+                         f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
+
         # Calculate score and cap
         raw_score = (factor_b / factor_a) * multiplier
         final_score = min(raw_score, multiplier)
 
         normalized_scores_dict[p] = final_score
-
-        calc_note = (f"TotalGood={total_good:.2f}, TotalBad={total_bad:.2f}, "
-                     f"SelfBad={self_bad:.2f}, Debt={p5_debt:.2f}, Vol={p5_volume:.2f} | "
-                     f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
-
         normalized_rows.append([p, f"{final_score:.2f}", calc_note, multiplier])
 
     df_normalized_scores = pd.DataFrame(normalized_rows,
