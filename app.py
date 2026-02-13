@@ -2342,17 +2342,31 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         norm_no_self = min(limit, (net_no_self_bad / cap) * 100.0) if cap else 0.0
         norm_debt = (debt / cap) * 100.0 if cap else 0.0
 
+        # Uncapped normalized scores
+        uncapped_norm_net = (net_currency / cap) * 100.0 if cap else 0.0
+        uncapped_norm_no_self = (net_no_self_bad / cap) * 100.0 if cap else 0.0
+
+        # Currency breakdown as percentages
+        currency_pcts = []
+        for k, v in inv.items():
+            if abs(v) > 0.001 and cap:
+                pct = (v / cap) * 100.0
+                currency_pcts.append(f"{k}: {pct:.2f}%")
+        currency_pct_str = ', '.join(currency_pcts) if currency_pcts else '-'
+
         lord_norm_scores[p] = norm_no_self
         norm_rows.append([p, cap,
                           f"{good_sum:.2f}", f"{bad_sum:.2f}", f"{debt:.2f}",
                           f"{net_currency:.2f}", f"{net_no_self_bad:.2f}",
-                          f"{norm_net:.2f}", f"{norm_no_self:.2f}", f"{norm_debt:.2f}"])
+                          f"{norm_net:.2f}", f"{norm_no_self:.2f}", f"{norm_debt:.2f}",
+                          f"{uncapped_norm_no_self:.2f}", currency_pct_str])
 
     df_normalized_planets = pd.DataFrame(norm_rows,
         columns=['Planet', 'Capacity',
                  'Good Currency', 'Bad Currency', 'Debt',
                  'Net Currency', 'Net (Excl. Self Bad)',
-                 'Normalised Score', 'Normalised (Excl. Self Bad)', 'Normalised Debt'])
+                 'Normalised Score', 'Normalised (Excl. Self Bad)', 'Normalised Debt',
+                 'Uncapped Norm (Excl. Self Bad)', 'Currency Breakdown (%)'])
     # ── END NORMALIZED PLANET TOKENS ──
 
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
