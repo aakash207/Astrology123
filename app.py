@@ -2329,9 +2329,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
 
     # ---- NORMALIZED PLANET SCORE ----
-    # Static malefics (always use Volume-based logic)
-    _ns_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu'}
-    # Static benefics (always use Inventory-based logic)
+    _ns_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
     _ns_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
 
     normalized_rows = []
@@ -2341,61 +2339,57 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         p5_debt = phase5_data[p]['p5_current_debt']  # usually negative
         p5_volume = phase5_data[p]['volume']
 
-        total_good = sum(v for k, v in inv.items() if is_good_currency(k) and v > 0.001)
-        total_bad  = sum(v for k, v in inv.items() if 'Bad' in k and v > 0.001)
-        self_bad   = inv.get(f'Bad {p}', 0.0)
-        foreign_bad = max(total_bad - self_bad, 0.0)
+        # --- Inventory totals ---
+        # total_good_inv: "Good X" keys + bare benefic-name keys (Jupiter, Venus, Mercury, Sun, Moon without "Bad")
+        total_good_inv = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+        total_bad_inv  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+        self_bad_inv   = inv.get(f'Bad {p}', 0.0)
+        total_holding  = total_good_inv + total_bad_inv
 
-        # Classify planet as malefic or benefic for this calculation
-        # Moon is malefic only if it holds "Bad Moon" (its own bad currency)
-        # Ketu is malefic if it holds ANY bad currency
+        # --- Classify: Malefic or Benefic ---
+        # Moon is malefic only if it holds its own bad currency ("Bad Moon")
         if p in _ns_static_malefics:
             is_malefic = True
         elif p == 'Moon':
             is_malefic = inv.get('Bad Moon', 0.0) > 0.001
-        elif p == 'Ketu':
-            is_malefic = total_bad > 0.001
         else:
             is_malefic = False  # Jupiter, Venus, Mercury
 
-        # Determine multiplier from planet status
-        _ns_st  = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
+        # --- Multiplier (Neecha scale) ---
+        _ns_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
         neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
         multiplier = 120 if _ns_st in neecha_statuses else 100
 
         if is_malefic:
-            # --- VOLUME-BASED LOGIC (for Malefics) ---
-            # Denominator: Total Potential = Volume + abs(Debt)
-            factor_a = p5_volume + abs(p5_debt)
-            if factor_a < 0.1:
+            # --- INVENTORY SUMMATION (Malefics) ---
+            # Denominator: total_holding + abs(debt) = Total Realized Capacity
+            factor_a = total_holding + abs(p5_debt)
+            if factor_a < 0.001:
                 factor_a = 0.1
 
-            # Numerator: Effective Yield = Volume - abs(Debt) - Foreign Bad
-            # (self_bad is NOT subtracted; it counts as valid for its own planet)
-            factor_b = p5_volume - abs(p5_debt) - foreign_bad
-            if factor_b < 0:
-                factor_b = 0.0
+            # Numerator: Valid Assets = Good Currency + Own Bad Currency
+            # Foreign bad is implicitly excluded (total_holding - foreign_bad = good + self_bad)
+            factor_b = total_good_inv + self_bad_inv
 
-            calc_note = (f"[Malefic-VolBased] Vol={p5_volume:.2f}, Debt={p5_debt:.2f}, "
-                         f"TotalBad={total_bad:.2f}, SelfBad={self_bad:.2f}, ForeignBad={foreign_bad:.2f} | "
+            calc_note = (f"[Malefic-InvSum] TotalGood={total_good_inv:.2f}, TotalBad={total_bad_inv:.2f}, "
+                         f"SelfBad={self_bad_inv:.2f}, Holding={total_holding:.2f}, "
+                         f"Debt={p5_debt:.2f} | "
                          f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
         else:
-            # --- INVENTORY-BASED LOGIC (for Benefics) ---
-            # Denominator: Total Good + (abs(Debt) - Self Bad)
-            factor_a = total_good + (abs(p5_debt) - self_bad)
+            # --- INVENTORY-BASED LOGIC (Benefics) – unchanged ---
+            factor_a = total_good_inv + (abs(p5_debt) - self_bad_inv)
             if factor_a < 0.1:
                 factor_a = 0.1
 
-            # Numerator: Total Good - (Total Bad - Self Bad)
-            factor_b = total_good - (total_bad - self_bad)
+            factor_b = total_good_inv - (total_bad_inv - self_bad_inv)
             if factor_b < 0:
                 factor_b = 0.0
 
-            calc_note = (f"[Benefic-InvBased] TotalGood={total_good:.2f}, TotalBad={total_bad:.2f}, "
-                         f"SelfBad={self_bad:.2f}, Debt={p5_debt:.2f}, Vol={p5_volume:.2f} | "
+            calc_note = (f"[Benefic-InvBased] TotalGood={total_good_inv:.2f}, TotalBad={total_bad_inv:.2f}, "
+                         f"SelfBad={self_bad_inv:.2f}, Debt={p5_debt:.2f}, Vol={p5_volume:.2f} | "
                          f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
 
-        # Calculate score and cap
+        # Calculate score and cap at multiplier
         raw_score = (factor_b / factor_a) * multiplier
         final_score = min(raw_score, multiplier)
 
