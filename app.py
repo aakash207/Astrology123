@@ -2317,8 +2317,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     neecham_statuses = ['Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga']
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
-        cap = capacity_dict.get(p, 100)
         base_capacity = capacity_dict.get(p, 100)
+        sthana = planet_data[p].get('sthana', 100) if p in planet_data else 100
+        cap = base_capacity * (sthana / 100.0)  # actual capacity factoring sthana
+        uncap = base_capacity * (100.0 / 100.0)  # capacity assuming sthana = 100%
 
         good_sum = sum(v for k, v in inv.items() if is_good_currency(k))
         bad_sum = sum(v for k, v in inv.items() if 'Bad' in k)
@@ -2344,9 +2346,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         final_norm_A = min(limit, raw_norm_A)
         final_norm_B = min(limit, raw_norm_B)
 
-        # Uncapped Scores (based on base capacity, as if sthana was 100%)
-        uncapped_raw_A = (net_tokens / base_capacity) * 100.0 if base_capacity else 0.0
-        uncapped_raw_B = (adj_tokens / base_capacity) * 100.0 if base_capacity else 0.0
+        # Uncapped Scores (assuming sthana = 100% for all)
+        uncapped_raw_A = (net_tokens / uncap) * 100.0 if uncap else 0.0
+        uncapped_raw_B = (adj_tokens / uncap) * 100.0 if uncap else 0.0
         final_uncapped_A = min(limit, uncapped_raw_A)
         final_uncapped_B = min(limit, uncapped_raw_B)
 
