@@ -1245,6 +1245,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             for tgt in potential_targets:
                 if planet_data[debtor]['current_debt'] >= -0.001: break
                 
+                # Never pull your own bad currency from someone else
+                _own_bad_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                if tgt['key'] == _own_bad_key:
+                    continue
+                
                 if debtor_is_malefic and not tgt['is_good'] and good_available:
                     continue
                 
