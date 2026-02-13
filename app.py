@@ -2317,16 +2317,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     neecham_statuses = ['Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga']
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
+        cap = capacity_dict.get(p, 100)
+        base_capacity = capacity_dict.get(p, 100)
+
         good_sum = sum(v for k, v in inv.items() if is_good_currency(k))
         bad_sum = sum(v for k, v in inv.items() if 'Bad' in k)
         own_bad_key = f"Bad {p}"
         own_bad_val = inv.get(own_bad_key, 0.0)
-        debt = phase5_data[p]['p5_current_debt']
 
-        # Net Currency: good - bad
-        net_currency = good_sum - bad_sum
-        # Net Without Self Bad: good - (bad - own_bad)
-        net_no_self_bad = good_sum - (bad_sum - own_bad_val)
+        # Net Token (Raw): good - bad
+        net_tokens = good_sum - bad_sum
+        # Adj Token (Lord): good - (bad - own_bad)  i.e. exclude own bad
+        adj_tokens = good_sum - (bad_sum - own_bad_val)
 
         # Determine cap limit
         _p_st = planet_data[p].get('status', '') if p in planet_data else ''
@@ -2336,37 +2338,37 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             limit = 100.0
 
-        # Normalize
-        cap = capacity_dict.get(p, 100)
-        norm_net = min(limit, (net_currency / cap) * 100.0) if cap else 0.0
-        norm_no_self = min(limit, (net_no_self_bad / cap) * 100.0) if cap else 0.0
-        norm_debt = (debt / cap) * 100.0 if cap else 0.0
+        # Standard Normalized Scores (based on actual capacity)
+        raw_norm_A = (net_tokens / cap) * 100.0 if cap else 0.0
+        raw_norm_B = (adj_tokens / cap) * 100.0 if cap else 0.0
+        final_norm_A = min(limit, raw_norm_A)
+        final_norm_B = min(limit, raw_norm_B)
 
-        # Uncapped normalized scores
-        uncapped_norm_net = (net_currency / cap) * 100.0 if cap else 0.0
-        uncapped_norm_no_self = (net_no_self_bad / cap) * 100.0 if cap else 0.0
+        # Uncapped Scores (based on base capacity, as if sthana was 100%)
+        uncapped_raw_A = (net_tokens / base_capacity) * 100.0 if base_capacity else 0.0
+        uncapped_raw_B = (adj_tokens / base_capacity) * 100.0 if base_capacity else 0.0
+        final_uncapped_A = min(limit, uncapped_raw_A)
+        final_uncapped_B = min(limit, uncapped_raw_B)
 
-        # Currency breakdown as percentages
-        currency_pcts = []
+        # Currency Percentage String
+        currency_parts = []
         for k, v in inv.items():
-            if abs(v) > 0.001 and cap:
-                pct = (v / cap) * 100.0
-                currency_pcts.append(f"{k}: {pct:.2f}%")
-        currency_pct_str = ', '.join(currency_pcts) if currency_pcts else '-'
+            if v > 0.001:
+                pct = (v / cap) * 100.0 if cap else 0.0
+                currency_parts.append(f"{k}: {pct:.1f}%")
+        currency_str = ', '.join(currency_parts) if currency_parts else '-'
 
-        lord_norm_scores[p] = norm_no_self
+        lord_norm_scores[p] = final_norm_B
         norm_rows.append([p, cap,
-                          f"{good_sum:.2f}", f"{bad_sum:.2f}", f"{debt:.2f}",
-                          f"{net_currency:.2f}", f"{net_no_self_bad:.2f}",
-                          f"{norm_net:.2f}", f"{norm_no_self:.2f}", f"{norm_debt:.2f}",
-                          f"{uncapped_norm_no_self:.2f}", currency_pct_str])
+                          f"{net_tokens:.2f}", f"{final_norm_A:.2f}",
+                          f"{adj_tokens:.2f}", f"{final_norm_B:.2f}",
+                          f"{final_uncapped_A:.2f}", f"{final_uncapped_B:.2f}",
+                          currency_str])
 
     df_normalized_planets = pd.DataFrame(norm_rows,
-        columns=['Planet', 'Capacity',
-                 'Good Currency', 'Bad Currency', 'Debt',
-                 'Net Currency', 'Net (Excl. Self Bad)',
-                 'Normalised Score', 'Normalised (Excl. Self Bad)', 'Normalised Debt',
-                 'Uncapped Norm (Excl. Self Bad)', 'Currency Breakdown (%)'])
+        columns=['Planet', 'Capacity', 'Net Token (Raw)', 'Norm Score',
+                 'Adj Token (Lord)', 'Norm Lord Score',
+                 'Uncapped Norm', 'Uncapped Lord Score', 'Currency % Held'])
     # ── END NORMALIZED PLANET TOKENS ──
 
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
