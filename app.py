@@ -2565,28 +2565,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         a_src = ', '.join(aspect_sources[s]) if aspect_sources[s] else '-'
         o_src = ', '.join(occupant_notes[s]) if occupant_notes[s] else '-'
 
-        # House Lord Score
-        lord = get_sign_lord(s)
-        # Component A: Strength
-        p_str = planet_final_strengths.get(lord, 0.0)
-        score_str = p_str * 0.5
-        # Component B: Currency
-        inv = phase5_data[lord]['p5_inventory']
-        total_good = sum(v for k, v in inv.items() if is_good_currency(k))
-        total_bad = sum(v for k, v in inv.items() if 'Bad' in k)
-        net_currency = total_good - total_bad
-        score_curr = net_currency * 0.5
-        # Final House Lord Score
-        hl_score = score_str + score_curr
-        note_string = f"{lord}: Str({score_str:.2f}) + Curr({score_curr:.2f})"
-
         total_score = aspect_score[s] + occupant_score[s]
         hp_rows.append([s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
-                        f"{hl_score:.2f}", note_string, f"{total_score:.2f}"])
+                        f"{total_score:.2f}"])
 
     df_house_points = pd.DataFrame(hp_rows,
         columns=['House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes',
-                 'House Lord Score', 'Lord Notes', 'Total Score'])
+                 'House Planetary Score'])
     # ---- END HOUSE POINTS ----
 
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
