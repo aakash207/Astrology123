@@ -2337,8 +2337,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         cap = capacity_dict.get(p, 100)
         vol = phase5_data[p]['volume']
-        # For Moon, use its initial volume from planet_data as the divisor
-        # (Moon's capacity is dynamic based on Tithi)
+        # Moon: use initial volume from planet_data as divisor
+        # (Moon's volume is Tithi-dependent; normalizing by it gives a true % of capacity used)
         if p == 'Moon':
             norm_divisor = planet_data['Moon']['volume']
         else:
