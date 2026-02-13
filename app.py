@@ -2889,6 +2889,9 @@ if st.session_state.chart_data:
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
 
+    st.subheader("Normalised Planet Scores")
+    st.dataframe(cd['df_normalized_planets'], hide_index=True, use_container_width=True)
+
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
 
