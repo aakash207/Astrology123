@@ -2327,7 +2327,49 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         reserve_rows.append([sign_name, reserve_str])
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
-    
+
+    # ---- NORMALIZED PLANET SCORE ----
+    normalized_rows = []
+    normalized_scores_dict = {}  # for use in House Points later
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        inv = phase5_data[p]['p5_inventory']
+        p5_debt = phase5_data[p]['p5_current_debt']  # usually negative
+        p5_volume = phase5_data[p]['volume']
+
+        total_good = sum(v for k, v in inv.items() if is_good_currency(k) and v > 0.001)
+        total_bad  = sum(v for k, v in inv.items() if 'Bad' in k and v > 0.001)
+        self_bad   = inv.get(f'Bad {p}', 0.0)
+
+        # Factor A (Denominator): Total Good + (abs(Debt) - Self Bad)
+        factor_a = total_good + (abs(p5_debt) - self_bad)
+        if factor_a < 0.1:
+            factor_a = 0.1  # avoid division by zero
+
+        # Factor B (Numerator): Total Good - (Total Bad - Self Bad)
+        factor_b = total_good - (total_bad - self_bad)
+        if factor_b < 0:
+            factor_b = 0.0
+
+        # Determine multiplier from planet status
+        _ns_st  = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
+        neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
+        multiplier = 120 if _ns_st in neecha_statuses else 100
+
+        # Calculate score and cap
+        raw_score = (factor_b / factor_a) * multiplier
+        final_score = min(raw_score, multiplier)
+
+        normalized_scores_dict[p] = final_score
+
+        calc_note = (f"TotalGood={total_good:.2f}, TotalBad={total_bad:.2f}, "
+                     f"SelfBad={self_bad:.2f}, Debt={p5_debt:.2f}, Vol={p5_volume:.2f} | "
+                     f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
+
+        normalized_rows.append([p, f"{final_score:.2f}", calc_note, multiplier])
+
+    df_normalized_scores = pd.DataFrame(normalized_rows,
+        columns=['Planet', 'Normalized Score', 'Calculation Notes', 'Status Multiplier'])
+
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
     aspect_sources = {s: [] for s in sign_names}
@@ -2652,7 +2694,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
-        'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
+        'df_house_reserves': df_house_reserves, 'df_normalized_scores': df_normalized_scores,
+        'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
@@ -2850,6 +2893,9 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
+
+    st.subheader("Normalized Planet Score")
+    st.dataframe(cd['df_normalized_scores'], hide_index=True, use_container_width=True)
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
