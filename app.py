@@ -2337,17 +2337,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
         p5_debt = phase5_data[p]['p5_current_debt']  # usually negative
-        p5_volume = phase5_data[p]['volume']
+        abs_debt = abs(p5_debt)
 
-        # --- Inventory totals ---
-        # total_good_inv: "Good X" keys + bare benefic-name keys (Jupiter, Venus, Mercury, Sun, Moon without "Bad")
-        total_good_inv = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
-        total_bad_inv  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-        self_bad_inv   = inv.get(f'Bad {p}', 0.0)
-        total_holding  = total_good_inv + total_bad_inv
+        # Step A: Inventory totals
+        total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+        total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+        self_bad   = inv.get(f'Bad {p}', 0.0)
+        foreign_bad = max(total_bad - self_bad, 0.0)
+        total_holding = total_good + total_bad
 
-        # --- Classify: Malefic or Benefic ---
-        # Moon is malefic only if it holds its own bad currency ("Bad Moon")
+        # Step B: Classify Malefic / Benefic
         if p in _ns_static_malefics:
             is_malefic = True
         elif p == 'Moon':
@@ -2355,42 +2354,30 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             is_malefic = False  # Jupiter, Venus, Mercury
 
-        # --- Multiplier (Neecha scale) ---
+        # Step C: Multiplier (Neecha scale)
         _ns_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
         neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
         multiplier = 120 if _ns_st in neecha_statuses else 100
 
+        # Step D: Denominator — same for both paths
+        denom = total_holding + abs_debt
+        if denom < 0.1:
+            denom = 0.1
+
+        # Step E: Numerator — differs by nature
         if is_malefic:
-            # --- INVENTORY SUMMATION (Malefics) ---
-            # Denominator: total_holding + abs(debt) = Total Realized Capacity
-            factor_a = total_holding + abs(p5_debt)
-            if factor_a < 0.001:
-                factor_a = 0.1
-
-            # Numerator: Valid Assets = Good Currency + Own Bad Currency
-            # Foreign bad is implicitly excluded (total_holding - foreign_bad = good + self_bad)
-            factor_b = total_good_inv + self_bad_inv
-
-            calc_note = (f"[Malefic-InvSum] TotalGood={total_good_inv:.2f}, TotalBad={total_bad_inv:.2f}, "
-                         f"SelfBad={self_bad_inv:.2f}, Holding={total_holding:.2f}, "
-                         f"Debt={p5_debt:.2f} | "
-                         f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
+            num = total_good + self_bad
+            calc_note = (f"[Malefic] Num({total_good:.2f}G+{self_bad:.2f}SB) / "
+                         f"Denom({total_holding:.2f}H+{abs_debt:.2f}D) * {multiplier} | "
+                         f"ForeignBad={foreign_bad:.2f}")
         else:
-            # --- INVENTORY-BASED LOGIC (Benefics) – unchanged ---
-            factor_a = total_good_inv + (abs(p5_debt) - self_bad_inv)
-            if factor_a < 0.1:
-                factor_a = 0.1
+            num = total_good
+            calc_note = (f"[Benefic] Num({total_good:.2f}G) / "
+                         f"Denom({total_holding:.2f}H+{abs_debt:.2f}D) * {multiplier} | "
+                         f"TotalBad={total_bad:.2f}, SelfBad={self_bad:.2f}")
 
-            factor_b = total_good_inv - (total_bad_inv - self_bad_inv)
-            if factor_b < 0:
-                factor_b = 0.0
-
-            calc_note = (f"[Benefic-InvBased] TotalGood={total_good_inv:.2f}, TotalBad={total_bad_inv:.2f}, "
-                         f"SelfBad={self_bad_inv:.2f}, Debt={p5_debt:.2f}, Vol={p5_volume:.2f} | "
-                         f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier}")
-
-        # Calculate score and cap at multiplier
-        raw_score = (factor_b / factor_a) * multiplier
+        # Step F: Score & cap
+        raw_score = (num / denom) * multiplier
         final_score = min(raw_score, multiplier)
 
         normalized_scores_dict[p] = final_score
