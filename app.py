@@ -2328,64 +2328,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
     
-    # ---- NORMALIZED PLANET SCORE ----
-    norm_score_rows = []
-    
-    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        p5_inv = phase5_data[p]['p5_inventory']
-        
-        # Calculate Total Good: Sum of all currency values in p5_inventory where is_good_currency is True
-        total_good = sum(v for k, v in p5_inv.items() if is_good_currency(k) and v > 0.001)
-        
-        # Calculate Total Bad: Sum of all currency values in p5_inventory where the key contains "Bad"
-        total_bad = sum(v for k, v in p5_inv.items() if 'Bad' in k and v > 0.001)
-        
-        # Calculate Self Bad: The specific amount of the planet's own bad currency
-        self_bad_key = f"Bad {p}"
-        if p == 'Moon': self_bad_key = "Bad Moon"
-        
-        self_bad = p5_inv.get(self_bad_key, 0.0)
-        
-        # Total Debt: The value of p5_current_debt (Note: this is usually a negative number)
-        total_debt_val = phase5_data[p]['p5_current_debt']
-        
-        # Calculate Factors A and B
-        # Factor A: Total Good + ((-1 * Total Debt) - Self Bad)
-        factor_a = total_good + ((-1 * total_debt_val) - self_bad)
-        
-        # Factor B: Total Good - (Total Bad - Self Bad)
-        factor_b = total_good - (total_bad - self_bad)
-        
-        # Determine Multiplier
-        # Check the planet's updated_status (or fallback to status)
-        p_status = planet_data[p].get('updated_status', '-')
-        if p_status == '-' or not p_status:
-            p_status = planet_data[p].get('status', '-')
-            
-        if p_status in ['Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga']:
-            multiplier = 120.0
-        else:
-            multiplier = 100.0
-            
-        # Calculate Final Score
-        # Normalized Score = (B / A) * Multiplier
-        # Constraint: Handle division by zero (if A is 0, set Score to 0)
-        if abs(factor_a) < 0.001:
-            norm_score = 0.0
-        else:
-            norm_score = (factor_b / factor_a) * multiplier
-            
-        calc_notes = f"(B[{factor_b:.2f}] / A[{factor_a:.2f}]) * {multiplier:.0f}"
-        
-        norm_score_rows.append([
-            p,
-            f"{norm_score:.2f}",
-            calc_notes,
-            f"{multiplier:.0f}"
-        ])
-        
-    df_normalized_scores = pd.DataFrame(norm_score_rows, columns=['Planet', 'Normalized Score', 'Calculation Notes', 'Status Multiplier']) 
-
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
     aspect_sources = {s: [] for s in sign_names}
@@ -2708,7 +2650,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
         'df_navamsa_phase3': df_navamsa_phase3,
-        'df_normalized_scores': df_normalized_scores,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves, 'df_house_points': df_house_points,
@@ -2909,9 +2850,6 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
-
-    st.subheader("Normalized Planet Score")
-    st.dataframe(cd['df_normalized_scores'], hide_index=True, use_container_width=True)
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
