@@ -2321,11 +2321,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         bad_sum = sum(v for k, v in inv.items() if 'Bad' in k)
         own_bad_key = f"Bad {p}"
         own_bad_val = inv.get(own_bad_key, 0.0)
+        debt = phase5_data[p]['p5_current_debt']
 
-        # Score A (Standard Net): good - bad
-        net_token = good_sum - bad_sum
-        # Score B (Adjusted for Lord): good - (bad - own_bad)  i.e. exclude own bad penalty
-        adj_token = good_sum - (bad_sum - own_bad_val)
+        # Net Currency: good - bad
+        net_currency = good_sum - bad_sum
+        # Net Without Self Bad: good - (bad - own_bad)
+        net_no_self_bad = good_sum - (bad_sum - own_bad_val)
 
         # Determine cap limit
         _p_st = planet_data[p].get('status', '') if p in planet_data else ''
@@ -2337,18 +2338,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         # Normalize
         cap = capacity_dict.get(p, 100)
-        raw_norm_A = (net_token / cap) * 100.0 if cap else 0.0
-        raw_norm_B = (adj_token / cap) * 100.0 if cap else 0.0
-        final_norm_A = min(limit, raw_norm_A)
-        final_norm_B = min(limit, raw_norm_B)
+        norm_net = min(limit, (net_currency / cap) * 100.0) if cap else 0.0
+        norm_no_self = min(limit, (net_no_self_bad / cap) * 100.0) if cap else 0.0
+        norm_debt = (debt / cap) * 100.0 if cap else 0.0
 
-        lord_norm_scores[p] = final_norm_B
-        norm_rows.append([p, cap, f"{net_token:.2f}", f"{final_norm_A:.2f}",
-                          f"{adj_token:.2f}", f"{final_norm_B:.2f}"])
+        lord_norm_scores[p] = norm_no_self
+        norm_rows.append([p, cap,
+                          f"{good_sum:.2f}", f"{bad_sum:.2f}", f"{debt:.2f}",
+                          f"{net_currency:.2f}", f"{net_no_self_bad:.2f}",
+                          f"{norm_net:.2f}", f"{norm_no_self:.2f}", f"{norm_debt:.2f}"])
 
     df_normalized_planets = pd.DataFrame(norm_rows,
-        columns=['Planet', 'Capacity', 'Net Token (Raw)', 'Norm Score',
-                 'Adj Token (Lord)', 'Norm Lord Score'])
+        columns=['Planet', 'Capacity',
+                 'Good Currency', 'Bad Currency', 'Debt',
+                 'Net Currency', 'Net (Excl. Self Bad)',
+                 'Normalised Score', 'Normalised (Excl. Self Bad)', 'Normalised Debt'])
     # ── END NORMALIZED PLANET TOKENS ──
 
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
