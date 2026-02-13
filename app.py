@@ -1286,6 +1286,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     planet_data[debtor][tracker_key] = pulled + take
                     something_happened = True
                     
+                    # --- INFECTION PENALTY: Malefic-to-Malefic currency exchange ---
+                    # If both Debtor (Receiver) and Giver (Target) are Malefic,
+                    # inject the Debtor's Bad Currency into the Giver's inventory.
+                    _tgt_name = tgt['planet']
+                    _tgt_is_malefic = (_tgt_name in malefic_planets or
+                                       (_tgt_name == 'Moon' and planet_data['Moon'].get('moon_bad_pct', 0) > 0))
+                    if debtor_is_malefic and _tgt_is_malefic:
+                        _infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                        planet_data[_tgt_name]['final_inventory'][_infection_key] += take
+                    
                     good_available = any(t['is_good'] and planet_data[t['planet']]['final_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
         if not something_happened: loop_active = False
@@ -2328,96 +2338,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
 
-    # ---- NORMALIZED PLANET SCORE ----
-    _ns_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
-    _ns_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
-    _neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
-
-    normalized_rows = []
-    normalized_scores_dict = {}  # for use in House Points later
-    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        inv = phase5_data[p]['p5_inventory']
-        p5_debt = phase5_data[p]['p5_current_debt']  # usually negative
-        p_capacity = capacity_dict.get(p, 100)
-
-        # --- Variable Definitions ---
-        total_good  = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
-        total_bad   = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-        self_bad    = inv.get(f'Bad {p}', 0.0)
-        foreign_bad = max(total_bad - self_bad, 0.0)
-
-        # Status & Classification
-        _ns_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
-        is_neecha = _ns_st in _neecha_statuses
-
-        if p in _ns_static_malefics:
-            is_malefic = True
-        elif p == 'Moon':
-            is_malefic = inv.get('Bad Moon', 0.0) > 0.001
-        else:
-            is_malefic = False  # Jupiter, Venus, Mercury
-
-        # --- 3-Case Logic ---
-        if is_neecha:
-            # ===== CASE 3: Neecha Override =====
-            multiplier = 120
-            score = 120.0
-            if p5_debt < 0:
-                norm_debt = ((abs(p5_debt) / 1.2) / p_capacity) * 100
-                score = 120.0 - norm_debt
-            final_score = max(min(score, 120.0), 0.0)
-
-            calc_note = (f"[CASE3-Neecha] Score=120 - NormDebt("
-                         f"(|{p5_debt:.2f}|/1.2)/{p_capacity})*100 = {final_score:.2f} | "
-                         f"Capacity={p_capacity}, Debt={p5_debt:.2f}")
-
-        elif is_malefic:
-            # ===== CASE 2: Standard Malefic =====
-            multiplier = 100
-
-            # Deductor 1: Foreign Bad overwhelms Good
-            if total_good < foreign_bad:
-                deductor1 = ((foreign_bad - total_good) / p_capacity) * 100
-            else:
-                deductor1 = 0.0
-
-            # Deductor 2: Debt penalty when Good exceeds Self Bad
-            deductor2 = 0.0
-            if total_good > self_bad and p5_debt < 0:
-                diff_foreign_good = total_good - self_bad
-                update_diff = foreign_bad - diff_foreign_good
-                deductor2 = (update_diff / p_capacity) * 100
-
-            score = 100.0 - (deductor1 + deductor2)
-            final_score = max(min(score, 100.0), 0.0)
-
-            calc_note = (f"[CASE2-Malefic] 100 - (D1[{deductor1:.2f}] + D2[{deductor2:.2f}]) = {final_score:.2f} | "
-                         f"TotalGood={total_good:.2f}, SelfBad={self_bad:.2f}, "
-                         f"ForeignBad={foreign_bad:.2f}, Debt={p5_debt:.2f}, Cap={p_capacity}")
-
-        else:
-            # ===== CASE 1: Standard Benefic =====
-            multiplier = 100
-            a_val = total_good + ((-1 * p5_debt) - self_bad)
-            b_val = total_good - (total_bad - self_bad)
-
-            if a_val < 0.001:
-                score = 0.0
-            else:
-                score = (b_val / a_val) * 100
-
-            final_score = max(min(score, 100.0), 0.0)
-
-            calc_note = (f"[CASE1-Benefic] (B[{b_val:.2f}] / A[{a_val:.2f}]) * 100 = {final_score:.2f} | "
-                         f"TotalGood={total_good:.2f}, TotalBad={total_bad:.2f}, "
-                         f"SelfBad={self_bad:.2f}, Debt={p5_debt:.2f}")
-
-        normalized_scores_dict[p] = final_score
-        normalized_rows.append([p, f"{final_score:.2f}", calc_note, multiplier])
-
-    df_normalized_scores = pd.DataFrame(normalized_rows,
-        columns=['Planet', 'Normalized Score', 'Calculation Notes', 'Status Multiplier'])
-
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
     aspect_sources = {s: [] for s in sign_names}
@@ -2742,7 +2662,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
-        'df_house_reserves': df_house_reserves, 'df_normalized_scores': df_normalized_scores,
+        'df_house_reserves': df_house_reserves,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
@@ -2941,9 +2861,6 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
-
-    st.subheader("Normalized Planet Score")
-    st.dataframe(cd['df_normalized_scores'], hide_index=True, use_container_width=True)
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
