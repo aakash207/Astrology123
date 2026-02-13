@@ -2337,14 +2337,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         cap = capacity_dict.get(p, 100)
         vol = phase5_data[p]['volume']
-        # Moon: use initial volume from planet_data as divisor
-        # (Moon's volume is Tithi-dependent; normalizing by it gives a true % of capacity used)
-        if p == 'Moon':
-            norm_divisor = planet_data['Moon']['volume']
+
+        # Waxing Moon special logic: normalize by total_holding instead of volume
+        # (Waxing Moon = no Bad Moon currency in inventory)
+        if p == 'Moon' and inv.get('Bad Moon', 0.0) < 0.001:
+            total_holding = good_sum + bad_sum
+            norm_divisor = total_holding if total_holding > 0.001 else 1.0
         else:
-            norm_divisor = vol
-        raw_norm_A = (net_token / norm_divisor) * 100.0 if norm_divisor > 0.001 else 0.0
-        raw_norm_B = (adj_token / norm_divisor) * 100.0 if norm_divisor > 0.001 else 0.0
+            norm_divisor = vol if vol > 0.001 else 1.0
+
+        raw_norm_A = (net_token / norm_divisor) * 100.0
+        raw_norm_B = (adj_token / norm_divisor) * 100.0
         final_norm_A = min(limit, raw_norm_A)
         final_norm_B = min(limit, raw_norm_B)
 
