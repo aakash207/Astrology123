@@ -3002,6 +3002,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             for h in range(1,13)], columns=['House','Sign','Planets'])
 
     house_planets_nav = defaultdict(list)
+    # Add Ascendant to Navamsa House 1
+    house_planets_nav[1].append("Asc")
     for p,L in lon_sid.items():
         nav_lon = (L*9) % 360
         nav_h = (int(nav_lon/30) - int(nav_lagna/30)) % 12 + 1
