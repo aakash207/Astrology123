@@ -2760,14 +2760,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         _ps_updated_maraivu = _ps_base_maraivu  # start with base
         if _ps_base_maraivu > 0:
-            # Check status-based reduction
+            # Check status-based reduction (reduce BY x% of the base value)
             _ps_planet_status = planet_status_map.get(_ps_p, '-')
             if _ps_planet_status == 'Uchcham':
-                _ps_updated_maraivu = _ps_base_maraivu - 50
+                _ps_updated_maraivu = _ps_base_maraivu * 0.50       # reduce by 50%
             elif _ps_planet_status == 'Moolathirigonam':
-                _ps_updated_maraivu = _ps_base_maraivu - 40
+                _ps_updated_maraivu = _ps_base_maraivu * 0.60       # reduce by 40%
             elif _ps_planet_status == 'Aatchi':
-                _ps_updated_maraivu = _ps_base_maraivu - 30
+                _ps_updated_maraivu = _ps_base_maraivu * 0.70       # reduce by 30%
             else:
                 # Check Friend's House: planet and house lord in same group
                 _ps_fr_group_a = {'Sun', 'Moon', 'Mars', 'Jupiter', 'Ketu'}
@@ -2777,10 +2777,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 _ps_p_grp = 'A' if _ps_p in _ps_fr_group_a else 'B'
                 _ps_l_grp = 'A' if _ps_house_lord in _ps_fr_group_a else 'B'
                 if _ps_p_grp == _ps_l_grp:
-                    _ps_updated_maraivu = _ps_base_maraivu - 25
-            # Floor at 0
-            if _ps_updated_maraivu < 0:
-                _ps_updated_maraivu = 0
+                    _ps_updated_maraivu = _ps_base_maraivu * 0.75   # reduce by 25%
 
         # Maraivu Adjusted Strength
         _ps_adj_strength = (final / 2.0) + (final * (100 - _ps_updated_maraivu) / 200.0)
