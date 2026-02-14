@@ -2427,7 +2427,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 final_ns = ((net_score + self_bad) / p_volume) * 100
             formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
 
-        final_ns = max(final_ns, 0.0)
         nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}"])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
