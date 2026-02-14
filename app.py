@@ -2755,7 +2755,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             # Malefic: Dig 60%, Sthana 40%, Asp 10%, Kendra 5%
             s_dig = (_db / 100.0) * 60.0
             if _is_negative:
-                s_sth = (_sb / 120.0) * 40.0
+                s_sth = (_sb / 100.0) * 40.0
             else:
                 s_sth = (_sb / 100.0) * 40.0
             base_total = s_dig + s_sth + _asp_val + _hl_adj
@@ -2764,7 +2764,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             # Benefic: Dig 40%, Sthana 60%, Asp 10%, Kona 5%
             s_dig = (_db / 100.0) * 40.0
             if _is_negative:
-                s_sth = (_sb / 120.0) * 60.0
+                s_sth = (_sb / 100.0) * 60.0
             else:
                 s_sth = (_sb / 100.0) * 60.0
             base_total = s_dig + s_sth + _asp_val + _hl_adj
