@@ -2551,10 +2551,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             _khs_total = sum(aspect_score.get(rs, 0.0) + occupant_score.get(rs, 0.0) for rs in _khs_ruled)
             _khs_avg = _khs_total / len(_khs_ruled)
-            _khs_val = min(_khs_avg / 10.0, 20.0)
+            # Old logic: _khs_val = min(_khs_avg / 10.0, 20.0)
+            # New logic: Multiply by 2. No lower limit of 0, so negative values persist. 
+            # Still apply cap of 20 on the positive side. 
+            raw_khs = (_khs_avg / 10.0) * 2
+            _khs_val = min(raw_khs, 20.0)
 
         final_ns += _khs_val
-        if _khs_val > 0.001:
+        if abs(_khs_val) > 0.001:
             formula_type += f" + KHS({_khs_val:.2f})"
 
         _nps_score_dict[p] = final_ns
