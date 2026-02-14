@@ -2701,6 +2701,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         return 0.0
 
     _overridden_sthana = {}   # track planets whose sthana was overridden
+    _planet_maraivu_adj_strengths = {} 
 
     for _ps_p in _ps_planets:
         _db = planet_data[_ps_p].get('dig_bala') or 0
@@ -2736,13 +2737,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _ps_lord = get_sign_lord(_ps_sign)
         _lord_st = planet_status_map.get(_ps_lord, '-') if _ps_lord else '-'
         if _lord_st == 'Uchcham':
-            _hl_adj = 10.0
+            _hl_adj = 20.0
         elif _lord_st == 'Moolathirigonam':
-            _hl_adj = 8.0
+            _hl_adj = 16.0
         elif _lord_st == 'Aatchi':
-            _hl_adj = 6.0
+            _hl_adj = 12.0
         elif _lord_st == 'Neecham':
-            _hl_adj = -10.0
+            _hl_adj = -20.0
         else:
             _hl_adj = 0.0
 
@@ -2802,6 +2803,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         # Maraivu Adjusted Strength
         _ps_adj_strength = (final / 2.0) + (final * (100 - _ps_updated_maraivu) / 200.0)
+        _planet_maraivu_adj_strengths[_ps_p] = _ps_adj_strength
 
         planet_strength_rows.append([_ps_p, f"{final:.2f}", f"{_ps_adj_strength:.2f}", brkdn])
 
@@ -2835,7 +2837,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         # House Lord Score = (lord strength / 2) + (Maraivu Adjusted Score / 2)
         lord = get_sign_lord(s)
-        lord_strength = planet_final_strengths.get(lord, 0.0)
+        lord_strength = _planet_maraivu_adj_strengths.get(lord, 0.0)
         # Old: lord_norm_score = _nps_score_dict.get(lord, 0.0)
         # New: Use Maraivu adjusted score
         lord_norm_score = _nps_score_dict.get(lord + '_adjusted', 0.0)
