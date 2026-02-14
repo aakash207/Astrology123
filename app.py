@@ -2678,10 +2678,72 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Store adjusted score for House Points Calculation
         _nps_score_dict[p + '_adjusted'] = final_adjusted_score
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str])
+        # ---- RAHU SCORE CALCULATION ----
+        if p == 'Rahu':
+            _rahu_notes_parts = []
+
+            # Step 1: Quantise Maraivu Adjusted Score to 60
+            _rahu_base = (final_adjusted_score / 100.0) * 60
+            _rahu_total = _rahu_base
+            _rahu_notes_parts.append(f"Step1: ({final_adjusted_score:.2f}/100)*60={_rahu_base:.2f}")
+
+            # Step 2: Adding score based on house lord status
+            _rahu_sign = planet_sign_map.get('Rahu', 'Aries')
+            _rahu_house_lord = get_sign_lord(_rahu_sign)
+            _rahu_hl_status = planet_status_map.get(_rahu_house_lord, '-')
+            if _rahu_hl_status == 'Uchcham':
+                _rahu_total += 60
+                _rahu_notes_parts.append(f"Step2: Lord {_rahu_house_lord} Uchcham +60")
+            elif _rahu_hl_status == 'Moolathirigonam':
+                _rahu_total += 48
+                _rahu_notes_parts.append(f"Step2: Lord {_rahu_house_lord} Moolathirigonam +48")
+            elif _rahu_hl_status == 'Aatchi':
+                _rahu_total += 36
+                _rahu_notes_parts.append(f"Step2: Lord {_rahu_house_lord} Aatchi +36")
+            else:
+                _rahu_notes_parts.append(f"Step2: Lord {_rahu_house_lord} status={_rahu_hl_status}, no bonus")
+
+            # Step 3: Bonus if Rahu is in its favourite house
+            _rahu_fav_signs = {'Aries', 'Taurus', 'Cancer', 'Virgo', 'Libra', 'Sagittarius', 'Capricorn', 'Pisces'}
+            if _rahu_sign in _rahu_fav_signs:
+                _rahu_total += 30
+                _rahu_notes_parts.append(f"Step3: Fav house {_rahu_sign} +30")
+            else:
+                _rahu_notes_parts.append(f"Step3: {_rahu_sign} not fav, no bonus")
+
+            # Step 4: Bonus if Rahu is in friend's house for ascendant lagna
+            _rahu_friend_list = {
+                'Aries': {'Cancer', 'Leo', 'Scorpio', 'Sagittarius', 'Pisces'},
+                'Taurus': {'Gemini', 'Virgo', 'Libra', 'Capricorn', 'Aquarius'},
+                'Gemini': {'Taurus', 'Virgo', 'Libra', 'Capricorn', 'Aquarius'},
+                'Cancer': {'Aries', 'Leo', 'Scorpio', 'Sagittarius', 'Pisces'},
+                'Leo': {'Aries', 'Cancer', 'Scorpio', 'Sagittarius', 'Pisces'},
+                'Virgo': {'Taurus', 'Gemini', 'Libra', 'Capricorn', 'Aquarius'},
+                'Libra': {'Taurus', 'Gemini', 'Virgo', 'Capricorn', 'Aquarius'},
+                'Scorpio': {'Aries', 'Cancer', 'Leo', 'Sagittarius', 'Pisces'},
+                'Sagittarius': {'Aries', 'Cancer', 'Leo', 'Scorpio', 'Pisces'},
+                'Capricorn': {'Taurus', 'Gemini', 'Virgo', 'Libra', 'Aquarius'},
+                'Aquarius': {'Taurus', 'Gemini', 'Virgo', 'Libra', 'Capricorn'},
+                'Pisces': {'Aries', 'Cancer', 'Leo', 'Scorpio', 'Sagittarius'},
+            }
+            _rahu_asc_sign = get_sign(lagna_sid)
+            _rahu_friends = _rahu_friend_list.get(_rahu_asc_sign, set())
+            if _rahu_sign in _rahu_friends:
+                _rahu_total += 30
+                _rahu_notes_parts.append(f"Step4: {_rahu_sign} friend of lagna {_rahu_asc_sign} +30")
+            else:
+                _rahu_notes_parts.append(f"Step4: {_rahu_sign} not friend of lagna {_rahu_asc_sign}, no bonus")
+
+            rahu_score_str = f"{_rahu_total:.2f}"
+            rahu_notes_str = " | ".join(_rahu_notes_parts)
+        else:
+            rahu_score_str = "-"
+            rahu_notes_str = "-"
+
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str, rahu_score_str, rahu_notes_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes'])
 
     # ---- PLANET STRENGTHS ANALYSIS ----
     planet_strength_rows = []
