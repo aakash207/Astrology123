@@ -2573,8 +2573,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         malefic_set = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
 
         # Friendship groups for malefic maraivu logic
-        group_a = {'Sun', 'Moon', 'Mars', 'Jupiter'}
-        group_b = {'Venus', 'Saturn', 'Mercury'}
+        group_a = {'Sun', 'Moon', 'Mars', 'Jupiter', 'Ketu'}
+        group_b = {'Venus', 'Saturn', 'Mercury', 'Rahu'}
 
         suchama_str = "0"
         
@@ -2753,10 +2753,42 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f}{_pari_note} + "
                  f"Asp:{_asp_val:.2f} + "
                  f"HLord:{_hl_adj:+.2f}({_ps_lord}={_lord_st}) + Bonus:{s_bonus:.2f}")
-        planet_strength_rows.append([_ps_p, f"{final:.2f}", brkdn])
+
+        # ── Updated Maraivu Percentage & Adjusted Strength ──
+        _ps_rh = phase5_data[_ps_p]['rasi_house']
+        _ps_base_maraivu = maraivu_percentage.get(_ps_p, {}).get(_ps_rh, 0)
+
+        _ps_updated_maraivu = _ps_base_maraivu  # start with base
+        if _ps_base_maraivu > 0:
+            # Check status-based reduction
+            _ps_planet_status = planet_status_map.get(_ps_p, '-')
+            if _ps_planet_status == 'Uchcham':
+                _ps_updated_maraivu = _ps_base_maraivu - 50
+            elif _ps_planet_status == 'Moolathirigonam':
+                _ps_updated_maraivu = _ps_base_maraivu - 40
+            elif _ps_planet_status == 'Aatchi':
+                _ps_updated_maraivu = _ps_base_maraivu - 30
+            else:
+                # Check Friend's House: planet and house lord in same group
+                _ps_fr_group_a = {'Sun', 'Moon', 'Mars', 'Jupiter', 'Ketu'}
+                _ps_fr_group_b = {'Venus', 'Mercury', 'Saturn', 'Rahu'}
+                _ps_house_sign = sign_names[(sign_names.index(get_sign(lagna_sid)) + (_ps_rh - 1)) % 12]
+                _ps_house_lord = sign_lords[sign_names.index(_ps_house_sign)]
+                _ps_p_grp = 'A' if _ps_p in _ps_fr_group_a else 'B'
+                _ps_l_grp = 'A' if _ps_house_lord in _ps_fr_group_a else 'B'
+                if _ps_p_grp == _ps_l_grp:
+                    _ps_updated_maraivu = _ps_base_maraivu - 25
+            # Floor at 0
+            if _ps_updated_maraivu < 0:
+                _ps_updated_maraivu = 0
+
+        # Maraivu Adjusted Strength
+        _ps_adj_strength = (final / 2.0) + (final * (100 - _ps_updated_maraivu) / 200.0)
+
+        planet_strength_rows.append([_ps_p, f"{final:.2f}", f"{_ps_adj_strength:.2f}", brkdn])
 
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
-        columns=['Planet', 'Total Strength', 'Score Breakdown'])
+        columns=['Planet', 'Total Strength', 'Maraivu Adjusted Strength', 'Score Breakdown'])
 
     # Update planet_data and rows with overridden Sthana Bala for negative-status planets
     # Update planet_data and rows with overridden Sthana Bala for negative-status planets
