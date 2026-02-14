@@ -2467,6 +2467,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     nps_rows = []
     _nps_score_dict = {}  # planet -> raw final_ns value for use in Planet Strengths
+    _suchama_score_dict = {}  # planet -> raw suchama value
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
         p5_debt = phase5_data[p]['p5_current_debt']
@@ -2653,6 +2654,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
+                _suchama_score_dict[p] = suchama
                 final_adjusted_score = adjusted
                 adjusted_str = f"{adjusted:.2f}"
             else:
@@ -2671,6 +2673,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
+                _suchama_score_dict[p] = suchama
         else:
             adjusted_str = "-"
             final_adjusted_score = final_ns # Default fallback if anything breaks 
@@ -2889,6 +2892,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # ── 4. BUILD DATAFRAME ──
     hp_rows = []
+    _house_total_points = {}  # house_number -> raw total_hp
     _hp_lagna_idx = sign_names.index(get_sign(lagna_sid))
     for h_num in range(1, 13):
         s = sign_names[(_hp_lagna_idx + h_num - 1) % 12]
@@ -2910,6 +2914,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Total House Points = (House Planetary Score / 2) + (House Lord Score / 2)
         total_hp = (house_planetary_score / 2.0) + (hl_score / 2.0)
         total_hp_notes = f"HPS({house_planetary_score/2.0:.2f}) + HLS({hl_score/2.0:.2f})"
+
+        _house_total_points[h_num] = total_hp
 
         hp_rows.append([h_num, s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{house_planetary_score:.2f}",
@@ -2971,6 +2977,225 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                  4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',
                  6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
 
+    # ====== LAGNA POINT SCORE SIMULATION ======
+    # 1. Preparation: Build "Universe of Pots"
+    _sim_malefic_names = {'Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu'}
+
+    def _sim_is_malefic(pname):
+        if pname in _sim_malefic_names:
+            return True
+        if pname == 'Moon':
+            return phase5_data['Moon']['bad_inv'] > 0.001
+        return False
+
+    universe_pots = []
+
+    # A. Real Planet Pots
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        pot_inv = copy.deepcopy(dict(phase5_data[p]['p5_inventory']))
+        pot_vol = phase5_data[p]['volume']
+        pot_L = phase5_data[p]['L']
+        universe_pots.append({
+            'name': p,
+            'L': pot_L,
+            'inventory': pot_inv,
+            'volume': pot_vol,
+            'is_malefic': _sim_is_malefic(p),
+            'kind': 'real'
+        })
+
+    # B. Virtual Clone Pots (Leftover Aspects)
+    for cl in all_leftover_clones:
+        cl_inv = copy.deepcopy(dict(cl['inventory']))
+        cl_vol = sum(v for v in cl_inv.values() if v > 0.001)
+        parent = cl['parent']
+        universe_pots.append({
+            'name': f"Clone({parent}_{cl['offset']})",
+            'L': cl['L'],
+            'inventory': cl_inv,
+            'volume': cl_vol,
+            'is_malefic': _sim_is_malefic(parent),
+            'kind': 'clone'
+        })
+
+    # 2. The Simulation: Lagna Pulling
+    sim_lagna_L = lagna_sid
+    sim_debt = -100.0
+    sim_gained_inv = defaultdict(float)
+    sim_sources = {}  # currency_key -> list of "PotName(amount)" strings
+    sim_good_from_malefic = defaultdict(float)  # good currency amounts sourced from malefic pots
+
+    malefic_pots = [p for p in universe_pots if p['is_malefic']]
+    benefic_pots = [p for p in universe_pots if not p['is_malefic']]
+    ordered_pots = malefic_pots + benefic_pots
+
+    for pot in ordered_pots:
+        if sim_debt >= -0.001:
+            break
+
+        # Calculate gap
+        raw_diff = abs(sim_lagna_L - pot['L'])
+        if raw_diff > 180:
+            raw_diff = 360 - raw_diff
+        gap = int(raw_diff)
+
+        if gap > 22:
+            continue
+
+        cap_pct = mix_dict.get(gap, 0)
+        max_pull = pot['volume'] * (cap_pct / 100.0)
+        remaining_cap = max_pull
+
+        # Sort inventory: prioritise Good currency (higher rank first)
+        sorted_currencies = sorted(
+            [(k, v) for k, v in pot['inventory'].items() if v > 0.001],
+            key=lambda x: get_p5_currency_rank_score(x[0]),
+            reverse=True
+        )
+
+        for c_key, c_avail in sorted_currencies:
+            if sim_debt >= -0.001 or remaining_cap <= 0.001:
+                break
+            needed = abs(sim_debt)
+            take = min(needed, c_avail, remaining_cap)
+            if take > 0.001:
+                sim_gained_inv[c_key] += take
+                sim_debt += take
+                remaining_cap -= take
+                # Track source
+                src_label = pot['name']
+                sim_sources.setdefault(c_key, []).append(f"{src_label}({take:.2f})")
+                # Track good currency from malefic pots
+                if pot['is_malefic'] and is_good_currency(c_key):
+                    sim_good_from_malefic[c_key] += take
+
+    # Post-sim: halve good currency that came from malefic pots
+    for c_key, malefic_amount in sim_good_from_malefic.items():
+        penalty = malefic_amount * 0.50
+        sim_gained_inv[c_key] -= penalty
+
+    # 3. Output Generation
+    sim_good_total = sum(v for k, v in sim_gained_inv.items() if is_good_currency(k))
+    sim_bad_total = sum(v for k, v in sim_gained_inv.items() if 'Bad' in k)
+    sim_net_score = sim_good_total - sim_bad_total
+
+    # Currency breakdown string
+    breakdown_parts = []
+    for k in sorted(sim_gained_inv.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+        v = sim_gained_inv[k]
+        if v > 0.001:
+            breakdown_parts.append(f"{k}[{v:.2f}]")
+    breakdown_str = ", ".join(breakdown_parts) if breakdown_parts else "-"
+
+    # Notes: source details per currency
+    notes_parts = []
+    for k in sorted(sim_sources.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+        entries = sim_sources[k]
+        notes_parts.append(f"{k} from " + ", ".join(entries))
+    notes_str = "; ".join(notes_parts) if notes_parts else "-"
+
+    remaining_debt_str = f"{sim_debt:.2f}" if abs(sim_debt) >= 0.01 else '0.00'
+
+    df_bonus = pd.DataFrame(
+        [[ f"{sim_net_score:.2f}", '-100.00', remaining_debt_str, breakdown_str, notes_str ]],
+        columns=['Lagna Score', 'Initial Debt', 'Remaining Debt', 'Currency Breakdown', 'Notes']
+    )
+    # ====== END LAGNA POINT SCORE SIMULATION ======
+
+    # ====== LAGNA ANALYSIS TABLE ======
+    _la_lagna_sign = get_sign(lagna_sid)
+    _la_lagna_lord = get_sign_lord(_la_lagna_sign)
+
+    # 1. Moon's Light: Total Good currency in Phase 5 - Debt (no bad currency)
+    _la_moon_inv = phase5_data['Moon']['p5_inventory']
+    _la_moon_good = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and is_good_currency(k))
+    _la_moon_debt = phase5_data['Moon']['p5_current_debt']
+    _la_moon_score = _la_moon_good - abs(_la_moon_debt) if _la_moon_debt < -0.001 else _la_moon_good
+    _la_moon_notes = f"Moon P5 Good={_la_moon_good:.2f} - Debt={abs(_la_moon_debt):.2f} = {_la_moon_score:.2f}"
+
+    # 2. Lagna Lord Maraivu Adj Score from NPS
+    _la_ll_adj = _nps_score_dict.get(_la_lagna_lord + '_adjusted', 0.0)
+    _la_ll_score = _la_ll_adj
+    _la_ll_notes = f"{_la_lagna_lord} maraivu adj NPS = {_la_ll_adj:.2f}"
+
+    # 3. Lagna Lord Strength (maraivu adj from Planet Strengths)
+    _la_ll_str_raw = _planet_maraivu_adj_strengths.get(_la_lagna_lord, 0.0)
+    _la_ll_str_score = _la_ll_str_raw
+    _la_ll_str_notes = f"{_la_lagna_lord} maraivu adj strength = {_la_ll_str_raw:.2f}"
+
+    # 4. Lagna Lord Shukshama Strength
+    _la_ll_suchama = _suchama_score_dict.get(_la_lagna_lord, 0.0)
+    _la_ll_suchama_score = _la_ll_suchama
+    _la_ll_suchama_notes = f"{_la_lagna_lord} suchama = {_la_ll_suchama:.2f}"
+
+    # 5. 1st House Points (out of 100)
+    _la_h1_raw = _house_total_points.get(1, 0.0)
+    _la_h1_score = _la_h1_raw
+    _la_h1_notes = f"House 1 total HP = {_la_h1_raw:.2f}"
+
+    # 6. Lagna Point (good currency only, no debt)
+    _la_lagna_sim = sim_good_total - sim_bad_total
+    _la_lagna_pt_score = _la_lagna_sim
+    _la_lagna_pt_notes = f"Sim good={sim_good_total:.2f} - bad={sim_bad_total:.2f}, net={_la_lagna_sim:.2f}"
+
+    # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2 + Shukshama
+    _la_sun_adj_str = _planet_maraivu_adj_strengths.get('Sun', 0.0)
+    _la_sun_adj_nps = _nps_score_dict.get('Sun_adjusted', 0.0)
+    _la_sun_suchama = _suchama_score_dict.get('Sun', 0.0)
+    _la_sun_raw = (_la_sun_adj_str + _la_sun_adj_nps) / 2.0 + _la_sun_suchama
+    _la_sun_score = _la_sun_raw
+    _la_sun_notes = f"(Str {_la_sun_adj_str:.2f} + AdjNPS {_la_sun_adj_nps:.2f})/2 + Suchama {_la_sun_suchama:.2f} = {_la_sun_raw:.2f}"
+
+    # 8. 9th House Points
+    _la_h9_raw = _house_total_points.get(9, 0.0)
+    _la_h9_score = _la_h9_raw
+    _la_h9_notes = f"House 9 total HP = {_la_h9_raw:.2f}"
+
+    # 9. AG Bonus: weighted sum
+    _ag_moon   = _la_moon_score * 25.0 / 100.0
+    _ag_ll     = _la_ll_score * 12.5 / 100.0
+    _ag_ll_str = _la_ll_str_score * 12.5 / 100.0
+    _ag_h1     = _la_h1_score * 25.0 / 100.0
+    _ag_lp     = _la_lagna_pt_score * 25.0 / 100.0
+    _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp
+    _ag_notes  = (f"Moon({_la_moon_score:.2f}*25%)={_ag_moon:.2f} + "
+                  f"LL({_la_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
+                  f"LLStr({_la_ll_str_score:.2f}*12.5%)={_ag_ll_str:.2f} + "
+                  f"H1({_la_h1_score:.2f}*25%)={_ag_h1:.2f} + "
+                  f"LP({_la_lagna_pt_score:.2f}*25%)={_ag_lp:.2f}")
+
+    # 10. Bhuvi Bonus: weighted sum
+    _bv_moon   = _la_moon_score * 20.0 / 100.0
+    _bv_ll     = _la_ll_score * 10.0 / 100.0
+    _bv_ll_str = _la_ll_str_score * 10.0 / 100.0
+    _bv_h1     = _la_h1_score * 20.0 / 100.0
+    _bv_lp     = _la_lagna_pt_score * 20.0 / 100.0
+    _bv_sun    = _la_sun_score * 10.0 / 100.0
+    _bv_h9     = _la_h9_score * 10.0 / 100.0
+    _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_sun + _bv_h9
+    _bv_notes  = (f"Moon({_la_moon_score:.2f}*20%)={_bv_moon:.2f} + "
+                  f"LL({_la_ll_score:.2f}*10%)={_bv_ll:.2f} + "
+                  f"LLStr({_la_ll_str_score:.2f}*10%)={_bv_ll_str:.2f} + "
+                  f"H1({_la_h1_score:.2f}*20%)={_bv_h1:.2f} + "
+                  f"LP({_la_lagna_pt_score:.2f}*20%)={_bv_lp:.2f} + "
+                  f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
+                  f"H9({_la_h9_score:.2f}*10%)={_bv_h9:.2f}")
+
+    lagna_analysis_rows = [
+        ["Moon's Light",       f"{_la_moon_score:.2f}", _la_moon_notes],
+        ['Lagna Lord Score',   f"{_la_ll_score:.2f}",   _la_ll_notes],
+        ['Lagna Lord Strength',f"{_la_ll_str_score:.2f}", _la_ll_str_notes],
+        ['Lagna Lord Suchama', f"{_la_ll_suchama_score:.2f}", _la_ll_suchama_notes],
+        ['1st House Points',   f"{_la_h1_score:.2f}",   _la_h1_notes],
+        ['Lagna Point',        f"{_la_lagna_pt_score:.2f}", _la_lagna_pt_notes],
+        ['Sun Score',          f"{_la_sun_score:.2f}",  _la_sun_notes],
+        ['9th House Points',   f"{_la_h9_score:.2f}",   _la_h9_notes],
+        ['AG Bonus',           f"{_ag_total:.2f}",      _ag_notes],
+        ['Bhuvi Bonus',        f"{_bv_total:.2f}",      _bv_notes],
+    ]
+    df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
+    # ====== END LAGNA ANALYSIS TABLE ======
+
     return {
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
@@ -2978,6 +3203,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves,
+        'df_bonus': df_bonus,
+        'df_lagna_analysis': df_lagna_analysis,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
@@ -3186,6 +3413,12 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
+
+    st.subheader("Lagna Point Score Simulation")
+    st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
+
+    st.subheader("Lagna Analysis")
+    st.dataframe(cd['df_lagna_analysis'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
