@@ -3406,7 +3406,7 @@ else:
         else: lat, lon = 13.08, 80.27
 
 max_depth_options = {1:'Dasa only',2:'Dasa + Bhukti',3:'Dasa + Bhukti + Anthara',4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
-selected_depth_str = st.selectbox("Generate up to (depth)", list(max_depth_options.values()), index=2)
+selected_depth_str = st.selectbox("Generate up to (depth)", list(max_depth_options.values()), index=3)
 max_depth = [k for k,v in max_depth_options.items() if v == selected_depth_str][0]
 
 if st.button("Generate Chart", use_container_width=True):
@@ -3502,11 +3502,35 @@ if st.session_state.chart_data:
 
     dp = cd['dasa_periods_filtered']
     if cd['max_depth'] >= 2:
-        with st.expander("View Sub-periods", expanded=False):
-            d_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} - {p[2].strftime('%Y-%m-%d')})" for p in dp]
-            sel = st.selectbox("Select Dasa:", d_opt)
-            bhuktis = dp[d_opt.index(sel)][3]
-            st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'bhukti')} for l,s,e,_ in bhuktis]), hide_index=True, use_container_width=True)
+        with st.expander("View Sub-periods (Bhukti / Anthara / Sukshma)", expanded=False):
+            # --- Bhukti level ---
+            d_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in dp]
+            sel_dasa = st.selectbox("Select Dasa:", d_opt, key="sel_dasa")
+            sel_dasa_idx = d_opt.index(sel_dasa)
+            bhuktis = dp[sel_dasa_idx][3]
+            if bhuktis:
+                st.markdown("**Bhukti (Sub-periods)**")
+                st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'bhukti')} for l,s,e,_ in bhuktis]), hide_index=True, use_container_width=True)
+
+            # --- Anthara level ---
+            if cd['max_depth'] >= 3 and bhuktis:
+                b_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in bhuktis]
+                sel_bhukti = st.selectbox("Select Bhukti to view Anthara:", b_opt, key="sel_bhukti")
+                sel_bhukti_idx = b_opt.index(sel_bhukti)
+                antaras = bhuktis[sel_bhukti_idx][3]
+                if antaras:
+                    st.markdown("**Anthara (Sub-sub-periods)**")
+                    st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'anthara')} for l,s,e,_ in antaras]), hide_index=True, use_container_width=True)
+
+                # --- Sukshma level ---
+                if cd['max_depth'] >= 4 and antaras:
+                    a_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in antaras]
+                    sel_antara = st.selectbox("Select Anthara to view Sukshma:", a_opt, key="sel_antara")
+                    sel_antara_idx = a_opt.index(sel_antara)
+                    sukshmas = antaras[sel_antara_idx][3]
+                    if sukshmas:
+                        st.markdown("**Sukshma (Sub-sub-sub-periods)**")
+                        st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d %H:%M'), 'End': e.strftime('%Y-%m-%d %H:%M'), 'Duration': duration_str(e-s,'sukshma')} for l,s,e,_ in sukshmas]), hide_index=True, use_container_width=True)
 
     st.subheader("Current City - Live Micro-Periods")
     current_city_query = st.text_input("Enter your CURRENT city", placeholder="e.g., Chennai", key="current_city_input")
