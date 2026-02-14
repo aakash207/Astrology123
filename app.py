@@ -2494,6 +2494,23 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
                     suchama_str = "0"
                 adjusted_str = f"{adjusted:.2f}"
+
+                # Additional Suchama steps for all malefics
+                p_sign = planet_sign_map.get(p, 'Aries')
+                sthana_val = sthana_bala_dict.get(p, [0]*12)[sign_names.index(p_sign)]
+                current_suchama = float(suchama_str)
+
+                # Step 1: If Dig Bala > 92%, add 0.5 * Sthana Balam
+                p_dig_bala = planet_data[p].get('dig_bala') or 0
+                if p_dig_bala > 92:
+                    current_suchama += 0.5 * sthana_val
+
+                # Step 2: Saturn and Mars only - if Neecham, add 0.5 * Sthana Balam
+                p_status = planet_status_map.get(p, '-')
+                if p in ('Saturn', 'Mars') and p_status == 'Neecham':
+                    current_suchama += 0.5 * sthana_val
+
+                suchama_str = f"{current_suchama:.2f}"
             else:
                 # No maraivu detected
                 adjusted = final_ns
