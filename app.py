@@ -3130,12 +3130,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_lagna_sign = get_sign(lagna_sid)
     _la_lagna_lord = get_sign_lord(_la_lagna_sign)
 
-    # 1. Moon's Light: Total Good currency in Phase 5 - Debt (no bad currency)
+    # 1. Moon's Light: ((Total Good - Total Bad) / (Total Currency + Debt)) x 100
     _la_moon_inv = phase5_data['Moon']['p5_inventory']
     _la_moon_good = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and is_good_currency(k))
+    _la_moon_bad = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and not is_good_currency(k))
+    _la_moon_total_currency = _la_moon_good + _la_moon_bad
     _la_moon_debt = phase5_data['Moon']['p5_current_debt']
-    _la_moon_score = _la_moon_good - abs(_la_moon_debt) if _la_moon_debt < -0.001 else _la_moon_good
-    _la_moon_notes = f"Moon P5 Good={_la_moon_good:.2f} - Debt={abs(_la_moon_debt):.2f} = {_la_moon_score:.2f}"
+    _la_moon_abs_debt = abs(_la_moon_debt) if _la_moon_debt < -0.001 else 0.0
+    _la_moon_denominator = _la_moon_total_currency + _la_moon_abs_debt
+    if _la_moon_denominator > 0.001:
+        _la_moon_score = ((_la_moon_good - _la_moon_bad) / _la_moon_denominator) * 100.0
+    else:
+        _la_moon_score = 0.0
+    _la_moon_notes = (f"Moon P5 (Good={_la_moon_good:.2f} - Bad={_la_moon_bad:.2f}) / "
+                      f"(TotalCurr={_la_moon_total_currency:.2f} + Debt={_la_moon_abs_debt:.2f}) x100 = {_la_moon_score:.2f}")
 
     # 2. Lagna Lord Maraivu Adj Score from NPS
     _la_ll_adj = _nps_score_dict.get(_la_lagna_lord + '_adjusted', 0.0)
