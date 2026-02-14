@@ -2971,138 +2971,112 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                  4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',
                  6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
 
-    # ── SIMULATED LAGNA ─────────────────────────────────────────────────
-    # Place an imaginary planet at lagna_sid, debt = -100.
-    # Pull from PHASE 5 planet inventories & leftover clones (READ-ONLY).
-    # Real data is never modified.
+    # ====== LAGNA POINT SCORE SIMULATION ======
+    # 1. Preparation: Build "Universe of Pots"
+    _sim_malefic_names = {'Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu'}
 
-    sim_L = lagna_sid
-    sim_debt = -100.0
-    sim_gained = defaultdict(float)        # what the sim planet collected
-    sim_pulled_from = defaultdict(float)   # capacity tracker per target
+    def _sim_is_malefic(pname):
+        if pname in _sim_malefic_names:
+            return True
+        if pname == 'Moon':
+            return phase5_data['Moon']['bad_inv'] > 0.001
+        return False
 
-    # --- Snapshot Phase 5 planet inventories (deep copy, read from copy) ---
-    sim_p5_snapshots = {}
-    for p_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        sim_p5_snapshots[p_name] = {
-            'inv': defaultdict(float, copy.deepcopy(dict(phase5_data[p_name]['p5_inventory']))),
-            'volume': phase5_data[p_name]['volume'],
-            'L': phase5_data[p_name]['L']
-        }
+    universe_pots = []
 
-    # --- Snapshot clone inventories (deep copy) ---
-    sim_clone_snapshots = []
-    for cl in all_leftover_clones:
-        sim_clone_snapshots.append({
-            'parent': cl['parent'],
-            'offset': cl['offset'],
-            'L': cl['L'],
-            'inv': defaultdict(float, copy.deepcopy(dict(cl['inventory']))),
-            'orig_vol': sum(cl['original_inventory'].values())
+    # A. Real Planet Pots
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        pot_inv = copy.deepcopy(dict(phase5_data[p]['p5_inventory']))
+        pot_vol = phase5_data[p]['volume']
+        pot_L = phase5_data[p]['L']
+        universe_pots.append({
+            'name': p,
+            'L': pot_L,
+            'inventory': pot_inv,
+            'volume': pot_vol,
+            'is_malefic': _sim_is_malefic(p),
+            'kind': 'real'
         })
 
-    # Step B: Pull from real planets' Phase 5 inventories
-    sim_planet_order = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu',
-                        'Jupiter', 'Venus', 'Mercury', 'Moon']
+    # B. Virtual Clone Pots (Leftover Aspects)
+    for cl in all_leftover_clones:
+        cl_inv = copy.deepcopy(dict(cl['inventory']))
+        cl_vol = sum(v for v in cl_inv.values() if v > 0.001)
+        parent = cl['parent']
+        universe_pots.append({
+            'name': f"Clone({parent}_{cl['offset']})",
+            'L': cl['L'],
+            'inventory': cl_inv,
+            'volume': cl_vol,
+            'is_malefic': _sim_is_malefic(parent),
+            'kind': 'clone'
+        })
 
-    for t_name in sim_planet_order:
+    # 2. The Simulation: Lagna Pulling
+    sim_lagna_L = lagna_sid
+    sim_debt = -100.0
+    sim_gained_inv = defaultdict(float)
+
+    malefic_pots = [p for p in universe_pots if p['is_malefic']]
+    benefic_pots = [p for p in universe_pots if not p['is_malefic']]
+    ordered_pots = malefic_pots + benefic_pots
+
+    for pot in ordered_pots:
         if sim_debt >= -0.001:
             break
-        snap = sim_p5_snapshots[t_name]
-        diff = abs(sim_L - snap['L'])
-        if diff > 180:
-            diff = 360 - diff
-        gap = int(diff)
+
+        # Calculate gap
+        raw_diff = abs(sim_lagna_L - pot['L'])
+        if raw_diff > 180:
+            raw_diff = 360 - raw_diff
+        gap = int(raw_diff)
+
         if gap > 22:
             continue
 
         cap_pct = mix_dict.get(gap, 0)
-        max_pull = snap['volume'] * (cap_pct / 100.0)
-        tk = f"planet_{t_name}"
-        if sim_pulled_from[tk] >= max_pull:
-            continue
+        max_pull = pot['volume'] * (cap_pct / 100.0)
+        remaining_cap = max_pull
 
-        # Rank available Good currencies best-first
-        avail_list = [(k, v, get_p5_currency_rank_score(k))
-                      for k, v in snap['inv'].items()
-                      if v > 0.001 and is_good_currency(k)]
-        avail_list.sort(key=lambda x: -x[2])
+        # Sort inventory: prioritise Good currency (higher rank first)
+        sorted_currencies = sorted(
+            [(k, v) for k, v in pot['inventory'].items() if v > 0.001],
+            key=lambda x: get_p5_currency_rank_score(x[0]),
+            reverse=True
+        )
 
-        for c_key, c_val, _ in avail_list:
-            if sim_debt >= -0.001:
+        for c_key, c_avail in sorted_currencies:
+            if sim_debt >= -0.001 or remaining_cap <= 0.001:
                 break
-            rem_cap = max_pull - sim_pulled_from[tk]
-            if rem_cap <= 0.001:
-                break
-            avail = snap['inv'].get(c_key, 0.0)
-            if avail <= 0.001:
-                continue
-            take = min(abs(sim_debt), avail, rem_cap)
+            needed = abs(sim_debt)
+            take = min(needed, c_avail, remaining_cap)
             if take > 0.001:
-                snap['inv'][c_key] -= take          # exhaust from snapshot
-                sim_gained[c_key] += take
+                sim_gained_inv[c_key] += take
                 sim_debt += take
-                sim_pulled_from[tk] += take
+                remaining_cap -= take
 
-    # Step C: Pull from leftover aspect clones
-    for cs in sim_clone_snapshots:
-        if sim_debt >= -0.001:
-            break
-        diff = abs(sim_L - cs['L'])
-        if diff > 180:
-            diff = 360 - diff
-        gap = int(diff)
-        if gap > 22:
-            continue
+    # 3. Output Generation
+    sim_good_total = sum(v for k, v in sim_gained_inv.items() if is_good_currency(k))
+    sim_bad_total = sum(v for k, v in sim_gained_inv.items() if 'Bad' in k)
+    sim_net_score = sim_good_total - sim_bad_total
 
-        cap_pct = mix_dict.get(gap, 0)
-        max_pull = cs['orig_vol'] * (cap_pct / 100.0)
-        tk = f"clone_{cs['parent']}_{cs['offset']}"
-        if sim_pulled_from[tk] >= max_pull:
-            continue
+    bonus_rows = [
+        ['Simulated Lagna Score', f"{sim_net_score:.2f}"],
+        ['Initial Debt', '-100.00'],
+        ['Remaining Debt', f"{sim_debt:.2f}" if abs(sim_debt) >= 0.01 else '0.00'],
+    ]
 
-        avail_list = [(k, v, get_p5_currency_rank_score(k))
-                      for k, v in cs['inv'].items()
-                      if v > 0.001 and is_good_currency(k)]
-        avail_list.sort(key=lambda x: -x[2])
-
-        for c_key, c_val, _ in avail_list:
-            if sim_debt >= -0.001:
-                break
-            rem_cap = max_pull - sim_pulled_from[tk]
-            if rem_cap <= 0.001:
-                break
-            avail = cs['inv'].get(c_key, 0.0)
-            if avail <= 0.001:
-                continue
-            take = min(abs(sim_debt), avail, rem_cap)
-            if take > 0.001:
-                cs['inv'][c_key] -= take            # exhaust from snapshot
-                sim_gained[c_key] += take
-                sim_debt += take
-                sim_pulled_from[tk] += take
-
-    # Net Score = sum(good gained) - sum(bad gained)
-    sim_good_total = sum(v for k, v in sim_gained.items() if is_good_currency(k))
-    sim_bad_total  = sum(v for k, v in sim_gained.items() if not is_good_currency(k))
-    sim_net_score  = sim_good_total - sim_bad_total
-    sim_remaining  = sim_debt if sim_debt < -0.005 else 0.0
-
-    # Build currency-gained string: "Jupiter[12.50], Venus[5.00]"
-    sim_gained_parts = []
-    for k, v in sorted(sim_gained.items(), key=lambda x: -x[1]):
+    # Breakdown of gained currencies
+    breakdown_parts = []
+    for k in sorted(sim_gained_inv.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+        v = sim_gained_inv[k]
         if v > 0.001:
-            sim_gained_parts.append(f"{k}[{v:.2f}]")
-    sim_currency_str = ", ".join(sim_gained_parts) if sim_gained_parts else "-"
+            breakdown_parts.append(f"{k}[{v:.2f}]")
+    breakdown_str = ", ".join(breakdown_parts) if breakdown_parts else "-"
+    bonus_rows.append(['Currency Breakdown', breakdown_str])
 
-    df_bonus_lagna = pd.DataFrame([{
-        'Entity': 'Simulated Lagna',
-        'Initial Debt': '-100.00',
-        'Currencies Gained': sim_currency_str,
-        'Remaining Debt': f"{sim_remaining:.2f}",
-        'Simulated Lagna Score': f"{sim_net_score:.2f}"
-    }])
-    # ── END SIMULATED LAGNA ────────────────────────────────────────────
+    df_bonus = pd.DataFrame(bonus_rows, columns=['Metric', 'Value'])
+    # ====== END LAGNA POINT SCORE SIMULATION ======
 
     return {
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
@@ -3110,8 +3084,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
-        'df_bonus_lagna': df_bonus_lagna,
         'df_house_reserves': df_house_reserves,
+        'df_bonus': df_bonus,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
@@ -3312,6 +3286,9 @@ if st.session_state.chart_data:
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
 
+    st.subheader("Lagna Point Score Simulation")
+    st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
+
     st.subheader("Normalized Planet Scores")
     st.dataframe(cd['df_normalized_planet_scores'], hide_index=True, use_container_width=True)
 
@@ -3320,9 +3297,6 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
-
-    st.subheader("Lagna Point Simulation Bonus")
-    st.dataframe(cd['df_bonus_lagna'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
