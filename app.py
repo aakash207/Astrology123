@@ -2448,10 +2448,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         m_pct = maraivu_percentage.get(p, {}).get(p_house, None)
         m_pct_str = f"{m_pct}%" if m_pct is not None else "-"
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str])
+        # Adjusted score for benefics when maraivu is detected
+        benefic_set = {'Mercury', 'Venus', 'Jupiter', 'Moon'}
+        if p in benefic_set and m_pct is not None:
+            adjusted_ns = (final_ns / 2.0) + (final_ns * (m_pct / 100.0) / 2.0)
+            adjusted_str = f"{adjusted_ns:.2f}"
+        else:
+            adjusted_str = "-"
+
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Adjusted Score'])
 
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
