@@ -2356,6 +2356,109 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
 
+    # ---- HOUSE POINTS ANALYSIS (Pre-calc for KHS) ----
+    aspect_score   = {s: 0.0 for s in sign_names}
+    aspect_sources = {s: [] for s in sign_names}
+    occupant_score = {s: 0.0 for s in sign_names}
+    occupant_notes = {s: [] for s in sign_names}
+
+    hp_static_malefics = {'Saturn', 'Mars', 'Sun', 'Rahu'}
+    hp_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
+
+    def _hp_is_malefic(planet_name):
+        if planet_name in hp_static_malefics:
+            return True
+        if planet_name == 'Moon':
+            return phase5_data['Moon']['bad_inv'] > 0.001
+        if planet_name == 'Ketu':
+            return phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001
+        return False
+
+    _own_good_key = {
+        'Saturn': 'Good Saturn', 'Mars': 'Good Mars', 'Sun': 'Good Sun',
+        'Rahu': 'Good Rahu', 'Ketu': 'Good Ketu', 'Moon': 'Good Moon'
+    }
+
+    lagna_sign_hp = get_sign(lagna_sid)
+    lagna_lord = get_sign_lord(lagna_sign_hp)
+    is_malefic_lagna_lord = (
+        lagna_lord in ('Sun', 'Mars', 'Saturn')
+        or (lagna_lord == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
+    )
+
+    for clone in all_leftover_clones:
+        parent = clone['parent']
+        parent_L = phase5_data[parent]['L']
+        target_lon = (parent_L + (clone['offset'] - 1) * 30) % 360
+        target_sign = get_sign(target_lon)
+
+        if _hp_is_malefic(parent):
+            if clone['debt'] < -0.001:
+                if parent == lagna_lord and is_malefic_lagna_lord and target_sign == lagna_sign_hp:
+                    penalty = abs(clone['debt']) / 2.0
+                    aspect_score[target_sign] -= penalty
+                    aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2 [Lagna])")
+                else:
+                    penalty = abs(clone['debt'])
+                    aspect_score[target_sign] -= penalty
+                    aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
+            own_key = _own_good_key.get(parent)
+            if own_key:
+                own_val = clone['inventory'].get(own_key, 0.0)
+                if own_val > 0.001:
+                    bonus = own_val
+                    aspect_score[target_sign] += bonus
+                    aspect_sources[target_sign].append(f"{parent}(Own Good)")
+        else:
+            good_total = 0.0
+            for c_key, c_val in clone['inventory'].items():
+                if c_val > 0.001 and is_good_currency(c_key):
+                    good_total += c_val
+            if good_total > 0.001:
+                aspect_score[target_sign] += good_total
+                aspect_sources[target_sign].append(f"{parent}(Benefic Bonus)")
+
+    sign_occupants = defaultdict(list)
+    for p_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        occ_sign = planet_sign_map[p_name]
+        sign_occupants[occ_sign].append(p_name)
+
+    for s in sign_names:
+        for occ in sign_occupants.get(s, []):
+            inv = phase5_data[occ]['p5_inventory']
+            if _hp_is_malefic(occ):
+                total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+                total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+                if occ == lagna_lord and is_malefic_lagna_lord and s == lagna_sign_hp:
+                    total_bad = total_bad / 2.0
+                    net = total_good - total_bad
+                    occupant_score[s] += net
+                    occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
+                else:
+                    net = total_good - total_bad
+                    occupant_score[s] += net
+                    occupant_notes[s].append(f"{occ}(Good-Bad)")
+            else:
+                total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+                if total_good > 0.001:
+                    occupant_score[s] += total_good
+                    occupant_notes[s].append(f"{occ}(Benefic Sum)")
+
+    hp_gift_pot_config = {
+        'Sagittarius': ('Jupiter', 100),
+        'Pisces': ('Jupiter', 80),
+        'Libra': ('Venus', 80),
+        'Taurus': ('Venus', 60)
+    }
+    for gift_sign, (gifter, multiplier) in hp_gift_pot_config.items():
+        gifter_sthana = planet_data[gifter]['sthana']
+        original_pot = multiplier * (gifter_sthana / 100.0)
+        unused_reserve = sum(v for v in house_reserves[gift_sign].values() if v > 0.001)
+        used_amount = original_pot - unused_reserve
+        if used_amount > 0.001:
+            occupant_score[gift_sign] -= used_amount
+            occupant_notes[gift_sign].append(f"Less Used Bonus[-{used_amount:.2f}]")
+
     # ---- NORMALIZED PLANET SCORES ----
     _nps_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
     _nps_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
@@ -2440,6 +2543,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             else:
                 final_ns = ((net_score + self_bad) / p_volume) * 100
             formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
+
+        # KHS Calculation (Capped at 20) for NPS
+        _khs_ruled = planet_ruled_signs.get(p, [])
+        if not _khs_ruled:
+            _khs_val = 0.0
+        else:
+            _khs_total = sum(aspect_score.get(rs, 0.0) + occupant_score.get(rs, 0.0) for rs in _khs_ruled)
+            _khs_avg = _khs_total / len(_khs_ruled)
+            _khs_val = min(_khs_avg / 10.0, 20.0)
+
+        final_ns += _khs_val
+        if _khs_val > 0.001:
+            formula_type += f" + KHS({_khs_val:.2f})"
 
         _nps_score_dict[p] = final_ns
 
@@ -2528,134 +2644,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
         columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score'])
 
-    # ---- HOUSE POINTS ANALYSIS (v2) ----
-    aspect_score   = {s: 0.0 for s in sign_names}
-    aspect_sources = {s: [] for s in sign_names}
-    occupant_score = {s: 0.0 for s in sign_names}
-    occupant_notes = {s: [] for s in sign_names}
-
-    # Helper: classify a parent planet as malefic/benefic based on Phase 5 inventory
-    hp_static_malefics = {'Saturn', 'Mars', 'Sun', 'Rahu'}
-    hp_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
-
-    def _hp_is_malefic(planet_name):
-        if planet_name in hp_static_malefics:
-            return True
-        if planet_name == 'Moon':
-            return phase5_data['Moon']['bad_inv'] > 0.001
-        if planet_name == 'Ketu':
-            return phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001
-        return False
-
-    # Own-good currency key mapping for malefics
-    _own_good_key = {
-        'Saturn': 'Good Saturn', 'Mars': 'Good Mars', 'Sun': 'Good Sun',
-        'Rahu': 'Good Rahu', 'Ketu': 'Good Ketu', 'Moon': 'Good Moon'
-    }
-
-    # ── Lagna Lord Protection ──
-    lagna_sign_hp = get_sign(lagna_sid)
-    lagna_lord = get_sign_lord(lagna_sign_hp)
-    is_malefic_lagna_lord = (
-        lagna_lord in ('Sun', 'Mars', 'Saturn')
-        or (lagna_lord == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
-    )
-
-    # ── 1. ASPECT SCORE (from Phase 5 leftover clones) ──
-    for clone in all_leftover_clones:
-        parent = clone['parent']
-        parent_L = phase5_data[parent]['L']
-        target_lon = (parent_L + (clone['offset'] - 1) * 30) % 360
-        target_sign = get_sign(target_lon)
-
-        if _hp_is_malefic(parent):
-            # Rule A – Debt Penalty (not exclusive with Rule B)
-            if clone['debt'] < -0.001:
-                if parent == lagna_lord and is_malefic_lagna_lord and target_sign == lagna_sign_hp:
-                    penalty = abs(clone['debt']) / 2.0
-                    aspect_score[target_sign] -= penalty
-                    aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2 [Lagna])")
-                else:
-                    penalty = abs(clone['debt'])
-                    aspect_score[target_sign] -= penalty
-                    aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
-
-            # Rule B – Own Good / 2
-            own_key = _own_good_key.get(parent)
-            if own_key:
-                own_val = clone['inventory'].get(own_key, 0.0)
-                if own_val > 0.001:
-                    bonus = own_val
-                    aspect_score[target_sign] += bonus
-                    aspect_sources[target_sign].append(f"{parent}(Own Good)")
-        else:
-            # Benefic – sum all good currencies
-            good_total = 0.0
-            for c_key, c_val in clone['inventory'].items():
-                if c_val > 0.001 and is_good_currency(c_key):
-                    good_total += c_val
-            if good_total > 0.001:
-                aspect_score[target_sign] += good_total
-                aspect_sources[target_sign].append(f"{parent}(Benefic Bonus)")
-
-    # ── 2. OCCUPANT SCORE (Phase 5 final inventory of planets in each house) ──
-    # Build sign→planets mapping from planet_sign_map
-    sign_occupants = defaultdict(list)
-    for p_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        occ_sign = planet_sign_map[p_name]
-        sign_occupants[occ_sign].append(p_name)
-
-    for s in sign_names:
-        for occ in sign_occupants.get(s, []):
-            inv = phase5_data[occ]['p5_inventory']
-            if _hp_is_malefic(occ):
-                total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
-                total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-                if occ == lagna_lord and is_malefic_lagna_lord and s == lagna_sign_hp:
-                    total_bad = total_bad / 2.0
-                    net = total_good - total_bad
-                    occupant_score[s] += net
-                    occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
-                else:
-                    net = total_good - total_bad
-                    occupant_score[s] += net
-                    occupant_notes[s].append(f"{occ}(Good-Bad)")
-            else:
-                total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
-                if total_good > 0.001:
-                    occupant_score[s] += total_good
-                    occupant_notes[s].append(f"{occ}(Benefic Sum)")
-
-    # ── 3. BONUS ADJUSTMENT – deduct used Phase 4 gift pots ──
-    hp_gift_pot_config = {
-        'Sagittarius': ('Jupiter', 100),
-        'Pisces': ('Jupiter', 80),
-        'Libra': ('Venus', 80),
-        'Taurus': ('Venus', 60)
-    }
-    for gift_sign, (gifter, multiplier) in hp_gift_pot_config.items():
-        gifter_sthana = planet_data[gifter]['sthana']
-        original_pot = multiplier * (gifter_sthana / 100.0)
-        # Unused reserve = sum of all currency amounts stored for this sign
-        unused_reserve = sum(v for v in house_reserves[gift_sign].values() if v > 0.001)
-        used_amount = original_pot - unused_reserve
-        if used_amount > 0.001:
-            occupant_score[gift_sign] -= used_amount
-            occupant_notes[gift_sign].append(f"Less Used Bonus[-{used_amount:.2f}]")
-
     # ---- PLANET STRENGTHS ANALYSIS ----
     planet_strength_rows = []
     planet_final_strengths = {}
     _ps_planets = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn']
-
-    def _ps_khs(p_name):
-        ruled = planet_ruled_signs.get(p_name, [])
-        if not ruled:
-            return 0.0
-        total = sum(aspect_score.get(rs, 0.0) + occupant_score.get(rs, 0.0) for rs in ruled)
-        avg = total / len(ruled)
-        khs = avg / 10.0
-        return min(khs, 10.0)
 
     def _ps_own_asp(p_name):
         ruled = planet_ruled_signs.get(p_name, [])
@@ -2697,7 +2689,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 _sb = sthana_bala_dict.get(_ps_p, [0]*12)[_partner_idx]
                 _pari_note = f'(Pari->{_partner_sign})'
 
-        _khs_val = _ps_khs(_ps_p)
         _asp_val = _ps_own_asp(_ps_p)
         _rh = phase5_data[_ps_p]['rasi_house']
 
@@ -2721,28 +2712,28 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             _hl_adj = 0.0
 
         if _hp_is_malefic(_ps_p):
-            # Malefic: Dig 60%, Sthana 40%, KHS 10%, Asp 10%, Kendra 5%
+            # Malefic: Dig 60%, Sthana 40%, Asp 10%, Kendra 5%
             s_dig = (_db / 100.0) * 60.0
             if _is_negative:
                 s_sth = (_sb / 120.0) * 40.0
             else:
                 s_sth = (_sb / 100.0) * 40.0
-            base_total = s_dig + s_sth + _khs_val + _asp_val + _hl_adj
+            base_total = s_dig + s_sth + _asp_val + _hl_adj
             s_bonus = 5.0 if _rh in (1, 4, 7, 10) else 0.0
         else:
-            # Benefic: Dig 40%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
+            # Benefic: Dig 40%, Sthana 60%, Asp 10%, Kona 5%
             s_dig = (_db / 100.0) * 40.0
             if _is_negative:
                 s_sth = (_sb / 120.0) * 60.0
             else:
                 s_sth = (_sb / 100.0) * 60.0
-            base_total = s_dig + s_sth + _khs_val + _asp_val + _hl_adj
+            base_total = s_dig + s_sth + _asp_val + _hl_adj
             s_bonus = 5.0 if _rh in (1, 5, 9) else 0.0
 
         final = base_total + s_bonus
         planet_final_strengths[_ps_p] = final
         brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f}{_pari_note} + "
-                 f"KHS:{_khs_val:.2f} + Asp:{_asp_val:.2f} + "
+                 f"Asp:{_asp_val:.2f} + "
                  f"HLord:{_hl_adj:+.2f}({_ps_lord}={_lord_st}) + Bonus:{s_bonus:.2f}")
         planet_strength_rows.append([_ps_p, f"{final:.2f}", brkdn])
 
