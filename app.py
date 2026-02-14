@@ -2682,10 +2682,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if p == 'Rahu':
             _rahu_notes_parts = []
 
-            # Step 1: Quantise Maraivu Adjusted Score to 60
-            _rahu_base = (final_adjusted_score / 100.0) * 60
+            # Step 1: Quantise Maraivu Adjusted Score to 80
+            _rahu_base = (final_adjusted_score / 100.0) * 80
             _rahu_total = _rahu_base
-            _rahu_notes_parts.append(f"Step1: ({final_adjusted_score:.2f}/100)*60={_rahu_base:.2f}")
+            _rahu_notes_parts.append(f"Step1: ({final_adjusted_score:.2f}/100)*80={_rahu_base:.2f}")
 
             # Step 2: Adding score based on house lord status
             _rahu_sign = planet_sign_map.get('Rahu', 'Aries')
@@ -2706,8 +2706,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             # Step 3: Bonus if Rahu is in its favourite house
             _rahu_fav_signs = {'Aries', 'Taurus', 'Cancer', 'Virgo', 'Libra', 'Sagittarius', 'Capricorn', 'Pisces'}
             if _rahu_sign in _rahu_fav_signs:
-                _rahu_total += 30
-                _rahu_notes_parts.append(f"Step3: Fav house {_rahu_sign} +30")
+                _rahu_total += 10
+                _rahu_notes_parts.append(f"Step3: Fav house {_rahu_sign} +10")
             else:
                 _rahu_notes_parts.append(f"Step3: {_rahu_sign} not fav, no bonus")
 
