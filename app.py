@@ -2577,6 +2577,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         group_b = {'Venus', 'Saturn', 'Mercury'}
 
         suchama_str = "0"
+        
+        # New: Need to capture the Adjusted Score for use in House Points later
+        final_adjusted_score = 0.0
 
         if p in benefic_set:
             # Benefic logic (unchanged)
@@ -2584,6 +2587,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
             else:
                 adjusted = final_ns
+            final_adjusted_score = adjusted
             adjusted_str = f"{adjusted:.2f}"
 
         elif p in malefic_set:
@@ -2624,10 +2628,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
+                final_adjusted_score = adjusted
                 adjusted_str = f"{adjusted:.2f}"
             else:
                 # No maraivu detected
                 adjusted = final_ns
+                final_adjusted_score = adjusted
                 adjusted_str = f"{adjusted:.2f}"
                 suchama = 0.0
 
@@ -2642,6 +2648,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 suchama_str = f"{suchama:.2f}"
         else:
             adjusted_str = "-"
+            final_adjusted_score = final_ns # Default fallback if anything breaks 
+            
+        # Store adjusted score for House Points Calculation
+        _nps_score_dict[p + '_adjusted'] = final_adjusted_score
 
         nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str])
 
@@ -2769,12 +2779,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         house_planetary_score = aspect_score[s] + occupant_score[s]
 
-        # House Lord Score = (lord strength / 2) + (Final Normalised Score / 2)
+        # House Lord Score = (lord strength / 2) + (Maraivu Adjusted Score / 2)
         lord = get_sign_lord(s)
         lord_strength = planet_final_strengths.get(lord, 0.0)
-        lord_norm_score = _nps_score_dict.get(lord, 0.0)
+        # Old: lord_norm_score = _nps_score_dict.get(lord, 0.0)
+        # New: Use Maraivu adjusted score
+        lord_norm_score = _nps_score_dict.get(lord + '_adjusted', 0.0)
+        
         hl_score = (lord_strength / 2.0) + (lord_norm_score / 2.0)
-        hl_notes = f"{lord}: Str({lord_strength/2.0:.2f}) + NormScore({lord_norm_score/2.0:.2f})"
+        hl_notes = f"{lord}: Str({lord_strength/2.0:.2f}) + AdjNormScore({lord_norm_score/2.0:.2f})"
 
         # Total House Points = (House Planetary Score / 2) + (House Lord Score / 2)
         total_hp = (house_planetary_score / 2.0) + (hl_score / 2.0)
