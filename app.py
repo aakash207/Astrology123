@@ -3017,6 +3017,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     sim_debt = -100.0
     sim_gained_inv = defaultdict(float)
     sim_sources = {}  # currency_key -> list of "PotName(amount)" strings
+    sim_good_from_malefic = defaultdict(float)  # good currency amounts sourced from malefic pots
 
     malefic_pots = [p for p in universe_pots if p['is_malefic']]
     benefic_pots = [p for p in universe_pots if not p['is_malefic']]
@@ -3058,6 +3059,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 # Track source
                 src_label = pot['name']
                 sim_sources.setdefault(c_key, []).append(f"{src_label}({take:.2f})")
+                # Track good currency from malefic pots
+                if pot['is_malefic'] and is_good_currency(c_key):
+                    sim_good_from_malefic[c_key] += take
+
+    # Post-sim: halve good currency that came from malefic pots
+    for c_key, malefic_amount in sim_good_from_malefic.items():
+        penalty = malefic_amount * 0.50
+        sim_gained_inv[c_key] -= penalty
 
     # 3. Output Generation
     sim_good_total = sum(v for k, v in sim_gained_inv.items() if is_good_currency(k))
