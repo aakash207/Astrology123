@@ -2680,18 +2680,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         house_planetary_score = aspect_score[s] + occupant_score[s]
 
-        # House Lord Score = (lord strength / 2) + (lord net currency / 2)
-        # Exclude the lord's own bad currency from net calculation
+        # House Lord Score = (lord strength / 2) + (Final Normalised Score / 2)
         lord = get_sign_lord(s)
         lord_strength = planet_final_strengths.get(lord, 0.0)
-        inv = phase5_data[lord]['p5_inventory']
-        lord_good = sum(v for k, v in inv.items() if is_good_currency(k))
-        lord_bad = sum(v for k, v in inv.items() if 'Bad' in k)
-        own_bad_key = f"Bad {lord}"
-        own_bad_val = inv.get(own_bad_key, 0.0)
-        lord_net_currency = lord_good - lord_bad + own_bad_val
-        hl_score = (lord_strength / 2.0) + (lord_net_currency / 2.0)
-        hl_notes = f"{lord}: Str({lord_strength/2.0:.2f}) + NetCurr({lord_net_currency/2.0:.2f})"
+        lord_norm_score = _nps_score_dict.get(lord, 0.0)
+        hl_score = (lord_strength / 2.0) + (lord_norm_score / 2.0)
+        hl_notes = f"{lord}: Str({lord_strength/2.0:.2f}) + NormScore({lord_norm_score/2.0:.2f})"
 
         # Total House Points = (House Planetary Score / 2) + (House Lord Score / 2)
         total_hp = (house_planetary_score / 2.0) + (hl_score / 2.0)
