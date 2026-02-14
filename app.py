@@ -2343,6 +2343,96 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_house_reserves = pd.DataFrame(reserve_rows, columns=['House Sign', 'Unutilized Bonus Points'])
 
+    # ---- NORMALIZED PLANET SCORES ----
+    _nps_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
+    _nps_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
+    _nps_neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
+    _nps_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
+
+    nps_rows = []
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        inv = phase5_data[p]['p5_inventory']
+        p5_debt = phase5_data[p]['p5_current_debt']
+        p_volume = phase5_data[p]['volume']
+        p_capacity = capacity_dict.get(p, 100)
+
+        total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+        total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+        self_bad   = inv.get(f'Bad {p}', 0.0)
+        net_score  = total_good - total_bad
+
+        _nps_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
+        is_neecha = _nps_st in _nps_neecha_statuses
+
+        # Classify malefic/benefic
+        if p == 'Moon':
+            is_malefic = not _nps_moon_is_waxing
+        elif p in _nps_static_malefics:
+            is_malefic = True
+        else:
+            is_malefic = False
+
+        # --- Determine case and calculate ---
+        if p == 'Moon' and _nps_moon_is_waxing and not is_neecha:
+            # Case A: Waxing Moon, NOT Negative Status
+            swapped_debt = -1 * p5_debt
+            denom_val = total_good + swapped_debt
+            if abs(denom_val) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = ((total_good - swapped_debt) / denom_val) * 100
+            formula_type = f"CaseA: [(TG{total_good:.2f}-SD{swapped_debt:.2f})/(TG{total_good:.2f}+SD{swapped_debt:.2f})]*100"
+
+        elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
+            # Case B: Waxing Moon, IS Negative Status
+            swapped_debt = -1 * p5_debt
+            denom_val = total_good + swapped_debt
+            if abs(denom_val) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = ((total_good - swapped_debt) / denom_val) * 120
+            formula_type = f"CaseB: [(TG{total_good:.2f}-SD{swapped_debt:.2f})/(TG{total_good:.2f}+SD{swapped_debt:.2f})]*120"
+
+        elif not is_malefic and is_neecha:
+            # Case C: Benefic, IS Negative Status
+            denom_val = p_capacity * 1.2
+            if abs(denom_val) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = (net_score / denom_val) * 120
+            formula_type = f"CaseC: (Net{net_score:.2f}/(Cap{p_capacity}*1.2))*120"
+
+        elif is_malefic and is_neecha:
+            # Case D: Malefic, IS Negative Status
+            denom_val = p_capacity * 1.2
+            if abs(denom_val) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = ((net_score + self_bad) / denom_val) * 120
+            formula_type = f"CaseD: ((Net{net_score:.2f}+SB{self_bad:.2f})/(Cap{p_capacity}*1.2))*120"
+
+        elif not is_malefic and not is_neecha:
+            # Case E: Benefic, NOT Negative Status
+            if abs(p_volume) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = (net_score / p_volume) * 100
+            formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
+
+        else:
+            # Case F: Malefic, NOT Negative Status
+            if abs(p_volume) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = ((net_score + self_bad) / p_volume) * 100
+            formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
+
+        final_ns = max(final_ns, 0.0)
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}"])
+
+    df_normalized_planet_scores = pd.DataFrame(nps_rows,
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score'])
+
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
     aspect_sources = {s: [] for s in sign_names}
@@ -2668,6 +2758,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves,
+        'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
@@ -2866,6 +2957,9 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
+
+    st.subheader("Normalized Planet Scores")
+    st.dataframe(cd['df_normalized_planet_scores'], hide_index=True, use_container_width=True)
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
