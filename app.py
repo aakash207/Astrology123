@@ -2971,12 +2971,147 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                  4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',
                  6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
 
+    # ── LAGNA POINT SIMULATION ──────────────────────────────────────────
+    lagna_sim_inventory = defaultdict(float)
+    lagna_sim_debt = -100.0
+    lagna_sim_volume = 100
+    lagna_sim_L = lagna_sid
+
+    # Track how much capacity has been used per target so we don't over-pull
+    lagna_sim_pulled_from = defaultdict(float)   # key = target identifier
+
+    lagna_sim_planet_parts = []   # strings for "Currency Pulled from Planets"
+    lagna_sim_clone_parts = []    # strings for "Currency Pulled from Clones"
+
+    # --- Phase 1 style pulling (from real planet inventories, READ-ONLY) ---
+    # Order: malefics first, then benefics
+    lagna_sim_target_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu',
+                              'Jupiter', 'Venus', 'Mercury', 'Moon']
+
+    for t_name in lagna_sim_target_order:
+        if lagna_sim_debt >= -0.001:
+            break
+
+        t_L = planet_data[t_name]['L']
+        diff = abs(lagna_sim_L - t_L)
+        if diff > 180:
+            diff = 360 - diff
+        gap = int(diff)
+        if gap > 22:
+            continue
+
+        cap_pct = mix_dict.get(gap, 0)
+        max_pull = planet_data[t_name]['volume'] * (cap_pct / 100.0)
+        tracker_key = f"sim_planet_{t_name}"
+        already_pulled = lagna_sim_pulled_from[tracker_key]
+        if already_pulled >= max_pull:
+            continue
+
+        # Collect only Good currencies from this target, ranked best-first
+        target_inv = planet_data[t_name]['final_inventory']
+        available = []
+        for c_key, c_val in target_inv.items():
+            if c_val > 0.001 and is_good_currency(c_key):
+                score = get_currency_rank_score(t_name, c_key)
+                available.append((c_key, c_val, score))
+        available.sort(key=lambda x: -x[2])
+
+        for c_key, c_val, _ in available:
+            if lagna_sim_debt >= -0.001:
+                break
+            remaining_cap = max_pull - lagna_sim_pulled_from[tracker_key]
+            if remaining_cap <= 0.001:
+                break
+            # READ the real inventory value again (it hasn't changed)
+            real_avail = planet_data[t_name]['final_inventory'].get(c_key, 0.0)
+            if real_avail <= 0.001:
+                continue
+            take = min(1.0, abs(lagna_sim_debt), real_avail, remaining_cap)
+            if take > 0.001:
+                lagna_sim_inventory[c_key] += take
+                lagna_sim_debt += take
+                lagna_sim_pulled_from[tracker_key] += take
+                lagna_sim_planet_parts.append(f"{c_key}[{take:.2f}]")
+
+    # --- Phase 5 style pulling (from leftover clones, READ-ONLY) ---
+    lagna_sim_clone_target_order_m = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu']
+    lagna_sim_clone_target_order_b = ['Jupiter', 'Venus', 'Mercury', 'Moon']
+
+    # Build a list of (clone, is_malefic_parent) sorted malefics first
+    ordered_clones = []
+    for cl in all_leftover_clones:
+        if cl['parent'] in lagna_sim_clone_target_order_m:
+            ordered_clones.append((cl, True))
+    for cl in all_leftover_clones:
+        if cl['parent'] in lagna_sim_clone_target_order_b:
+            ordered_clones.append((cl, False))
+
+    for cl, _ in ordered_clones:
+        if lagna_sim_debt >= -0.001:
+            break
+
+        clone_L = cl['L']
+        diff = abs(lagna_sim_L - clone_L)
+        if diff > 180:
+            diff = 360 - diff
+        gap = int(diff)
+        if gap > 22:
+            continue
+
+        # Capacity based on clone's original volume and mix_dict
+        clone_orig_vol = sum(cl['original_inventory'].values())
+        cap_pct = mix_dict.get(gap, 0)
+        max_pull = clone_orig_vol * (cap_pct / 100.0)
+        tracker_key = f"sim_clone_{cl['parent']}_{cl['offset']}"
+        already_pulled = lagna_sim_pulled_from[tracker_key]
+        if already_pulled >= max_pull:
+            continue
+
+        # Collect Good currencies from the clone's remaining inventory
+        available = []
+        for c_key, c_val in cl['inventory'].items():
+            if c_val > 0.001 and is_good_currency(c_key):
+                score = get_p5_currency_rank_score(c_key)
+                available.append((c_key, c_val, score))
+        available.sort(key=lambda x: -x[2])
+
+        for c_key, c_val, _ in available:
+            if lagna_sim_debt >= -0.001:
+                break
+            remaining_cap = max_pull - lagna_sim_pulled_from[tracker_key]
+            if remaining_cap <= 0.001:
+                break
+            real_avail = cl['inventory'].get(c_key, 0.0)
+            if real_avail <= 0.001:
+                continue
+            take = min(1.0, abs(lagna_sim_debt), real_avail, remaining_cap)
+            if take > 0.001:
+                lagna_sim_inventory[c_key] += take
+                lagna_sim_debt += take
+                lagna_sim_pulled_from[tracker_key] += take
+                lagna_sim_clone_parts.append(f"{c_key}[{take:.2f}]")
+
+    # Build output DataFrame
+    total_good_absorbed = sum(v for k, v in lagna_sim_inventory.items() if is_good_currency(k))
+    final_debt_str = f"{lagna_sim_debt:.2f}" if lagna_sim_debt < -0.005 else "0.00"
+
+    df_lagna_sim = pd.DataFrame([{
+        'Entity': 'Lagna Point',
+        'Initial Debt': '-100.00',
+        'Currency Pulled from Planets': ', '.join(lagna_sim_planet_parts) if lagna_sim_planet_parts else '-',
+        'Currency Pulled from Clones': ', '.join(lagna_sim_clone_parts) if lagna_sim_clone_parts else '-',
+        'Final Debt / Score': final_debt_str,
+        'Total Good Absorbed': f"{total_good_absorbed:.2f}"
+    }])
+    # ── END LAGNA POINT SIMULATION ─────────────────────────────────────
+
     return {
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
+        'df_lagna_sim': df_lagna_sim,
         'df_house_reserves': df_house_reserves,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
@@ -3186,6 +3321,9 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
+
+    st.subheader("Lagna Point Simulation Bonus")
+    st.dataframe(cd['df_lagna_sim'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
