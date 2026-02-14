@@ -2350,6 +2350,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _nps_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
 
     nps_rows = []
+    _nps_score_dict = {}  # planet -> raw final_ns value for use in Planet Strengths
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
         p5_debt = phase5_data[p]['p5_current_debt']
@@ -2427,6 +2428,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 final_ns = ((net_score + self_bad) / p_volume) * 100
             formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
 
+        _nps_score_dict[p] = final_ns
         nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}"])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
@@ -2579,14 +2581,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _db = planet_data[_ps_p].get('dig_bala') or 0
         _sb = planet_data[_ps_p].get('sthana') or 0
 
-        # Override Sthana with good currency sum for negative-status planets
+        # Override Sthana with normalized score for negative-status planets
         _neg_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
         _ps_st = planet_data[_ps_p].get('status', '')
         _ps_ust = planet_data[_ps_p].get('updated_status', '')
         _is_negative = _ps_st in _neg_statuses or _ps_ust in _neg_statuses
         if _is_negative:
-            _sb = sum(v for k, v in phase5_data[_ps_p]['p5_inventory'].items()
-                      if v > 0.001 and is_good_currency(k))
+            # Use Final Normalized Score from normalized planet scores (scale 0-120)
+            _nps_val = _nps_score_dict.get(_ps_p, 0.0)
+            _sb = _nps_val  # will be converted to 40 or 60 scale below via (val/120)*weight
             _overridden_sthana[_ps_p] = _sb
 
         # Parivardhana Yoga: override Sthana with swapped sign score
@@ -2619,11 +2622,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             _hl_adj = 0.0
 
+        # If the planet itself is Neecha, do not award HLord bonus (ucham/moola/aatchi)
+        if _is_negative and _hl_adj > 0:
+            _hl_adj = 0.0
+
         if _hp_is_malefic(_ps_p):
             # Malefic: Dig 60%, Sthana 40%, KHS 10%, Asp 10%, Kendra 5%
             s_dig = (_db / 100.0) * 60.0
             if _is_negative:
-                s_sth = _sb * (40.0 / 100.0)
+                s_sth = (_sb / 120.0) * 40.0
             else:
                 s_sth = (_sb / 100.0) * 40.0
             base_total = s_dig + s_sth + _khs_val + _asp_val + _hl_adj
@@ -2632,7 +2639,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             # Benefic: Dig 40%, Sthana 60%, KHS 10%, Asp 10%, Kona 5%
             s_dig = (_db / 100.0) * 40.0
             if _is_negative:
-                s_sth = _sb * (60.0 / 100.0)
+                s_sth = (_sb / 120.0) * 60.0
             else:
                 s_sth = (_sb / 100.0) * 60.0
             base_total = s_dig + s_sth + _khs_val + _asp_val + _hl_adj
