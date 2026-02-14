@@ -2450,8 +2450,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         # Maraivu Adjusted Score (benefics only: Moon, Mercury, Jupiter, Venus)
         benefic_set = {'Moon', 'Mercury', 'Jupiter', 'Venus'}
-        if p in benefic_set and m_pct is not None:
-            adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
+        if p in benefic_set:
+            if m_pct is not None:
+                adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
+            else:
+                adjusted = final_ns
             adjusted_str = f"{adjusted:.2f}"
         else:
             adjusted_str = "-"
