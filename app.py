@@ -2581,10 +2581,30 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # New: Need to capture the Adjusted Score for use in House Points later
         final_adjusted_score = 0.0
 
+        # Compute updated maraivu % (reduced by status) for Adjusted Score only
+        _um_pct = m_pct  # default to raw maraivu %
+        if m_pct is not None and m_pct > 0:
+            _um_status = planet_status_map.get(p, '-')
+            if _um_status == 'Uchcham':
+                _um_pct = m_pct * 0.50
+            elif _um_status == 'Moolathirigonam':
+                _um_pct = m_pct * 0.60
+            elif _um_status == 'Aatchi':
+                _um_pct = m_pct * 0.70
+            else:
+                # Check Friend's House
+                _um_lagna_sign = get_sign(lagna_sid)
+                _um_house_sign = sign_names[(sign_names.index(_um_lagna_sign) + (p_house - 1)) % 12]
+                _um_house_lord = sign_lords[sign_names.index(_um_house_sign)]
+                _um_p_grp = 'A' if p in group_a else 'B'
+                _um_l_grp = 'A' if _um_house_lord in group_a else 'B'
+                if _um_p_grp == _um_l_grp:
+                    _um_pct = m_pct * 0.75
+
         if p in benefic_set:
-            # Benefic logic (unchanged)
-            if m_pct is not None:
-                adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
+            # Benefic logic
+            if _um_pct is not None:
+                adjusted = (final_ns / 2.0) + (final_ns * (100 - _um_pct) / 100.0) / 2.0
             else:
                 adjusted = final_ns
             final_adjusted_score = adjusted
@@ -2612,15 +2632,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if is_friendly_house or has_positive_status:
                     # No reduction
                     adjusted = final_ns
-                    # Suchama Score = (Sthana Balam / 100) * Maraivu %
+                    # Suchama Score uses original m_pct (not reduced)
                     suchama = (sthana_val / 100.0) * m_pct
                 else:
-                    # Reduce
+                    # Reduce using updated maraivu %
                     if final_ns < 0:
-                         # For negative score, make it more negative
-                         adjusted = (final_ns / 2.0) + (final_ns * (100 + m_pct) / 100.0) / 2.0
+                         adjusted = (final_ns / 2.0) + (final_ns * (100 + _um_pct) / 100.0) / 2.0
                     else:
-                         adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
+                         adjusted = (final_ns / 2.0) + (final_ns * (100 - _um_pct) / 100.0) / 2.0
                     suchama = 0.0
 
                 # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
