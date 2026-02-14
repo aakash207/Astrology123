@@ -2467,6 +2467,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     nps_rows = []
     _nps_score_dict = {}  # planet -> raw final_ns value for use in Planet Strengths
+    _suchama_score_dict = {}  # planet -> raw suchama value
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
         p5_debt = phase5_data[p]['p5_current_debt']
@@ -2653,6 +2654,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
+                _suchama_score_dict[p] = suchama
                 final_adjusted_score = adjusted
                 adjusted_str = f"{adjusted:.2f}"
             else:
@@ -2671,6 +2673,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
+                _suchama_score_dict[p] = suchama
         else:
             adjusted_str = "-"
             final_adjusted_score = final_ns # Default fallback if anything breaks 
@@ -2889,6 +2892,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # ── 4. BUILD DATAFRAME ──
     hp_rows = []
+    _house_total_points = {}  # house_number -> raw total_hp
     _hp_lagna_idx = sign_names.index(get_sign(lagna_sid))
     for h_num in range(1, 13):
         s = sign_names[(_hp_lagna_idx + h_num - 1) % 12]
@@ -2910,6 +2914,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Total House Points = (House Planetary Score / 2) + (House Lord Score / 2)
         total_hp = (house_planetary_score / 2.0) + (hl_score / 2.0)
         total_hp_notes = f"HPS({house_planetary_score/2.0:.2f}) + HLS({hl_score/2.0:.2f})"
+
+        _house_total_points[h_num] = total_hp
 
         hp_rows.append([h_num, s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{house_planetary_score:.2f}",
@@ -3096,6 +3102,66 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     )
     # ====== END LAGNA POINT SCORE SIMULATION ======
 
+    # ====== LAGNA ANALYSIS TABLE ======
+    _la_lagna_sign = get_sign(lagna_sid)
+    _la_lagna_lord = get_sign_lord(_la_lagna_sign)
+
+    # 1. Moon's Light: Maraivu adj score from NPS (out of 100)
+    _la_moon_adj = _nps_score_dict.get('Moon_adjusted', 0.0)
+    _la_moon_score = min(max(_la_moon_adj, -100.0), 100.0)
+    _la_moon_notes = f"Moon maraivu adj NPS = {_la_moon_adj:.2f}, capped to [-100,100]"
+
+    # 2. Lagna Lord Maraivu Adj Score from NPS
+    _la_ll_adj = _nps_score_dict.get(_la_lagna_lord + '_adjusted', 0.0)
+    _la_ll_score = min(max(_la_ll_adj, -100.0), 100.0)
+    _la_ll_notes = f"{_la_lagna_lord} maraivu adj NPS = {_la_ll_adj:.2f}"
+
+    # 3. Lagna Lord Strength (maraivu adj from Planet Strengths)
+    _la_ll_str_raw = _planet_maraivu_adj_strengths.get(_la_lagna_lord, 0.0)
+    _la_ll_str_score = min(max(_la_ll_str_raw, 0.0), 100.0)
+    _la_ll_str_notes = f"{_la_lagna_lord} maraivu adj strength = {_la_ll_str_raw:.2f}"
+
+    # 4. Lagna Lord Shukshama Strength
+    _la_ll_suchama = _suchama_score_dict.get(_la_lagna_lord, 0.0)
+    _la_ll_suchama_score = min(max(_la_ll_suchama, 0.0), 100.0)
+    _la_ll_suchama_notes = f"{_la_lagna_lord} suchama = {_la_ll_suchama:.2f}"
+
+    # 5. 1st House Points (out of 100)
+    _la_h1_raw = _house_total_points.get(1, 0.0)
+    _la_h1_score = min(max(_la_h1_raw, -100.0), 100.0)
+    _la_h1_notes = f"House 1 total HP = {_la_h1_raw:.2f}"
+
+    # 6. Lagna Point (good currency only, no debt)
+    _la_lagna_sim = sim_good_total - sim_bad_total
+    _la_lagna_pt_score = min(max(_la_lagna_sim, -100.0), 100.0)
+    _la_lagna_pt_notes = f"Sim good={sim_good_total:.2f} - bad={sim_bad_total:.2f}, net={_la_lagna_sim:.2f}"
+
+    # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2 + Shukshama
+    _la_sun_adj_str = _planet_maraivu_adj_strengths.get('Sun', 0.0)
+    _la_sun_adj_nps = _nps_score_dict.get('Sun_adjusted', 0.0)
+    _la_sun_suchama = _suchama_score_dict.get('Sun', 0.0)
+    _la_sun_raw = (_la_sun_adj_str + _la_sun_adj_nps) / 2.0 + _la_sun_suchama
+    _la_sun_score = min(max(_la_sun_raw, -100.0), 100.0)
+    _la_sun_notes = f"(Str {_la_sun_adj_str:.2f} + AdjNPS {_la_sun_adj_nps:.2f})/2 + Suchama {_la_sun_suchama:.2f} = {_la_sun_raw:.2f}"
+
+    # 8. 9th House Points
+    _la_h9_raw = _house_total_points.get(9, 0.0)
+    _la_h9_score = min(max(_la_h9_raw, -100.0), 100.0)
+    _la_h9_notes = f"House 9 total HP = {_la_h9_raw:.2f}"
+
+    lagna_analysis_rows = [
+        ["Moon's Light",       f"{_la_moon_score:.2f}", _la_moon_notes],
+        ['Lagna Lord Score',   f"{_la_ll_score:.2f}",   _la_ll_notes],
+        ['Lagna Lord Strength',f"{_la_ll_str_score:.2f}", _la_ll_str_notes],
+        ['Lagna Lord Suchama', f"{_la_ll_suchama_score:.2f}", _la_ll_suchama_notes],
+        ['1st House Points',   f"{_la_h1_score:.2f}",   _la_h1_notes],
+        ['Lagna Point',        f"{_la_lagna_pt_score:.2f}", _la_lagna_pt_notes],
+        ['Sun Score',          f"{_la_sun_score:.2f}",  _la_sun_notes],
+        ['9th House Points',   f"{_la_h9_score:.2f}",   _la_h9_notes],
+    ]
+    df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
+    # ====== END LAGNA ANALYSIS TABLE ======
+
     return {
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
@@ -3104,6 +3170,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
         'df_house_reserves': df_house_reserves,
         'df_bonus': df_bonus,
+        'df_lagna_analysis': df_lagna_analysis,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
@@ -3315,6 +3382,9 @@ if st.session_state.chart_data:
 
     st.subheader("Lagna Point Score Simulation")
     st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
+
+    st.subheader("Lagna Analysis")
+    st.dataframe(cd['df_lagna_analysis'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
