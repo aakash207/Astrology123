@@ -3108,32 +3108,32 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # 1. Moon's Light: Maraivu adj score from NPS (out of 100)
     _la_moon_adj = _nps_score_dict.get('Moon_adjusted', 0.0)
-    _la_moon_score = min(max(_la_moon_adj, -100.0), 100.0)
-    _la_moon_notes = f"Moon maraivu adj NPS = {_la_moon_adj:.2f}, capped to [-100,100]"
+    _la_moon_score = _la_moon_adj
+    _la_moon_notes = f"Moon maraivu adj NPS = {_la_moon_adj:.2f}"
 
     # 2. Lagna Lord Maraivu Adj Score from NPS
     _la_ll_adj = _nps_score_dict.get(_la_lagna_lord + '_adjusted', 0.0)
-    _la_ll_score = min(max(_la_ll_adj, -100.0), 100.0)
+    _la_ll_score = _la_ll_adj
     _la_ll_notes = f"{_la_lagna_lord} maraivu adj NPS = {_la_ll_adj:.2f}"
 
     # 3. Lagna Lord Strength (maraivu adj from Planet Strengths)
     _la_ll_str_raw = _planet_maraivu_adj_strengths.get(_la_lagna_lord, 0.0)
-    _la_ll_str_score = min(max(_la_ll_str_raw, 0.0), 100.0)
+    _la_ll_str_score = _la_ll_str_raw
     _la_ll_str_notes = f"{_la_lagna_lord} maraivu adj strength = {_la_ll_str_raw:.2f}"
 
     # 4. Lagna Lord Shukshama Strength
     _la_ll_suchama = _suchama_score_dict.get(_la_lagna_lord, 0.0)
-    _la_ll_suchama_score = min(max(_la_ll_suchama, 0.0), 100.0)
+    _la_ll_suchama_score = _la_ll_suchama
     _la_ll_suchama_notes = f"{_la_lagna_lord} suchama = {_la_ll_suchama:.2f}"
 
     # 5. 1st House Points (out of 100)
     _la_h1_raw = _house_total_points.get(1, 0.0)
-    _la_h1_score = min(max(_la_h1_raw, -100.0), 100.0)
+    _la_h1_score = _la_h1_raw
     _la_h1_notes = f"House 1 total HP = {_la_h1_raw:.2f}"
 
     # 6. Lagna Point (good currency only, no debt)
     _la_lagna_sim = sim_good_total - sim_bad_total
-    _la_lagna_pt_score = min(max(_la_lagna_sim, -100.0), 100.0)
+    _la_lagna_pt_score = _la_lagna_sim
     _la_lagna_pt_notes = f"Sim good={sim_good_total:.2f} - bad={sim_bad_total:.2f}, net={_la_lagna_sim:.2f}"
 
     # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2 + Shukshama
@@ -3141,13 +3141,43 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_sun_adj_nps = _nps_score_dict.get('Sun_adjusted', 0.0)
     _la_sun_suchama = _suchama_score_dict.get('Sun', 0.0)
     _la_sun_raw = (_la_sun_adj_str + _la_sun_adj_nps) / 2.0 + _la_sun_suchama
-    _la_sun_score = min(max(_la_sun_raw, -100.0), 100.0)
+    _la_sun_score = _la_sun_raw
     _la_sun_notes = f"(Str {_la_sun_adj_str:.2f} + AdjNPS {_la_sun_adj_nps:.2f})/2 + Suchama {_la_sun_suchama:.2f} = {_la_sun_raw:.2f}"
 
     # 8. 9th House Points
     _la_h9_raw = _house_total_points.get(9, 0.0)
-    _la_h9_score = min(max(_la_h9_raw, -100.0), 100.0)
+    _la_h9_score = _la_h9_raw
     _la_h9_notes = f"House 9 total HP = {_la_h9_raw:.2f}"
+
+    # 9. AG Bonus: weighted sum
+    _ag_moon   = _la_moon_score * 25.0 / 100.0
+    _ag_ll     = _la_ll_score * 12.5 / 100.0
+    _ag_ll_str = _la_ll_str_score * 12.5 / 100.0
+    _ag_h1     = _la_h1_score * 25.0 / 100.0
+    _ag_lp     = _la_lagna_pt_score * 25.0 / 100.0
+    _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp
+    _ag_notes  = (f"Moon({_la_moon_score:.2f}*25%)={_ag_moon:.2f} + "
+                  f"LL({_la_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
+                  f"LLStr({_la_ll_str_score:.2f}*12.5%)={_ag_ll_str:.2f} + "
+                  f"H1({_la_h1_score:.2f}*25%)={_ag_h1:.2f} + "
+                  f"LP({_la_lagna_pt_score:.2f}*25%)={_ag_lp:.2f}")
+
+    # 10. Bhuvi Bonus: weighted sum
+    _bv_moon   = _la_moon_score * 20.0 / 100.0
+    _bv_ll     = _la_ll_score * 10.0 / 100.0
+    _bv_ll_str = _la_ll_str_score * 10.0 / 100.0
+    _bv_h1     = _la_h1_score * 20.0 / 100.0
+    _bv_lp     = _la_lagna_pt_score * 20.0 / 100.0
+    _bv_sun    = _la_sun_score * 10.0 / 100.0
+    _bv_h9     = _la_h9_score * 10.0 / 100.0
+    _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_sun + _bv_h9
+    _bv_notes  = (f"Moon({_la_moon_score:.2f}*20%)={_bv_moon:.2f} + "
+                  f"LL({_la_ll_score:.2f}*10%)={_bv_ll:.2f} + "
+                  f"LLStr({_la_ll_str_score:.2f}*10%)={_bv_ll_str:.2f} + "
+                  f"H1({_la_h1_score:.2f}*20%)={_bv_h1:.2f} + "
+                  f"LP({_la_lagna_pt_score:.2f}*20%)={_bv_lp:.2f} + "
+                  f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
+                  f"H9({_la_h9_score:.2f}*10%)={_bv_h9:.2f}")
 
     lagna_analysis_rows = [
         ["Moon's Light",       f"{_la_moon_score:.2f}", _la_moon_notes],
@@ -3158,6 +3188,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         ['Lagna Point',        f"{_la_lagna_pt_score:.2f}", _la_lagna_pt_notes],
         ['Sun Score',          f"{_la_sun_score:.2f}",  _la_sun_notes],
         ['9th House Points',   f"{_la_h9_score:.2f}",   _la_h9_notes],
+        ['AG Bonus',           f"{_ag_total:.2f}",      _ag_notes],
+        ['Bhuvi Bonus',        f"{_bv_total:.2f}",      _bv_notes],
     ]
     df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
     # ====== END LAGNA ANALYSIS TABLE ======
