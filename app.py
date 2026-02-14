@@ -1,8 +1,6 @@
 import streamlit as st
 from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
-from astropy.time import Time
-from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
 from collections import defaultdict
 import pandas as pd
 from geopy.geocoders import Nominatim
@@ -12,6 +10,16 @@ from matplotlib.patches import FancyBboxPatch
 from timezonefinder import TimezoneFinder
 import pytz
 import copy
+
+# ---- Swiss Ephemeris / Astropy fallback ----
+USE_SWISSEPH = False
+try:
+    import swisseph as swe
+    swe.set_ephe_path(None)  # use built-in ephemeris
+    USE_SWISSEPH = True
+except ImportError:
+    from astropy.time import Time
+    from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
 
 # ---- Matplotlib defaults (crisp + thin) ----
 plt.rcParams.update({"figure.dpi": 300, "savefig.dpi": 300, "lines.linewidth": 0.28})
@@ -133,6 +141,55 @@ def get_ascendant(jd, lat, lon):
     cos_asc = -(sin(lstr)*cos(oer) + tan(radians(lat))*sin(oer))
     return degrees(atan2(sin_asc, cos_asc)) % 360
 
+def _datetime_to_jd(dt):
+    """Convert a datetime to Julian Day, handling Julian/Gregorian calendar switch."""
+    if USE_SWISSEPH:
+        y, m, d = dt.year, dt.month, dt.day
+        h = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+        # Gregorian calendar from Oct 15 1582 onwards, Julian before
+        if (y > 1582) or (y == 1582 and m > 10) or (y == 1582 and m == 10 and d >= 15):
+            cal = swe.GREG_CAL
+        else:
+            cal = swe.JUL_CAL
+        return swe.julday(y, m, d, h, cal)
+    else:
+        from astropy.time import Time as AstroTime
+        return AstroTime(dt).jd
+
+def compute_positions_swisseph(utc_dt, lat, lon):
+    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris."""
+    jd = _datetime_to_jd(utc_dt)
+    ayan = swe.get_ayanamsa_ut(jd)  # Lahiri ayanamsa (default sid mode)
+
+    # Set Lahiri ayanamsa mode
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+
+    # Planet IDs in swisseph
+    planet_ids = {
+        'sun': swe.SUN, 'moon': swe.MOON, 'mercury': swe.MERCURY,
+        'venus': swe.VENUS, 'mars': swe.MARS, 'jupiter': swe.JUPITER,
+        'saturn': swe.SATURN
+    }
+
+    lon_trop = {}
+    for name, pid in planet_ids.items():
+        result, _flag = swe.calc_ut(jd, pid)
+        lon_trop[name] = result[0]  # tropical longitude
+
+    # Rahu = True Node
+    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
+    lon_trop['rahu'] = result[0]
+    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
+
+    # Ascendant
+    cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
+    asc_trop = asmc[0]
+
+    # Use swisseph Lahiri ayanamsa for accuracy
+    ayan_lahiri = swe.get_ayanamsa_ut(jd)
+
+    return lon_trop, asc_trop, jd, ayan_lahiri
+
 def get_sidereal_lon(tlon, ayan): return (tlon - ayan) % 360
 def get_sign(lon): return sign_names[int(lon/30)]
 def get_house(lon, lagna_lon): return (int(lon/30) - int(lagna_lon/30)) % 12 + 1
@@ -234,18 +291,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     local_dt = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
     utc_dt = local_dt - timedelta(hours=tz_offset)
-    t = Time(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
-    
-    with solar_system_ephemeris.set('builtin'):
-        lon_trop = {}
-        for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
-            ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic()); lon_trop[nm] = ecl.lon.deg
-    
-    d = jd - 2451545.0; T = d/36525.0
-    omega = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
-    lon_trop['rahu'] = omega; lon_trop['ketu'] = (omega + 180) % 360
-    lon_sid = {p: get_sidereal_lon(lon_trop[p], ayan) for p in lon_trop}
-    lagna_sid = get_sidereal_lon(get_ascendant(jd, lat, lon), ayan)
+
+    if USE_SWISSEPH:
+        lon_trop, asc_trop, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
+        lon_sid = {p: get_sidereal_lon(v, ayan) for p, v in lon_trop.items()}
+        lagna_sid = get_sidereal_lon(asc_trop, ayan)
+    else:
+        from astropy.time import Time
+        from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
+        t = Time(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
+        with solar_system_ephemeris.set('builtin'):
+            lon_trop = {}
+            for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
+                ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic()); lon_trop[nm] = ecl.lon.deg
+        d = jd - 2451545.0; T = d/36525.0
+        omega = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
+        lon_trop['rahu'] = omega; lon_trop['ketu'] = (omega + 180) % 360
+        lon_sid = {p: get_sidereal_lon(lon_trop[p], ayan) for p in lon_trop}
+        lagna_sid = get_sidereal_lon(get_ascendant(jd, lat, lon), ayan)
     
     sun_lon = lon_sid['sun']
     moon_lon = lon_sid['moon']
@@ -3311,7 +3374,7 @@ name = st.text_input("Name", placeholder="Enter full name")
 c1, c2, c3 = st.columns(3)
 with c1:
     birth_date = st.date_input("Birth Date", value=datetime.now().date(),
-                               min_value=datetime(1900,1,1).date(), max_value=datetime.now().date())
+                               min_value=datetime(1,1,1).date(), max_value=datetime(2200,12,31).date())
 with c2:
     birth_time = st.text_input("Birth Time (HH:MM in 24-hour format)", placeholder="14:30")
 with c3:
