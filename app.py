@@ -2513,8 +2513,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 final_ns = ((total_good - swapped_debt) / denom_val) * 120
             formula_type = f"CaseB: [(TG{total_good:.2f}-SD{swapped_debt:.2f})/(TG{total_good:.2f}+SD{swapped_debt:.2f})]*120"
 
+        elif p == 'Moon' and not _nps_moon_is_waxing and not is_neecha:
+            # Case G: Waning Moon, NOT Negative Status
+            if abs(p_volume) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = (net_score / p_volume) * 100
+            formula_type = f"CaseG: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
+
+        elif p == 'Moon' and not _nps_moon_is_waxing and is_neecha:
+            # Case H: Waning Moon, IS Negative Status
+            denom_val = p_capacity * 1.2
+            if abs(denom_val) < 0.001:
+                final_ns = 0.0
+            else:
+                final_ns = (net_score / denom_val) * 120
+            formula_type = f"CaseH: (Net{net_score:.2f}/(Cap{p_capacity}*1.2))*120"
+
         elif not is_malefic and is_neecha:
-            # Case C: Benefic, IS Negative Status
+            # Case C: Benefic (excl Moon), IS Negative Status
             denom_val = p_capacity * 1.2
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
@@ -2523,7 +2540,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseC: (Net{net_score:.2f}/(Cap{p_capacity}*1.2))*120"
 
         elif is_malefic and is_neecha:
-            # Case D: Malefic, IS Negative Status
+            # Case D: Malefic (excl Moon), IS Negative Status
             denom_val = p_capacity * 1.2
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
@@ -2532,7 +2549,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseD: ((Net{net_score:.2f}+SB{self_bad:.2f})/(Cap{p_capacity}*1.2))*120"
 
         elif not is_malefic and not is_neecha:
-            # Case E: Benefic, NOT Negative Status
+            # Case E: Benefic (excl Moon), NOT Negative Status
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
@@ -2540,7 +2557,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
 
         else:
-            # Case F: Malefic, NOT Negative Status
+            # Case F: Malefic (excl Moon), NOT Negative Status
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
