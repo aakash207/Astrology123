@@ -350,6 +350,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if sign in uchcham_ruled_signs:
             volume = volume * 1.10
         
+        # MODIFICATION 2: Apply status-based volume and debt adjustments
+        status_debt_adjustment = 0.0
+        if status == 'Uchcham':
+            volume = volume * 1.20
+        elif status == 'Moolathirigonam':
+            volume = volume * 1.16
+        elif status == 'Aatchi':
+            volume = volume * 1.12
+        elif status == 'Neecham':
+            status_debt_adjustment = -(volume * 0.20)
+        
         moon_good_pct = 0
         moon_bad_pct = 0
         if planet_cap == 'Moon':
@@ -371,7 +382,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if planet_cap == 'Moon':
             moon_initial_good_val = good_val
         
-        total_debt = 0.0
+        total_debt = status_debt_adjustment
         has_debt = False
         updated_status = '-'
         is_neechabhangam = False
@@ -410,17 +421,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if is_healthy_neecham_moon:
                 if capacity is not None:
                     good_capacity = capacity * (good_pct / 100.0)
-                    total_debt = -((1.2 * good_capacity) - good_val)
+                    total_debt = status_debt_adjustment + (-((1.2 * good_capacity) - good_val))
                     has_debt = True
             else:
                 if capacity is not None:
-                    total_debt = -((1.2 * capacity) - good_val)
+                    total_debt = status_debt_adjustment + (-((1.2 * capacity) - good_val))
                     has_debt = True
                     
         else:
             if bad_val > 0:
-                total_debt = -bad_val
+                total_debt = status_debt_adjustment + (-bad_val)
                 has_debt = True
+        
+        # Ensure has_debt is set if there's any debt (including status_debt_adjustment)
+        if total_debt != 0 and not has_debt:
+            has_debt = True
 
         if has_debt:
             debt_str = f"{total_debt:.2f}"
