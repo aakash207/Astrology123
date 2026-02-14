@@ -2616,7 +2616,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama = (sthana_val / 100.0) * m_pct
                 else:
                     # Reduce
-                    adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
+                    if final_ns < 0:
+                         # For negative score, make it more negative
+                         adjusted = (final_ns / 2.0) + (final_ns * (100 + m_pct) / 100.0) / 2.0
+                    else:
+                         adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
                     suchama = 0.0
 
                 # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
