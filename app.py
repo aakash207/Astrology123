@@ -3016,6 +3016,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     sim_lagna_L = lagna_sid
     sim_debt = -100.0
     sim_gained_inv = defaultdict(float)
+    sim_sources = {}  # currency_key -> list of "PotName(amount)" strings
 
     malefic_pots = [p for p in universe_pots if p['is_malefic']]
     benefic_pots = [p for p in universe_pots if not p['is_malefic']]
@@ -3054,28 +3055,36 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 sim_gained_inv[c_key] += take
                 sim_debt += take
                 remaining_cap -= take
+                # Track source
+                src_label = pot['name']
+                sim_sources.setdefault(c_key, []).append(f"{src_label}({take:.2f})")
 
     # 3. Output Generation
     sim_good_total = sum(v for k, v in sim_gained_inv.items() if is_good_currency(k))
     sim_bad_total = sum(v for k, v in sim_gained_inv.items() if 'Bad' in k)
     sim_net_score = sim_good_total - sim_bad_total
 
-    bonus_rows = [
-        ['Simulated Lagna Score', f"{sim_net_score:.2f}"],
-        ['Initial Debt', '-100.00'],
-        ['Remaining Debt', f"{sim_debt:.2f}" if abs(sim_debt) >= 0.01 else '0.00'],
-    ]
-
-    # Breakdown of gained currencies
+    # Currency breakdown string
     breakdown_parts = []
     for k in sorted(sim_gained_inv.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
         v = sim_gained_inv[k]
         if v > 0.001:
             breakdown_parts.append(f"{k}[{v:.2f}]")
     breakdown_str = ", ".join(breakdown_parts) if breakdown_parts else "-"
-    bonus_rows.append(['Currency Breakdown', breakdown_str])
 
-    df_bonus = pd.DataFrame(bonus_rows, columns=['Metric', 'Value'])
+    # Notes: source details per currency
+    notes_parts = []
+    for k in sorted(sim_sources.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+        entries = sim_sources[k]
+        notes_parts.append(f"{k} from " + ", ".join(entries))
+    notes_str = "; ".join(notes_parts) if notes_parts else "-"
+
+    remaining_debt_str = f"{sim_debt:.2f}" if abs(sim_debt) >= 0.01 else '0.00'
+
+    df_bonus = pd.DataFrame(
+        [[ f"{sim_net_score:.2f}", '-100.00', remaining_debt_str, breakdown_str, notes_str ]],
+        columns=['Lagna Score', 'Initial Debt', 'Remaining Debt', 'Currency Breakdown', 'Notes']
+    )
     # ====== END LAGNA POINT SCORE SIMULATION ======
 
     return {
@@ -3286,9 +3295,6 @@ if st.session_state.chart_data:
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
 
-    st.subheader("Lagna Point Score Simulation")
-    st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
-
     st.subheader("Normalized Planet Scores")
     st.dataframe(cd['df_normalized_planet_scores'], hide_index=True, use_container_width=True)
 
@@ -3297,6 +3303,9 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
+
+    st.subheader("Lagna Point Score Simulation")
+    st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
