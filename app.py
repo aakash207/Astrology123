@@ -2468,6 +2468,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         elif p in malefic_set:
             # Malefic logic
+            p_sign = planet_sign_map.get(p, 'Aries')
+            sthana_val = sthana_bala_dict.get(p, [0]*12)[sign_names.index(p_sign)]
+            p_dig_bala = planet_data[p].get('dig_bala') or 0
+            p_status = planet_status_map.get(p, '-')
+
             if m_pct is not None:
                 # Check friendly house: house lord in same group as planet
                 lagna_sign = get_sign(lagna_sid)
@@ -2478,44 +2483,43 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 is_friendly_house = (planet_group == lord_group)
 
                 # Check if planet itself has positive status
-                p_status = planet_status_map.get(p, '-')
                 has_positive_status = p_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
 
                 if is_friendly_house or has_positive_status:
                     # No reduction
                     adjusted = final_ns
                     # Suchama Score = (Sthana Balam / 100) * Maraivu %
-                    p_sign = planet_sign_map.get(p, 'Aries')
-                    sthana_val = sthana_bala_dict.get(p, [0]*12)[sign_names.index(p_sign)]
                     suchama = (sthana_val / 100.0) * m_pct
-                    suchama_str = f"{suchama:.2f}"
                 else:
                     # Reduce
                     adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
-                    suchama_str = "0"
-                adjusted_str = f"{adjusted:.2f}"
+                    suchama = 0.0
 
-                # Additional Suchama steps for all malefics
-                p_sign = planet_sign_map.get(p, 'Aries')
-                sthana_val = sthana_bala_dict.get(p, [0]*12)[sign_names.index(p_sign)]
-                current_suchama = float(suchama_str)
-
-                # Step 1: If Dig Bala > 92%, add 0.5 * Sthana Balam
-                p_dig_bala = planet_data[p].get('dig_bala') or 0
+                # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
                 if p_dig_bala > 92:
-                    current_suchama += 0.5 * sthana_val
+                    suchama += 0.5 * sthana_val
 
-                # Step 2: Saturn and Mars only - if Neecham, add 0.5 * Sthana Balam
-                p_status = planet_status_map.get(p, '-')
+                # Step 2: If Saturn or Mars has Neecham, add 0.5 * Sthana Balam
                 if p in ('Saturn', 'Mars') and p_status == 'Neecham':
-                    current_suchama += 0.5 * sthana_val
+                    suchama += 0.5 * sthana_val
 
-                suchama_str = f"{current_suchama:.2f}"
+                suchama_str = f"{suchama:.2f}"
+                adjusted_str = f"{adjusted:.2f}"
             else:
                 # No maraivu detected
                 adjusted = final_ns
                 adjusted_str = f"{adjusted:.2f}"
-                suchama_str = "0"
+                suchama = 0.0
+
+                # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
+                if p_dig_bala > 92:
+                    suchama += 0.5 * sthana_val
+
+                # Step 2: If Saturn or Mars has Neecham, add 0.5 * Sthana Balam
+                if p in ('Saturn', 'Mars') and p_status == 'Neecham':
+                    suchama += 0.5 * sthana_val
+
+                suchama_str = f"{suchama:.2f}"
         else:
             adjusted_str = "-"
 
