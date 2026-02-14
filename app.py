@@ -2915,6 +2915,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ── 4. BUILD DATAFRAME ──
     hp_rows = []
     _house_total_points = {}  # house_number -> raw total_hp
+    _house_planetary_scores = {}  # house_number -> house_planetary_score
     _hp_lagna_idx = sign_names.index(get_sign(lagna_sid))
     for h_num in range(1, 13):
         s = sign_names[(_hp_lagna_idx + h_num - 1) % 12]
@@ -2938,6 +2939,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         total_hp_notes = f"HPS({house_planetary_score/2.0:.2f}) + HLS({hl_score/2.0:.2f})"
 
         _house_total_points[h_num] = total_hp
+        _house_planetary_scores[h_num] = house_planetary_score
 
         hp_rows.append([h_num, s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{house_planetary_score:.2f}",
@@ -3157,10 +3159,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_ll_suchama_score = _la_ll_suchama
     _la_ll_suchama_notes = f"{_la_lagna_lord} suchama = {_la_ll_suchama:.2f}"
 
-    # 5. 1st House Points (out of 100)
-    _la_h1_raw = _house_total_points.get(1, 0.0)
+    # 5. 1st House Planetary Score
+    _la_h1_raw = _house_planetary_scores.get(1, 0.0)
     _la_h1_score = _la_h1_raw
-    _la_h1_notes = f"House 1 total HP = {_la_h1_raw:.2f}"
+    _la_h1_notes = f"House 1 Planetary Score = {_la_h1_raw:.2f}"
 
     # 6. Lagna Point (good currency only, no debt)
     _la_lagna_sim = sim_good_total - sim_bad_total
