@@ -2478,7 +2478,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         self_bad   = inv.get(f'Bad {p}', 0.0)
         net_score  = total_good - total_bad
 
-        _nps_st = planet_data[p].get('updated_status') or planet_data[p].get('status', '')
+        _nps_st = planet_data[p].get('updated_status', '')
+        if not _nps_st or _nps_st == '-':
+            _nps_st = planet_data[p].get('status', '')
         is_neecha = _nps_st in _nps_neecha_statuses
 
         # Classify malefic/benefic
