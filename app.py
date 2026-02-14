@@ -3088,11 +3088,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     sim_net_score  = sim_good_total - sim_bad_total
     sim_remaining  = sim_debt if sim_debt < -0.005 else 0.0
 
-    df_bonus_lagna = pd.DataFrame([
-        {'Metric': 'Simulated Lagna Score', 'Value': f"{sim_net_score:.2f}"},
-        {'Metric': 'Initial Debt',          'Value': '-100.00'},
-        {'Metric': 'Remaining Debt',        'Value': f"{sim_remaining:.2f}"}
-    ])
+    # Build currency-gained string: "Jupiter[12.50], Venus[5.00]"
+    sim_gained_parts = []
+    for k, v in sorted(sim_gained.items(), key=lambda x: -x[1]):
+        if v > 0.001:
+            sim_gained_parts.append(f"{k}[{v:.2f}]")
+    sim_currency_str = ", ".join(sim_gained_parts) if sim_gained_parts else "-"
+
+    df_bonus_lagna = pd.DataFrame([{
+        'Entity': 'Simulated Lagna',
+        'Initial Debt': '-100.00',
+        'Currencies Gained': sim_currency_str,
+        'Remaining Debt': f"{sim_remaining:.2f}",
+        'Simulated Lagna Score': f"{sim_net_score:.2f}"
+    }])
     # ── END SIMULATED LAGNA ────────────────────────────────────────────
 
     return {
