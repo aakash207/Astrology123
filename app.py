@@ -88,6 +88,19 @@ navamsa_malefic_hierarchy = {'Rahu': 1, 'Saturn': 2, 'Sun': 3, 'Mars': 4, 'Ketu'
 
 mix_dict = {0:100,1:100,2:100,3:95,4:90,5:85,6:80,7:75,8:70,9:65,10:60,11:55,12:50,13:45,14:40,15:35,16:30,17:25,18:20,19:15,20:10,21:5,22:0}
 
+# Maraivu Percentage by planet and house
+maraivu_percentage = {
+    'Sun':     {3: 25, 6: 75, 8: 100, 12: 50},
+    'Moon':    {3: 25, 6: 75, 8: 100, 12: 50},
+    'Venus':   {3: 100, 6: 25, 8: 100, 12: 0},
+    'Mercury': {3: 25, 6: 50, 8: 100, 12: 50},
+    'Jupiter': {3: 25, 6: 75, 8: 100, 12: 50},
+    'Mars':    {3: 25, 6: 75, 8: 100, 12: 50},
+    'Saturn':  {3: 25, 6: 75, 8: 100, 12: 50},
+    'Rahu':    {3: 25, 6: 75, 8: 100, 12: 50},
+    'Ketu':    {3: 25, 6: 75, 8: 100, 12: 50},
+}
+
 # MODIFICATION 1: Planet to ruled signs mapping
 planet_ruled_signs = {
     'Sun': ['Leo'],
@@ -2429,10 +2442,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
 
         _nps_score_dict[p] = final_ns
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}"])
+
+        # Maraivu percentage lookup
+        p_house = planet_house_map.get(p, 0)
+        m_pct = maraivu_percentage.get(p, {}).get(p_house, None)
+        m_pct_str = f"{m_pct}%" if m_pct is not None else "-"
+
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %'])
 
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
