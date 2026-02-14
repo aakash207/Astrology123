@@ -1591,105 +1591,64 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     house_11_sign = get_sign((lagna_sid + (11 - 1) * 30) % 360)
     
     if planets_in_house_11:
-        p3_cycle_limit = 200
-        p3_cycles = 0
+        # Collect planets that have debt (negative p3_current_debt)
+        debtor_planets = []
+        for p in planets_in_house_11:
+            if phase3_data[p]['p3_current_debt'] < -0.001:
+                debtor_planets.append(p)
         
-        p3_standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
-        p3_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
-        p3_malefic_debtor_order = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
-        
-        while p3_cycles < p3_cycle_limit:
-            p3_cycles += 1
-            p3_something_happened = False
+        if debtor_planets:
+            # Each planet's absolute debt and gift cap (50% of its debt)
+            planet_debts = {}
+            planet_caps = {}
+            for p in debtor_planets:
+                abs_debt = abs(phase3_data[p]['p3_current_debt'])
+                planet_debts[p] = abs_debt
+                planet_caps[p] = abs_debt * 0.50  # 50% of debt is the max gift cap
             
-            if house_11_pot <= 0.001:
-                break
+            # Distribute the pot proportionally based on debt, respecting 50% cap
+            remaining_pot = house_11_pot
+            remaining_planets = list(debtor_planets)
+            gifts = {p: 0.0 for p in debtor_planets}
             
-            moon_bad_currency_p3 = phase3_data['Moon']['p3_inventory'].get('Bad Moon', 0.0)
-            moon_is_malefic_p3 = moon_bad_currency_p3 > 0.001
-            
-            house_11_malefics = []
-            for p in planets_in_house_11:
-                if p in p3_standard_malefics:
-                    house_11_malefics.append(p)
-                elif p == 'Moon' and moon_is_malefic_p3:
-                    house_11_malefics.append(p)
-            
-            house_11_benefics = []
-            for p in planets_in_house_11:
-                if p in p3_standard_benefics:
-                    house_11_benefics.append(p)
-                elif p == 'Moon' and not moon_is_malefic_p3:
-                    house_11_benefics.append(p)
-            
-            def get_p3_malefic_rank(p):
-                if p == 'Moon':
-                    vol = phase3_data['Moon']['volume']
-                    if vol > 0:
-                        bad_pct = (moon_bad_currency_p3 / vol) * 100
-                    else:
-                        bad_pct = 0
-                    if bad_pct > 25:
-                        return 2.5
-                    else:
-                        return 3.5
+            while remaining_pot > 0.001 and remaining_planets:
+                remaining_total_debt = sum(planet_debts[p] for p in remaining_planets)
+                if remaining_total_debt < 0.001:
+                    break
+                
+                # Calculate proportional shares for this round
+                shares = {}
+                for p in remaining_planets:
+                    shares[p] = (planet_debts[p] / remaining_total_debt) * remaining_pot
+                
+                # Find planets whose proportional share would exceed their 50% cap
+                capped = []
+                for p in remaining_planets:
+                    remaining_cap = planet_caps[p] - gifts[p]
+                    if shares[p] >= remaining_cap - 0.001:
+                        capped.append(p)
+                
+                if not capped:
+                    # No planet hit its cap - distribute all proportional shares
+                    for p in remaining_planets:
+                        gifts[p] += shares[p]
+                    remaining_pot = 0.0
+                    break
                 else:
-                    if p in p3_malefic_debtor_order:
-                        return p3_malefic_debtor_order.index(p)
-                    return 99
+                    # Give capped planets their cap amount, then redistribute the rest
+                    for p in capped:
+                        actual_gift = max(0, planet_caps[p] - gifts[p])
+                        gifts[p] += actual_gift
+                        remaining_pot -= actual_gift
+                    remaining_planets = [p for p in remaining_planets if p not in capped]
             
-            house_11_malefics_sorted = sorted(house_11_malefics, key=get_p3_malefic_rank)
+            # Apply the computed gifts to each planet
+            for p in debtor_planets:
+                if gifts[p] > 0.001:
+                    phase3_data[p]['p3_inventory']['Good Moon'] += gifts[p]
+                    phase3_data[p]['p3_current_debt'] += gifts[p]
             
-            def get_p3_benefic_debt_pct(p):
-                vol = phase3_data[p]['volume']
-                debt = abs(phase3_data[p]['p3_current_debt'])
-                if vol > 0:
-                    return (debt / vol) * 100
-                return 0
-            
-            house_11_benefics_sorted = sorted(house_11_benefics, key=lambda p: -get_p3_benefic_debt_pct(p))
-            
-            for malefic in house_11_malefics_sorted:
-                if house_11_pot <= 0.001:
-                    break
-                
-                debt = phase3_data[malefic]['p3_current_debt']
-                
-                if debt < -0.001:
-                    needed = abs(debt)
-                    take = min(1.0, needed, house_11_pot)
-                    
-                    if take > 0.001:
-                        house_11_pot -= take
-                        phase3_data[malefic]['p3_inventory']['Good Moon'] += take
-                        phase3_data[malefic]['p3_current_debt'] += take
-                        p3_something_happened = True
-            
-            all_malefics_cleared = True
-            for malefic in house_11_malefics:
-                if phase3_data[malefic]['p3_current_debt'] < -0.001:
-                    all_malefics_cleared = False
-                    break
-            
-            if all_malefics_cleared or len(house_11_malefics) == 0:
-                for benefic in house_11_benefics_sorted:
-                    if house_11_pot <= 0.001:
-                        break
-                    
-                    debt = phase3_data[benefic]['p3_current_debt']
-                    
-                    if debt < -0.001:
-                        needed = abs(debt)
-                        take = min(1.0, needed, house_11_pot)
-                        
-                        if take > 0.001:
-                            house_11_pot -= take
-                            phase3_data[benefic]['p3_inventory']['Good Moon'] += take
-                            phase3_data[benefic]['p3_current_debt'] += take
-                            p3_something_happened = True
-            
-            if not p3_something_happened:
-                break
+            house_11_pot = max(0, remaining_pot)
     
     if house_11_pot > 0.001:
         house_reserves[house_11_sign]['Good Moon'] += house_11_pot
