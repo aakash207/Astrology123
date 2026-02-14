@@ -2448,21 +2448,64 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         m_pct = maraivu_percentage.get(p, {}).get(p_house, None)
         m_pct_str = f"{m_pct}%" if m_pct is not None else "-"
 
-        # Maraivu Adjusted Score (benefics only: Moon, Mercury, Jupiter, Venus)
+        # Maraivu Adjusted Score and Suchama Score
         benefic_set = {'Moon', 'Mercury', 'Jupiter', 'Venus'}
+        malefic_set = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
+
+        # Friendship groups for malefic maraivu logic
+        group_a = {'Sun', 'Moon', 'Mars', 'Jupiter'}
+        group_b = {'Venus', 'Saturn', 'Mercury'}
+
+        suchama_str = "0"
+
         if p in benefic_set:
+            # Benefic logic (unchanged)
             if m_pct is not None:
                 adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
             else:
                 adjusted = final_ns
             adjusted_str = f"{adjusted:.2f}"
+
+        elif p in malefic_set:
+            # Malefic logic
+            if m_pct is not None:
+                # Check friendly house: house lord in same group as planet
+                lagna_sign = get_sign(lagna_sid)
+                house_sign = sign_names[(sign_names.index(lagna_sign) + (p_house - 1)) % 12]
+                house_lord = sign_lords[sign_names.index(house_sign)]
+                planet_group = 'A' if p in group_a else 'B'
+                lord_group = 'A' if house_lord in group_a else 'B'
+                is_friendly_house = (planet_group == lord_group)
+
+                # Check if planet itself has positive status
+                p_status = planet_status_map.get(p, '-')
+                has_positive_status = p_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
+
+                if is_friendly_house or has_positive_status:
+                    # No reduction
+                    adjusted = final_ns
+                    # Suchama Score = (Sthana Balam / 100) * Maraivu %
+                    p_sign = planet_sign_map.get(p, 'Aries')
+                    sthana_val = sthana_bala_dict.get(p, [0]*12)[sign_names.index(p_sign)]
+                    suchama = (sthana_val / 100.0) * m_pct
+                    suchama_str = f"{suchama:.2f}"
+                else:
+                    # Reduce
+                    adjusted = (final_ns / 2.0) + (final_ns * (100 - m_pct) / 100.0) / 2.0
+                    suchama_str = "0"
+                adjusted_str = f"{adjusted:.2f}"
+            else:
+                # No maraivu detected
+                adjusted = final_ns
+                adjusted_str = f"{adjusted:.2f}"
+                suchama_str = "0"
         else:
             adjusted_str = "-"
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str])
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score'])
 
     # ---- HOUSE POINTS ANALYSIS (v2) ----
     aspect_score   = {s: 0.0 for s in sign_names}
