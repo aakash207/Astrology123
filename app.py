@@ -15,15 +15,33 @@ import copy
 USE_SWISSEPH = False
 try:
     import swisseph as swe
-    swe.set_ephe_path(None)           # use built-in Moshier ephemeris
-    swe.set_sid_mode(swe.SIDM_LAHIRI) # Lahiri (Chitrapaksha) ayanamsa – set once globally
+    import os as _os
+    import urllib.request as _urlreq
+
+    _EPHE_DIR = _os.path.join(_os.path.expanduser('~'), '.swisseph_ephe')
+    _EPHE_BASE_URL = 'https://raw.githubusercontent.com/aloistr/swisseph/master/ephe/'
+    _EPHE_FILES = ['sepl_18.se1', 'semo_18.se1', 'seas_18.se1']
+
+    if not _os.path.isdir(_EPHE_DIR):
+        _os.makedirs(_EPHE_DIR, exist_ok=True)
+
+    for _ef in _EPHE_FILES:
+        _ef_path = _os.path.join(_EPHE_DIR, _ef)
+        if not _os.path.isfile(_ef_path):
+            try:
+                _urlreq.urlretrieve(_EPHE_BASE_URL + _ef, _ef_path)
+            except Exception:
+                pass  # will fallback to Moshier for missing files
+
+    if any(_os.path.isfile(_os.path.join(_EPHE_DIR, f)) for f in _EPHE_FILES):
+        swe.set_ephe_path(_EPHE_DIR)
+    else:
+        swe.set_ephe_path(None)  # fallback to built-in Moshier
+
     USE_SWISSEPH = True
 except ImportError:
-    try:
-        from astropy.time import Time
-        from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
-    except ImportError:
-        pass
+    from astropy.time import Time
+    from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
 
 # ---- Matplotlib defaults (crisp + thin) ----
 plt.rcParams.update({"figure.dpi": 300, "savefig.dpi": 300, "lines.linewidth": 0.28})
@@ -124,20 +142,9 @@ planet_ruled_signs = {
     'Saturn': ['Capricorn', 'Aquarius']
 }
 
-def get_lahiri_ayanamsa(year_or_dt):
-    """Polynomial Lahiri (Chitrapaksha) ayanamsa – accurate to ~0.01° for 1800-2200.
-
-    Accepts a numeric year (int/float) or a datetime object for sub-year precision.
-    Coefficients aligned with the Indian Astronomical Ephemeris / Swiss Ephemeris.
-    """
-    if hasattr(year_or_dt, 'year'):                       # datetime
-        yr = year_or_dt.year + (year_or_dt.timetuple().tm_yday - 1) / 365.25
-    else:
-        yr = float(year_or_dt)
-    T = (yr - 2000.0) / 100.0                             # Julian centuries from J2000
-    # Base value at J2000.0 ≈ 23°51'11.5" and IAU-2006 precession polynomial
-    ayan = 23.85319 + 13.97142 * T + 0.03086 * T**2 + 0.000018 * T**3
-    return ayan % 360
+def get_lahiri_ayanamsa(year):
+    base = 23.853; rate = 50.2388/3600.0
+    return (base + (year - 2000) * rate) % 360
 
 def get_obliquity(d):
     T = d/36525.0
@@ -172,47 +179,36 @@ def _datetime_to_jd(dt):
         return AstroTime(dt).jd
 
 def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute **sidereal** (Lahiri) planet longitudes + ascendant via Swiss Ephemeris.
-
-    Returns (lon_sid, asc_sid, jd, ayanamsa).
-    Uses FLG_SIDEREAL so positions are sidereal directly – no manual subtraction needed.
-    """
+    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris."""
+    # Set Lahiri ayanamsa mode BEFORE any ayanamsa query
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
     jd = _datetime_to_jd(utc_dt)
 
-    # Ensure Lahiri mode (idempotent; also set at module init)
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
-    ayan = swe.get_ayanamsa_ut(jd)
-
-    # Flags: sidereal positions directly + include speed data
-    flags = swe.FLG_SIDEREAL | swe.FLG_SPEED
-
-    # Planet IDs
+    # Planet IDs in swisseph
     planet_ids = {
         'sun': swe.SUN, 'moon': swe.MOON, 'mercury': swe.MERCURY,
         'venus': swe.VENUS, 'mars': swe.MARS, 'jupiter': swe.JUPITER,
         'saturn': swe.SATURN
     }
 
-    lon_sid = {}
+    lon_trop = {}
     for name, pid in planet_ids.items():
-        result, _flag = swe.calc_ut(jd, pid, flags)
-        lon_sid[name] = result[0]          # already sidereal
+        result, _flag = swe.calc_ut(jd, pid)
+        lon_trop[name] = result[0]  # tropical longitude
 
-    # Rahu = True Node (standard for Vedic astrology)
-    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE, flags)
-    lon_sid['rahu'] = result[0]
-    lon_sid['ketu'] = (result[0] + 180.0) % 360.0
+    # Rahu = True Node
+    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
+    lon_trop['rahu'] = result[0]
+    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
 
-    # Ascendant – swe.houses_ex with FLG_SIDEREAL gives sidereal ascendant directly
-    try:
-        cusps, ascmc = swe.houses_ex(jd, lat, lon, b'P', flags)
-        asc_sid = ascmc[0]
-    except AttributeError:
-        # Older pyswisseph without houses_ex – fall back to manual subtraction
-        cusps, ascmc = swe.houses(jd, lat, lon, b'P')
-        asc_sid = (ascmc[0] - ayan) % 360.0
+    # Ascendant
+    cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
+    asc_trop = asmc[0]
 
-    return lon_sid, asc_sid, jd, ayan
+    # Use swisseph Lahiri ayanamsa for accuracy
+    ayan_lahiri = swe.get_ayanamsa_ut(jd)
+
+    return lon_trop, asc_trop, jd, ayan_lahiri
 
 def get_sidereal_lon(tlon, ayan): return (tlon - ayan) % 360
 def get_sign(lon): return sign_names[int(lon/30)]
@@ -317,27 +313,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     utc_dt = local_dt - timedelta(hours=tz_offset)
 
     if USE_SWISSEPH:
-        # --- Swiss Ephemeris (high-precision, sidereal positions returned directly) ---
-        lon_sid, lagna_sid, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
+        lon_trop, asc_trop, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
+        lon_sid = {p: get_sidereal_lon(v, ayan) for p, v in lon_trop.items()}
+        lagna_sid = get_sidereal_lon(asc_trop, ayan)
     else:
-        # --- Astropy fallback – use JPL DE432s for accuracy; fall back to builtin ---
         from astropy.time import Time
         from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
-        t = Time(utc_dt); jd = t.jd
-        ayan = get_lahiri_ayanamsa(utc_dt)   # pass full datetime for sub-year precision
-        preferred_ephem = 'de432s'
-        try:
-            with solar_system_ephemeris.set(preferred_ephem):
-                lon_trop = {}
-                for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
-                    ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic())
-                    lon_trop[nm] = ecl.lon.deg
-        except Exception:
-            with solar_system_ephemeris.set('builtin'):
-                lon_trop = {}
-                for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
-                    ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic())
-                    lon_trop[nm] = ecl.lon.deg
+        t = Time(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
+        with solar_system_ephemeris.set('builtin'):
+            lon_trop = {}
+            for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
+                ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic()); lon_trop[nm] = ecl.lon.deg
         d = jd - 2451545.0; T = d/36525.0
         omega = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
         lon_trop['rahu'] = omega; lon_trop['ketu'] = (omega + 180) % 360
