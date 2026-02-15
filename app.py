@@ -1387,15 +1387,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     planet_data[debtor][tracker_key] = pulled + take
                     something_happened = True
                     
-                    # --- INFECTION PENALTY: Malefic-to-Malefic currency exchange ---
-                    # If both Debtor (Receiver) and Giver (Target) are Malefic,
-                    # inject the Debtor's Bad Currency into the Giver's inventory.
+                    # --- INFECTION PENALTY: When a malefic planet pulls currency,
+                    # inject the taker's bad currency into the giver's inventory
+                    # and make the giver's debt more negative.
                     _tgt_name = tgt['planet']
-                    _tgt_is_malefic = (_tgt_name in malefic_planets or
-                                       (_tgt_name == 'Moon' and planet_data['Moon'].get('moon_bad_pct', 0) > 0))
-                    if debtor_is_malefic and _tgt_is_malefic:
+                    if debtor_is_malefic:
                         _infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                         planet_data[_tgt_name]['final_inventory'][_infection_key] += take
+                        planet_data[_tgt_name]['current_debt'] -= take
                     
                     good_available = any(t['is_good'] and planet_data[t['planet']]['final_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
@@ -2131,6 +2130,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 remaining_capacity -= take
                                 already_pulled += take
                                 p5_something_happened = True
+                                
+                                # --- INFECTION PENALTY: Inject clone parent's bad currency into the target ---
+                                _clone_parent = clone['parent']
+                                _clone_parent_is_malefic = (
+                                    _clone_parent in P5_STANDARD_MALEFICS
+                                    or (_clone_parent == 'Moon' and is_moon_malefic_p5())
+                                )
+                                if _clone_parent_is_malefic:
+                                    _infection_key = f"Bad {_clone_parent}" if _clone_parent != 'Moon' else "Bad Moon"
+                                    phase5_data[target_planet]['p5_inventory'][_infection_key] = phase5_data[target_planet]['p5_inventory'].get(_infection_key, 0.0) + take
+                                    phase5_data[target_planet]['p5_current_debt'] -= take
+                                    if 'Bad' in _infection_key:
+                                        phase5_data[target_planet]['bad_inv'] += take
                         
                         good_still_available = any(
                             target_inv.get(c['key'], 0) > 0.001 
@@ -2167,6 +2179,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                     remaining_capacity -= take
                                     already_pulled += take
                                     p5_something_happened = True
+                                    
+                                    # --- INFECTION PENALTY: Inject clone parent's bad currency into the target ---
+                                    _clone_parent = clone['parent']
+                                    _clone_parent_is_malefic = (
+                                        _clone_parent in P5_STANDARD_MALEFICS
+                                        or (_clone_parent == 'Moon' and is_moon_malefic_p5())
+                                    )
+                                    if _clone_parent_is_malefic:
+                                        _infection_key = f"Bad {_clone_parent}" if _clone_parent != 'Moon' else "Bad Moon"
+                                        phase5_data[target_planet]['p5_inventory'][_infection_key] = phase5_data[target_planet]['p5_inventory'].get(_infection_key, 0.0) + take
+                                        phase5_data[target_planet]['p5_current_debt'] -= take
+                                        if 'Bad' in _infection_key:
+                                            phase5_data[target_planet]['bad_inv'] += take
                 
                 # MODIFICATION 2: NEW Step 2 - Real Malefics Pull (from Clone's original inventory only)
                 total_original_remaining = 0.0
