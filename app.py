@@ -3494,23 +3494,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_h9_score = _la_h9_raw
     _la_h9_notes = f"House 9 total HP = {_la_h9_raw:.2f}"
 
-    # 9. AG Bonus: weighted sum
+    # 9. AG Bonus: weighted sum (LLStr includes Suchama)
+    _ag_ll_str_combined = _la_ll_str_score + _la_ll_suchama_score
     _ag_moon   = _la_moon_score * 25.0 / 100.0
     _ag_ll     = _la_ll_score * 12.5 / 100.0
-    _ag_ll_str = _la_ll_str_score * 12.5 / 100.0
+    _ag_ll_str = _ag_ll_str_combined * 12.5 / 100.0
     _ag_h1     = _la_h1_score * 25.0 / 100.0
     _ag_lp     = _la_lagna_pt_score * 25.0 / 100.0
     _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp
     _ag_notes  = (f"Moon({_la_moon_score:.2f}*25%)={_ag_moon:.2f} + "
                   f"LL({_la_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
-                  f"LLStr({_la_ll_str_score:.2f}*12.5%)={_ag_ll_str:.2f} + "
+                  f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*12.5%)={_ag_ll_str:.2f} + "
                   f"H1({_la_h1_score:.2f}*25%)={_ag_h1:.2f} + "
                   f"LP({_la_lagna_pt_score:.2f}*25%)={_ag_lp:.2f}")
 
-    # 10. Bhuvi Bonus: weighted sum
+    # 10. Bhuvi Bonus: weighted sum (LLStr includes Suchama)
+    _bv_ll_str_combined = _la_ll_str_score + _la_ll_suchama_score
     _bv_moon   = _la_moon_score * 20.0 / 100.0
     _bv_ll     = _la_ll_score * 10.0 / 100.0
-    _bv_ll_str = _la_ll_str_score * 10.0 / 100.0
+    _bv_ll_str = _bv_ll_str_combined * 10.0 / 100.0
     _bv_h1     = _la_h1_score * 20.0 / 100.0
     _bv_lp     = _la_lagna_pt_score * 20.0 / 100.0
     _bv_sun    = _la_sun_score * 10.0 / 100.0
@@ -3518,7 +3520,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_sun + _bv_h9
     _bv_notes  = (f"Moon({_la_moon_score:.2f}*20%)={_bv_moon:.2f} + "
                   f"LL({_la_ll_score:.2f}*10%)={_bv_ll:.2f} + "
-                  f"LLStr({_la_ll_str_score:.2f}*10%)={_bv_ll_str:.2f} + "
+                  f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
                   f"H1({_la_h1_score:.2f}*20%)={_bv_h1:.2f} + "
                   f"LP({_la_lagna_pt_score:.2f}*20%)={_bv_lp:.2f} + "
                   f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
