@@ -2707,6 +2707,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         # ---- RAHU SCORE CALCULATION ----
         if p == 'Rahu':
+            _rahu_total_bad_p5 = total_bad  # total Bad currency including self bad from phase 5
             _rahu_notes_parts = []
 
             # Step 1: Quantise Maraivu Adjusted Score to 80
@@ -2774,8 +2775,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # ---- Apply Rahu Score directly as occupant score for Rahu's house ----
     _rahu_occ_sign = planet_sign_map.get('Rahu', 'Aries')
-    occupant_score[_rahu_occ_sign] += _rahu_total
-    occupant_notes[_rahu_occ_sign].append(f"Rahu(Rahu Score={_rahu_total:.2f})")
+    _rahu_bad_penalty = _rahu_total_bad_p5 * 80
+    _rahu_occupant_val = _rahu_total - _rahu_bad_penalty
+    occupant_score[_rahu_occ_sign] += _rahu_occupant_val
+    occupant_notes[_rahu_occ_sign].append(f"Rahu(RahuScore={_rahu_total:.2f} - BadPenalty={_rahu_bad_penalty:.2f} => {_rahu_occupant_val:.2f})")
 
     # ---- PLANET STRENGTHS ANALYSIS ----
     planet_strength_rows = []
