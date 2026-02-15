@@ -2447,6 +2447,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     for s in sign_names:
         for occ in sign_occupants.get(s, []):
+            if occ == 'Rahu':
+                continue  # Rahu uses Rahu Score directly, applied after NPS calculation
             inv = phase5_data[occ]['p5_inventory']
             if _hp_is_malefic(occ):
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
@@ -2769,6 +2771,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
         columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes'])
+
+    # ---- Apply Rahu Score directly as occupant score for Rahu's house ----
+    _rahu_occ_sign = planet_sign_map.get('Rahu', 'Aries')
+    occupant_score[_rahu_occ_sign] += _rahu_total
+    occupant_notes[_rahu_occ_sign].append(f"Rahu(Rahu Score={_rahu_total:.2f})")
 
     # ---- PLANET STRENGTHS ANALYSIS ----
     planet_strength_rows = []
