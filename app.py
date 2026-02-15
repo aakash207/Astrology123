@@ -2337,6 +2337,37 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             ])
             all_leftover_clones.append(clone)
     
+    # ---- KETU ALONE & UNASPECTED CHECK ----
+    # If Ketu is not conjuncted or aspected by any planet (within 22 degrees)
+    # and resides alone in Gemini, Leo, Scorpio, or Aquarius => add -25 Bad Ketu and -25 debt
+    _ketu_lonely_signs = {'Gemini', 'Leo', 'Scorpio', 'Aquarius'}
+    _ketu_sign = planet_sign_map.get('Ketu', '')
+    if _ketu_sign in _ketu_lonely_signs:
+        _ketu_L = phase5_data['Ketu']['L']
+        _ketu_is_alone = True
+        _all_planets_for_ketu_check = ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu']
+        for _chk_p in _all_planets_for_ketu_check:
+            _chk_L = phase5_data[_chk_p]['L']
+            _raw_diff = abs(_ketu_L - _chk_L)
+            if _raw_diff > 180:
+                _raw_diff = 360 - _raw_diff
+            if _raw_diff < 22:
+                _ketu_is_alone = False
+                break
+        # Also check aspect clones landing near Ketu (within 22 degrees)
+        if _ketu_is_alone:
+            for _cl in all_leftover_clones:
+                _cl_L = _cl['L']
+                _raw_diff = abs(_ketu_L - _cl_L)
+                if _raw_diff > 180:
+                    _raw_diff = 360 - _raw_diff
+                if _raw_diff < 22:
+                    _ketu_is_alone = False
+                    break
+        if _ketu_is_alone:
+            phase5_data['Ketu']['p5_inventory']['Bad Ketu'] = phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) + 25.0
+            phase5_data['Ketu']['p5_current_debt'] -= 25.0
+
     # Format Phase 5 Output
     phase5_rows = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
