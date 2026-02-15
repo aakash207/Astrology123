@@ -2646,8 +2646,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((net_score + self_bad) / p_volume) * 100
-            formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
+                if p == 'Ketu':
+                    final_ns = (net_score / p_volume) * 100
+                    formula_type = f"CaseF: (Net{net_score:.2f}/Vol{p_volume:.2f})*100 [Ketu: SB excluded]"
+                else:
+                    final_ns = ((net_score + self_bad) / p_volume) * 100
+                    formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
@@ -3647,14 +3651,12 @@ def collect_periods_at_depth(periods, target_depth, cur_depth=1, acc=None):
 
 st.subheader("Birth Details")
 name = st.text_input("Name", placeholder="Enter full name")
-c1, c2, c3 = st.columns(3)
+c1, c2 = st.columns(2)
 with c1:
     birth_date = st.date_input("Birth Date", value=datetime.now().date(),
                                min_value=datetime(1,1,1).date(), max_value=datetime(2200,12,31).date())
 with c2:
     birth_time = st.text_input("Birth Time (HH:MM in 24-hour format)", placeholder="14:30")
-with c3:
-    tz_offset = st.number_input("Timezone offset at birth (hrs)", value=5.5, step=0.5)
 
 use_custom_coords = st.checkbox("Custom birth latitude and longitude?")
 if use_custom_coords:
@@ -3680,6 +3682,29 @@ else:
         if city_key in cities_fallback:
             lat = cities_fallback[city_key]['lat']; lon = cities_fallback[city_key]['lon']
         else: lat, lon = 13.08, 80.27
+
+# Auto-detect timezone from lat/lon and birth date
+def _compute_tz_offset(lat_val, lon_val, date_obj):
+    """Compute timezone UTC offset in hours for the given lat/lon and date."""
+    try:
+        tz = tz_for_latlon(lat_val, lon_val)
+        # Use noon on the birth date to determine the UTC offset (handles DST correctly)
+        naive_dt = datetime.combine(date_obj, datetime.min.time().replace(hour=12))
+        localized_dt = tz.localize(naive_dt)
+        offset_seconds = localized_dt.utcoffset().total_seconds()
+        return offset_seconds / 3600.0, tz.zone
+    except:
+        return 5.5, "Asia/Kolkata"
+
+auto_tz_offset, auto_tz_name = _compute_tz_offset(lat, lon, birth_date)
+
+st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → Timezone: **{auto_tz_name}** (UTC {'+' if auto_tz_offset >= 0 else ''}{auto_tz_offset:g}h)")
+
+override_tz = st.checkbox("Override auto-detected timezone?")
+if override_tz:
+    tz_offset = st.number_input("Timezone offset at birth (hrs)", value=auto_tz_offset, step=0.5)
+else:
+    tz_offset = auto_tz_offset
 
 max_depth_options = {1:'Dasa only',2:'Dasa + Bhukti',3:'Dasa + Bhukti + Anthara',4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
 selected_depth_str = st.selectbox("Generate up to (depth)", list(max_depth_options.values()), index=3)
