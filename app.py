@@ -3352,13 +3352,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_lagna_pt_score = _la_lagna_sim + _la_nav_sim_contrib
     _la_lagna_pt_notes = f"Sim(Net {_la_lagna_sim:.2f}) + NavSim({sim_nav_net_score:.2f}/5 = {_la_nav_sim_contrib:.2f}) = {_la_lagna_pt_score:.2f}"
 
-    # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2 + Shukshama
+    # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2
     _la_sun_adj_str = _planet_maraivu_adj_strengths.get('Sun', 0.0)
     _la_sun_adj_nps = _nps_score_dict.get('Sun_adjusted', 0.0)
     _la_sun_suchama = _suchama_score_dict.get('Sun', 0.0)
-    _la_sun_raw = (_la_sun_adj_str + _la_sun_adj_nps) / 2.0 + _la_sun_suchama
+    _la_sun_raw = (_la_sun_adj_str + _la_sun_adj_nps) / 2.0
     _la_sun_score = _la_sun_raw
-    _la_sun_notes = f"(Str {_la_sun_adj_str:.2f} + AdjNPS {_la_sun_adj_nps:.2f})/2 + Suchama {_la_sun_suchama:.2f} = {_la_sun_raw:.2f}"
+    _la_sun_notes = f"(Str {_la_sun_adj_str:.2f} + AdjNPS {_la_sun_adj_nps:.2f})/2 = {_la_sun_raw:.2f}"
 
     # 8. 9th House Points
     _la_h9_raw = _house_total_points.get(9, 0.0)
