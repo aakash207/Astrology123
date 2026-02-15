@@ -2775,7 +2775,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     # ---- Apply Rahu Score directly as occupant score for Rahu's house ----
     _rahu_occ_sign = planet_sign_map.get('Rahu', 'Aries')
-    _rahu_bad_penalty = _rahu_total_bad_p5 * 80
+    _rahu_bad_penalty = _rahu_total_bad_p5 * 0.80
     _rahu_occupant_val = _rahu_total - _rahu_bad_penalty
     occupant_score[_rahu_occ_sign] += _rahu_occupant_val
     occupant_notes[_rahu_occ_sign].append(f"Rahu(RahuScore={_rahu_total:.2f} - BadPenalty={_rahu_bad_penalty:.2f} => {_rahu_occupant_val:.2f})")
