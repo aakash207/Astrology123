@@ -2886,24 +2886,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     _hap_notes.append(f"Asp by {_hap_source}(En) [-1]")
                 else:
                     _hap_notes.append(f"Asp by {_hap_source}(Ne) [+0]")
-        # C. Conjunct Score (Other real planets within 22 degrees)
-        for _hap_conj_p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-            if _hap_conj_p == p:
-                continue
-            _hap_conj_L = phase5_data[_hap_conj_p]['L']
-            _hap_conj_diff = abs(_hap_planet_L - _hap_conj_L)
-            if _hap_conj_diff > 180:
-                _hap_conj_diff = 360 - _hap_conj_diff
-            if _hap_conj_diff <= 22:
-                _hap_conj_rel = check_friendship(p, _hap_conj_p)
-                if _hap_conj_rel == 'Friend':
-                    _hap_score += 1
-                    _hap_notes.append(f"Conj {_hap_conj_p}(Fr) [+1]")
-                elif _hap_conj_rel == 'Enemy':
-                    _hap_score -= 1
-                    _hap_notes.append(f"Conj {_hap_conj_p}(En) [-1]")
-                else:
-                    _hap_notes.append(f"Conj {_hap_conj_p}(Ne) [+0]")
         _hap_score_str = str(_hap_score)
         _hap_notes_str = " | ".join(_hap_notes) if _hap_notes else "-"
 
