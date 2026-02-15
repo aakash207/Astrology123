@@ -1907,6 +1907,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     leftover_aspects = []
     all_leftover_clones = []
+    all_initial_clones = []
     
     def get_p5_currency_rank_score(c_key):
         if c_key == 'Jupiter': return 990
@@ -2035,6 +2036,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 'type': clone_type
             }
             clones.append(clone)
+            all_initial_clones.append({'parent': current_planet, 'offset': offset, 'L': clone_L})
         
         # Part B: The Interaction Cycle
         # MODIFICATION 2: Reordered - Step 1 is Active Pulling, Step 2 is Real Malefics Pull
@@ -2537,6 +2539,31 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ---- NORMALIZED PLANET SCORES ----
     _nps_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
     _nps_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
+    # ---- NATURAL PLANETARY RELATIONSHIPS (Naisargika Graha Maitri) ----
+    NATURAL_FRIENDSHIPS = {
+        'Sun': {'Friends': ['Moon', 'Mars', 'Jupiter'], 'Neutral': ['Mercury'], 'Enemies': ['Venus', 'Saturn']},
+        'Moon': {'Friends': ['Sun', 'Mercury'], 'Neutral': ['Mars', 'Jupiter', 'Venus', 'Saturn'], 'Enemies': []},
+        'Mars': {'Friends': ['Sun', 'Moon', 'Jupiter'], 'Neutral': ['Venus', 'Saturn'], 'Enemies': ['Mercury']},
+        'Mercury': {'Friends': ['Sun', 'Venus'], 'Neutral': ['Mars', 'Jupiter', 'Saturn'], 'Enemies': ['Moon']},
+        'Jupiter': {'Friends': ['Sun', 'Moon', 'Mars'], 'Neutral': ['Saturn'], 'Enemies': ['Mercury', 'Venus']},
+        'Venus': {'Friends': ['Mercury', 'Saturn'], 'Neutral': ['Mars', 'Jupiter'], 'Enemies': ['Sun', 'Moon']},
+        'Saturn': {'Friends': ['Mercury', 'Venus'], 'Neutral': ['Jupiter'], 'Enemies': ['Sun', 'Moon', 'Mars']},
+        'Rahu': {'Friends': ['Mercury', 'Venus', 'Saturn'], 'Neutral': ['Jupiter'], 'Enemies': ['Sun', 'Moon', 'Mars']},
+        'Ketu': {'Friends': ['Mars', 'Venus', 'Saturn'], 'Neutral': ['Mercury', 'Jupiter'], 'Enemies': ['Sun', 'Moon']}
+    }
+
+    def check_friendship(planet, target):
+        """Check relationship of planet toward target using NATURAL_FRIENDSHIPS."""
+        if planet == target:
+            return 'Friend'
+        rels = NATURAL_FRIENDSHIPS.get(planet, {})
+        if target in rels.get('Friends', []):
+            return 'Friend'
+        elif target in rels.get('Enemies', []):
+            return 'Enemy'
+        else:
+            return 'Neutral'
+
     _nps_neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
     _nps_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
 
@@ -2819,10 +2846,53 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             rahu_score_str = "-"
             rahu_notes_str = "-"
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str, rahu_score_str, rahu_notes_str])
+        # ---- PLANET HAPPINESS SCORE (Naisargika Graha Maitri) ----
+        _hap_score = 0
+        _hap_notes = []
+        # A. Residence Score
+        _hap_planet_sign = planet_sign_map.get(p, 'Aries')
+        _hap_sign_lord = get_sign_lord(_hap_planet_sign)
+        _hap_own_signs = planet_ruled_signs.get(p, [])
+        if _hap_planet_sign in _hap_own_signs:
+            _hap_score += 2
+            _hap_notes.append(f"In Own({_hap_planet_sign}) [+2]")
+        else:
+            _hap_rel = check_friendship(p, _hap_sign_lord)
+            if _hap_rel == 'Friend':
+                _hap_score += 2
+                _hap_notes.append(f"In {_hap_sign_lord}(Fr) House [+2]")
+            elif _hap_rel == 'Enemy':
+                _hap_score -= 2
+                _hap_notes.append(f"In {_hap_sign_lord}(En) House [-2]")
+            else:
+                _hap_notes.append(f"In {_hap_sign_lord}(Ne) House [+0]")
+        # B. Aspect Score (Incoming Clones within 22 degrees)
+        _hap_planet_L = phase5_data[p]['L']
+        for _hap_cl in all_initial_clones:
+            _hap_source = _hap_cl['parent']
+            if _hap_source == p:
+                continue  # skip own clones
+            _hap_cl_L = _hap_cl['L']
+            _hap_diff = abs(_hap_planet_L - _hap_cl_L)
+            if _hap_diff > 180:
+                _hap_diff = 360 - _hap_diff
+            if _hap_diff <= 22:
+                _hap_asp_rel = check_friendship(p, _hap_source)
+                if _hap_asp_rel == 'Friend':
+                    _hap_score += 1
+                    _hap_notes.append(f"Asp by {_hap_source}(Fr) [+1]")
+                elif _hap_asp_rel == 'Enemy':
+                    _hap_score -= 1
+                    _hap_notes.append(f"Asp by {_hap_source}(En) [-1]")
+                else:
+                    _hap_notes.append(f"Asp by {_hap_source}(Ne) [+0]")
+        _hap_score_str = str(_hap_score)
+        _hap_notes_str = " | ".join(_hap_notes) if _hap_notes else "-"
+
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str, rahu_score_str, rahu_notes_str, _hap_score_str, _hap_notes_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes', 'Happiness Score', 'Happiness Notes'])
 
     # ---- Apply Rahu Score directly as occupant score for Rahu's house ----
     _rahu_occ_sign = planet_sign_map.get('Rahu', 'Aries')
@@ -3002,139 +3072,52 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _house_total_points[h_num] = total_hp
         _house_planetary_scores[h_num] = house_planetary_score
 
+        # ---- HOUSE HAPPINESS SCORE (Naisargika Graha Maitri) ----
+        _hh_score = 0
+        _hh_notes = []
+        _hh_lord = get_sign_lord(s)
+        # B. Occupant Score
+        _hh_occupants = [occ for occ in house_planets_rasi[h_num] if occ not in ('Asc',)]
+        for _hh_occ in _hh_occupants:
+            if _hh_occ == _hh_lord:
+                continue  # lord in own house, skip as occupant
+            _hh_occ_rel = check_friendship(_hh_lord, _hh_occ)
+            if _hh_occ_rel == 'Friend':
+                _hh_score += 1
+                _hh_notes.append(f"Occ {_hh_occ}(Fr) [+1]")
+            elif _hh_occ_rel == 'Enemy':
+                _hh_score -= 1
+                _hh_notes.append(f"Occ {_hh_occ}(En) [-1]")
+            else:
+                _hh_notes.append(f"Occ {_hh_occ}(Ne) [+0]")
+        # C. Aspect Score (Clones falling into this house sign)
+        for _hh_cl in all_initial_clones:
+            _hh_cl_sign = get_sign(_hh_cl['L'])
+            if _hh_cl_sign == s:
+                _hh_asp_source = _hh_cl['parent']
+                _hh_asp_rel = check_friendship(_hh_lord, _hh_asp_source)
+                if _hh_asp_rel == 'Friend':
+                    _hh_score += 1
+                    _hh_notes.append(f"Asp {_hh_asp_source}(Fr) [+1]")
+                elif _hh_asp_rel == 'Enemy':
+                    _hh_score -= 1
+                    _hh_notes.append(f"Asp {_hh_asp_source}(En) [-1]")
+                else:
+                    _hh_notes.append(f"Asp {_hh_asp_source}(Ne) [+0]")
+        _hh_score_str = str(_hh_score)
+        _hh_notes_str = " | ".join(_hh_notes) if _hh_notes else "-"
+
         hp_rows.append([h_num, s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{house_planetary_score:.2f}",
                         f"{hl_score:.2f}", hl_notes,
-                        f"{total_hp:.2f}", total_hp_notes])
+                        f"{total_hp:.2f}", total_hp_notes, _hh_score_str, _hh_notes_str])
 
     df_house_points = pd.DataFrame(hp_rows,
         columns=['House', 'House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes',
                  'House Planetary Score',
                  'House Lord Score', 'House Lord Score Notes',
-                 'Total House Points', 'Total House Points Notes'])
+                 'Total House Points', 'Total House Points Notes', 'Happiness Score', 'Happiness Notes'])
     # ---- END HOUSE POINTS ----
-
-    # ---- ALTERNATIVE HOUSE POINT ANALYSIS ----
-    _naisargika_maitri = {
-        'Sun':     {'friends': {'Moon', 'Mars', 'Jupiter'}, 'neutral': {'Mercury'}, 'enemies': {'Venus', 'Saturn'}},
-        'Moon':    {'friends': {'Sun', 'Mercury'}, 'neutral': {'Mars', 'Jupiter', 'Venus', 'Saturn'}, 'enemies': set()},
-        'Mars':    {'friends': {'Sun', 'Moon', 'Jupiter'}, 'neutral': {'Venus', 'Saturn'}, 'enemies': {'Mercury'}},
-        'Mercury': {'friends': {'Sun', 'Venus'}, 'neutral': {'Mars', 'Jupiter', 'Saturn'}, 'enemies': {'Moon'}},
-        'Jupiter': {'friends': {'Sun', 'Moon', 'Mars'}, 'neutral': {'Saturn'}, 'enemies': {'Mercury', 'Venus'}},
-        'Venus':   {'friends': {'Mercury', 'Saturn'}, 'neutral': {'Mars', 'Jupiter'}, 'enemies': {'Sun', 'Moon'}},
-        'Saturn':  {'friends': {'Mercury', 'Venus'}, 'neutral': {'Jupiter'}, 'enemies': {'Sun', 'Moon', 'Mars'}},
-        'Rahu':    {'friends': {'Mercury', 'Venus', 'Saturn'}, 'neutral': {'Jupiter'}, 'enemies': {'Sun', 'Moon', 'Mars'}},
-        'Ketu':    {'friends': {'Mars', 'Venus', 'Saturn'}, 'neutral': {'Mercury', 'Jupiter'}, 'enemies': {'Sun', 'Moon'}},
-    }
-
-    def _alt_get_relationship(planet, house_lord):
-        """Returns 'friend', 'neutral', or 'enemy' based on Naisargika Graha Maitri."""
-        if planet == house_lord:
-            return 'friend'  # A planet is always its own friend
-        if house_lord not in _naisargika_maitri:
-            return 'neutral'
-        maitri = _naisargika_maitri[house_lord]
-        if planet in maitri['friends']:
-            return 'friend'
-        elif planet in maitri['enemies']:
-            return 'enemy'
-        return 'neutral'
-
-    _alt_aspects_dict = {
-        'Sun': [7], 'Moon': [7], 'Mars': [4, 7, 8], 'Mercury': [7],
-        'Jupiter': [5, 7, 9], 'Venus': [7], 'Saturn': [3, 7, 10],
-        'Rahu': [7], 'Ketu': [7]
-    }
-
-    alt_hp_rows = []
-    _alt_house_total_points = {}
-    _alt_house_planetary_scores = {}
-
-    for h_num in range(1, 13):
-        s = sign_names[(_hp_lagna_idx + h_num - 1) % 12]
-        house_lord = get_sign_lord(s)
-        net_score = 0.0
-        occ_contrib_sum = 0.0
-        asp_contrib_sum = 0.0
-        occupant_details = []
-        aspect_details = []
-
-        # Step A: Calculate Occupants
-        for occ in sign_occupants.get(s, []):
-            occ_value = abs(_nps_score_dict.get(occ, 0.0))
-            rel = _alt_get_relationship(occ, house_lord)
-
-            if net_score >= 0:
-                if rel in ('friend', 'neutral'):
-                    contribution = occ_value
-                else:  # enemy
-                    contribution = -occ_value
-            else:  # net_score < 0
-                if rel == 'enemy':
-                    contribution = -(occ_value * 2)
-                else:  # friend or neutral
-                    contribution = -occ_value
-
-            net_score += contribution
-            occ_contrib_sum += contribution
-            occupant_details.append(f"{occ} ({contribution:+.2f})")
-
-        # Step B: Calculate Aspects
-        for planet, offsets in _alt_aspects_dict.items():
-            ph = planet_house_map.get(planet)
-            if ph is None:
-                continue
-            for off in offsets:
-                if ((ph - 1 + (off - 1)) % 12) + 1 == h_num:
-                    asp_value = abs(_nps_score_dict.get(planet, 0.0))
-                    rel = _alt_get_relationship(planet, house_lord)
-
-                    if net_score >= 0:
-                        if rel in ('friend', 'neutral'):
-                            contribution = asp_value
-                        else:  # enemy
-                            contribution = -asp_value
-                    else:  # net_score < 0
-                        if rel == 'enemy':
-                            contribution = -(asp_value * 2)
-                        else:
-                            contribution = -asp_value
-
-                    net_score += contribution
-                    asp_contrib_sum += contribution
-                    aspect_details.append(f"{planet} ({contribution:+.2f})")
-
-        occ_str = ', '.join(occupant_details) if occupant_details else '-'
-        asp_str = ', '.join(aspect_details) if aspect_details else '-'
-
-        alt_house_planetary_score = net_score
-
-        # House Lord Score (same formula as original)
-        lord_strength = _planet_maraivu_adj_strengths.get(house_lord, 0.0)
-        lord_norm_score = _nps_score_dict.get(house_lord + '_adjusted', 0.0)
-        alt_hl_score = (lord_strength / 2.0) + (lord_norm_score / 2.0)
-        alt_hl_notes = f"{house_lord}: Str({lord_strength/2.0:.2f}) + AdjNormScore({lord_norm_score/2.0:.2f})"
-
-        # Total House Points (same formula as original)
-        alt_total_hp = (alt_house_planetary_score / 2.0) + (alt_hl_score / 2.0)
-        alt_total_hp_notes = f"HPS({alt_house_planetary_score/2.0:.2f}) + HLS({alt_hl_score/2.0:.2f})"
-
-        _alt_house_total_points[h_num] = alt_total_hp
-        _alt_house_planetary_scores[h_num] = alt_house_planetary_score
-
-        alt_hp_rows.append([h_num, s,
-                           f"{asp_contrib_sum:.2f}", asp_str,
-                           f"{occ_contrib_sum:.2f}", occ_str,
-                           f"{alt_house_planetary_score:.2f}",
-                           f"{alt_hl_score:.2f}", alt_hl_notes,
-                           f"{alt_total_hp:.2f}", alt_total_hp_notes])
-
-    df_alt_house_points = pd.DataFrame(alt_hp_rows,
-        columns=['House', 'House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes',
-                 'House Planetary Score',
-                 'House Lord Score', 'House Lord Score Notes',
-                 'Total House Points', 'Total House Points Notes'])
-    # ---- END ALTERNATIVE HOUSE POINTS ----
 
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
@@ -3563,7 +3546,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_lagna_analysis': df_lagna_analysis,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
-        'df_alt_house_points': df_alt_house_points,
         'df_planet_strengths': df_planet_strengths,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
@@ -3767,9 +3749,6 @@ if st.session_state.chart_data:
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
-
-    st.subheader("Alternative House Point Analysis")
-    st.dataframe(cd['df_alt_house_points'], hide_index=True, use_container_width=True)
 
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
