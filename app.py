@@ -3346,10 +3346,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_h1_score = _la_h1_raw
     _la_h1_notes = f"House 1 Planetary Score = {_la_h1_raw:.2f}"
 
-    # 6. Lagna Point (good currency only, no debt)
+    # 6. Lagna Point (good currency only, no debt) + (Navamsa Lagna Score / 5)
     _la_lagna_sim = sim_good_total - sim_bad_total
-    _la_lagna_pt_score = _la_lagna_sim
-    _la_lagna_pt_notes = f"Sim good={sim_good_total:.2f} - bad={sim_bad_total:.2f}, net={_la_lagna_sim:.2f}"
+    _la_nav_sim_contrib = sim_nav_net_score / 5.0
+    _la_lagna_pt_score = _la_lagna_sim + _la_nav_sim_contrib
+    _la_lagna_pt_notes = f"Sim(Net {_la_lagna_sim:.2f}) + NavSim({sim_nav_net_score:.2f}/5 = {_la_nav_sim_contrib:.2f}) = {_la_lagna_pt_score:.2f}"
 
     # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2 + Shukshama
     _la_sun_adj_str = _planet_maraivu_adj_strengths.get('Sun', 0.0)
