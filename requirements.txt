@@ -6,3 +6,4 @@ matplotlib
 jplephem
 timezonefinder
 pytz
+pyswisseph
