@@ -3163,9 +3163,138 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     remaining_debt_str = f"{sim_debt:.2f}" if abs(sim_debt) >= 0.01 else '0.00'
 
+    # ====== END LAGNA POINT SCORE SIMULATION ======
+
+    # ====== NAVAMSA LAGNA SCORE SIMULATION ======
+    # Simulates an imaginary planet at the Navamsa Lagna with -100 debt,
+    # pulling currency from Navamsa Phase 3 ecosystem.
+
+    # Step A: Setup & Cloning
+    _nav_lagna_house = 1  # Navamsa Lagna is always House 1
+    nav_sim_data = {}
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        nav_sim_data[p] = {
+            'inventory': copy.deepcopy(dict(navamsa_phase3_data[p]['navp3_inventory'])),
+            'debt': navamsa_phase3_data[p]['navp3_current_debt'],
+            'volume': navamsa_phase3_data[p]['nav_volume'],
+            'house': navamsa_phase3_data[p]['nav_house'],
+        }
+    nav_sim_house_pot = copy.deepcopy(dict(house_pot))
+
+    sim_nav_debt = -100.0
+    sim_nav_gained = defaultdict(float)
+    sim_nav_sources = {}
+
+    # Determine malefic/benefic for navamsa sim
+    _nav_sim_malefic_names = {'Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu'}
+    _nav_moon_bad = nav_sim_data['Moon']['inventory'].get('Bad Moon', 0.0)
+    _nav_moon_is_malefic = _nav_moon_bad > 0.001
+    _nav_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
+
+    def _nav_sim_is_malefic(pname):
+        if pname in _nav_sim_malefic_names:
+            return True
+        if pname == 'Moon':
+            return _nav_moon_is_malefic
+        return False
+
+    def _nav_sim_is_benefic(pname):
+        if pname in ('Jupiter', 'Venus', 'Mercury'):
+            return True
+        if pname == 'Moon' and not _nav_moon_is_malefic:
+            return True
+        return False
+
+    # Step B: Interaction with House Pot for Navamsa Lagna House
+    _nav_pot_val = nav_sim_house_pot.get(_nav_lagna_house, 0.0)
+    if _nav_pot_val > 0.001 and sim_nav_debt < -0.001:
+        _nav_pot_take = min(abs(sim_nav_debt), _nav_pot_val)
+        sim_nav_debt += _nav_pot_take
+        sim_nav_gained['Good Moon'] += _nav_pot_take
+        nav_sim_house_pot[_nav_lagna_house] -= _nav_pot_take
+        sim_nav_sources.setdefault('Good Moon', []).append(f"HousePot_H{_nav_lagna_house}({_nav_pot_take:.2f})")
+
+    # Step C: Interaction with Planets (Sucking Phase)
+    # Iterate through all planets; only those in the same Navamsa house as Lagna (house 1)
+    _nav_planet_order = ['Saturn', 'Rahu', 'Sun', 'Mars', 'Ketu', 'Moon', 'Jupiter', 'Venus', 'Mercury']
+
+    for _nav_tp in _nav_planet_order:
+        if sim_nav_debt >= -0.001:
+            break
+
+        _nav_tp_data = nav_sim_data[_nav_tp]
+
+        # Location Check: must be in the same house as Navamsa Lagna
+        if _nav_tp_data['house'] != _nav_lagna_house:
+            continue
+
+        # Benefic Debt Check: if benefic and its debt is deeper than lagna's remaining debt, skip
+        if _nav_sim_is_benefic(_nav_tp):
+            _nav_tp_abs_debt = abs(_nav_tp_data['debt']) if _nav_tp_data['debt'] < -0.001 else 0.0
+            _nav_sim_abs_debt = abs(sim_nav_debt)
+            if _nav_tp_abs_debt >= _nav_sim_abs_debt:
+                continue
+
+        # Currency Rules: malefic -> only bad currencies; benefic -> only good currencies
+        _nav_is_mal = _nav_sim_is_malefic(_nav_tp)
+        _nav_inv = _nav_tp_data['inventory']
+
+        _nav_allowable = []
+        for _nk, _nv in _nav_inv.items():
+            if _nv <= 0.001:
+                continue
+            if _nav_is_mal:
+                if 'Bad' in _nk:
+                    _nav_allowable.append((_nk, _nv))
+            else:
+                if is_good_currency(_nk):
+                    _nav_allowable.append((_nk, _nv))
+
+        # Sort by rank (higher first)
+        _nav_allowable.sort(key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
+
+        # Pull currency
+        for _nc_key, _nc_avail in _nav_allowable:
+            if sim_nav_debt >= -0.001:
+                break
+            _nav_needed = abs(sim_nav_debt)
+            _nav_take = min(_nav_needed, _nc_avail)
+            if _nav_take > 0.001:
+                sim_nav_gained[_nc_key] += _nav_take
+                sim_nav_debt += _nav_take
+                _nav_inv[_nc_key] -= _nav_take
+                sim_nav_sources.setdefault(_nc_key, []).append(f"{_nav_tp}({_nav_take:.2f})")
+
+    # Output Calculation
+    sim_nav_good_total = sum(v for k, v in sim_nav_gained.items() if is_good_currency(k))
+    sim_nav_bad_total = sum(v for k, v in sim_nav_gained.items() if 'Bad' in k)
+    sim_nav_net_score = sim_nav_good_total - sim_nav_bad_total
+
+    # Currency breakdown string
+    _nav_bd_parts = []
+    for k in sorted(sim_nav_gained.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+        v = sim_nav_gained[k]
+        if v > 0.001:
+            _nav_bd_parts.append(f"{k}[{v:.2f}]")
+    nav_breakdown_str = ", ".join(_nav_bd_parts) if _nav_bd_parts else "-"
+
+    # Notes: source details
+    _nav_notes_parts = []
+    for k in sorted(sim_nav_sources.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+        entries = sim_nav_sources[k]
+        _nav_notes_parts.append(f"{k} from " + ", ".join(entries))
+    nav_notes_str = "; ".join(_nav_notes_parts) if _nav_notes_parts else "-"
+
+    nav_remaining_debt_str = f"{sim_nav_debt:.2f}" if abs(sim_nav_debt) >= 0.01 else '0.00'
+
+    # ====== END NAVAMSA LAGNA SCORE SIMULATION ======
+
     df_bonus = pd.DataFrame(
-        [[ f"{sim_net_score:.2f}", '-100.00', remaining_debt_str, breakdown_str, notes_str ]],
-        columns=['Lagna Score', 'Initial Debt', 'Remaining Debt', 'Currency Breakdown', 'Notes']
+        [
+            ['Lagna Score', f"{sim_net_score:.2f}", '-100.00', remaining_debt_str, breakdown_str, notes_str],
+            ['Navamsa Lagna Score', f"{sim_nav_net_score:.2f}", '-100.00', nav_remaining_debt_str, nav_breakdown_str, nav_notes_str]
+        ],
+        columns=['Simulation', 'Score', 'Initial Debt', 'Remaining Debt', 'Currency Breakdown', 'Notes']
     )
     # ====== END LAGNA POINT SCORE SIMULATION ======
 
