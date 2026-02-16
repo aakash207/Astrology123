@@ -572,6 +572,40 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_data['Mars']['default_currency'] = ", ".join(swapped_parts)
         planet_data['Mars']['debt'] = f"{planet_data['Mars']['current_debt']:.2f}"
 
+    # Saturn in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Good Venus)
+    if planet_data['Saturn']['sign'] == 'Taurus':
+        _saturn_bad = planet_data['Saturn']['final_inventory'].get('Bad Saturn', 0.0)
+        # Split: 50% stays as Bad Saturn, 50% becomes Venus (benefic)
+        new_bad_saturn = _saturn_bad * 0.50
+        new_good_venus = _saturn_bad * 0.50
+        planet_data['Saturn']['final_inventory']['Bad Saturn'] = new_bad_saturn
+        planet_data['Saturn']['final_inventory']['Venus'] = new_good_venus
+        # Update debt to equal the new bad currency
+        planet_data['Saturn']['current_debt'] = -new_bad_saturn if new_bad_saturn > 0 else 0.0
+        # Update display strings
+        saturn_parts = []
+        if new_good_venus > 0: saturn_parts.append(f"Good Venus[{new_good_venus:.2f}]")
+        if new_bad_saturn > 0: saturn_parts.append(f"Bad Saturn[{new_bad_saturn:.2f}]")
+        planet_data['Saturn']['default_currency'] = ", ".join(saturn_parts)
+        planet_data['Saturn']['debt'] = f"{planet_data['Saturn']['current_debt']:.2f}"
+
+    # Rahu in Taurus: switches from -100% malefic to -75 malefic and +25 benefic (Venus currency)
+    if planet_data['Rahu']['sign'] == 'Taurus':
+        _rahu_bad = planet_data['Rahu']['final_inventory'].get('Bad Rahu', 0.0)
+        # Split: 75% stays as Bad Rahu, 25% becomes Venus (benefic)
+        new_bad_rahu = _rahu_bad * 0.75
+        new_good_venus = _rahu_bad * 0.25
+        planet_data['Rahu']['final_inventory']['Bad Rahu'] = new_bad_rahu
+        planet_data['Rahu']['final_inventory']['Venus'] = new_good_venus
+        # Update debt to equal the new bad currency
+        planet_data['Rahu']['current_debt'] = -new_bad_rahu if new_bad_rahu > 0 else 0.0
+        # Update display strings
+        rahu_parts = []
+        if new_good_venus > 0: rahu_parts.append(f"Good Venus[{new_good_venus:.2f}]")
+        if new_bad_rahu > 0: rahu_parts.append(f"Bad Rahu[{new_bad_rahu:.2f}]")
+        planet_data['Rahu']['default_currency'] = ", ".join(rahu_parts)
+        planet_data['Rahu']['debt'] = f"{planet_data['Rahu']['current_debt']:.2f}"
+
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         data = planet_data[p]
         rows.append([
