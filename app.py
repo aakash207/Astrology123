@@ -589,12 +589,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_data['Saturn']['default_currency'] = ", ".join(saturn_parts)
         planet_data['Saturn']['debt'] = f"{planet_data['Saturn']['current_debt']:.2f}"
 
-    # Rahu in Taurus: switches from -100% malefic to -75 malefic and +25 benefic (Venus currency)
+    # Rahu in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Venus currency)
     if planet_data['Rahu']['sign'] == 'Taurus':
         _rahu_bad = planet_data['Rahu']['final_inventory'].get('Bad Rahu', 0.0)
-        # Split: 75% stays as Bad Rahu, 25% becomes Venus (benefic)
-        new_bad_rahu = _rahu_bad * 0.75
-        new_good_venus = _rahu_bad * 0.25
+        # Split: 50% stays as Bad Rahu, 50% becomes Venus (benefic)
+        new_bad_rahu = _rahu_bad * 0.50
+        new_good_venus = _rahu_bad * 0.50
         planet_data['Rahu']['final_inventory']['Bad Rahu'] = new_bad_rahu
         planet_data['Rahu']['final_inventory']['Venus'] = new_good_venus
         # Update debt to equal the new bad currency
