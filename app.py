@@ -3524,11 +3524,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_h1_score = _la_h1_raw
     _la_h1_notes = f"House 1 Planetary Score = {_la_h1_raw:.2f}"
 
-    # 6. Lagna Point (good currency only, no debt) + (Navamsa Lagna Score / 5)
+    # 6. Lagna Point (good currency only, no debt)
     _la_lagna_sim = sim_good_total - sim_bad_total
-    _la_nav_sim_contrib = sim_nav_net_score / 5.0
-    _la_lagna_pt_score = _la_lagna_sim + _la_nav_sim_contrib
-    _la_lagna_pt_notes = f"Sim(Net {_la_lagna_sim:.2f}) + NavSim({sim_nav_net_score:.2f}/5 = {_la_nav_sim_contrib:.2f}) = {_la_lagna_pt_score:.2f}"
+    _la_lagna_pt_score = _la_lagna_sim
+    _la_lagna_pt_notes = f"Sim Net = {_la_lagna_sim:.2f}"
+
+    # 6b. Navamsa Lagna Score (standalone)
+    _la_nav_score = sim_nav_net_score
+    _la_nav_notes = f"Navamsa Lagna Net Score = {sim_nav_net_score:.2f}"
 
     # 7. Sun: (Maraivu adj Strength + Maraivu adj Score) / 2
     _la_sun_adj_str = _planet_maraivu_adj_strengths.get('Sun', 0.0)
@@ -3548,14 +3551,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _ag_moon   = _la_moon_score * 25.0 / 100.0
     _ag_ll     = _la_ll_score * 12.5 / 100.0
     _ag_ll_str = _ag_ll_str_combined * 12.5 / 100.0
-    _ag_h1     = _la_h1_score * 25.0 / 100.0
-    _ag_lp     = _la_lagna_pt_score * 25.0 / 100.0
-    _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp
+    _ag_h1     = _la_h1_score * 40.0 / 100.0
+    _ag_lp     = _la_lagna_pt_score * 10.0 / 100.0
+    _ag_nav    = _la_nav_score * 5.0 / 100.0
+    _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp + _ag_nav
     _ag_notes  = (f"Moon({_la_moon_score:.2f}*25%)={_ag_moon:.2f} + "
                   f"LL({_la_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
                   f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*12.5%)={_ag_ll_str:.2f} + "
-                  f"H1({_la_h1_score:.2f}*25%)={_ag_h1:.2f} + "
-                  f"LP({_la_lagna_pt_score:.2f}*25%)={_ag_lp:.2f}")
+                  f"H1({_la_h1_score:.2f}*40%)={_ag_h1:.2f} + "
+                  f"LP({_la_lagna_pt_score:.2f}*10%)={_ag_lp:.2f} + "
+                  f"NavLagna({_la_nav_score:.2f}*5%)={_ag_nav:.2f}")
 
     # 10. Bhuvi Bonus: weighted sum (LLStr includes Suchama)
     _bv_ll_str_combined = _la_ll_str_score + _la_ll_suchama_score
@@ -3563,15 +3568,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _bv_ll     = _la_ll_score * 10.0 / 100.0
     _bv_ll_str = _bv_ll_str_combined * 10.0 / 100.0
     _bv_h1     = _la_h1_score * 20.0 / 100.0
-    _bv_lp     = _la_lagna_pt_score * 20.0 / 100.0
+    _bv_lp     = _la_lagna_pt_score * 5.0 / 100.0
+    _bv_nav    = _la_nav_score * 5.0 / 100.0
     _bv_sun    = _la_sun_score * 10.0 / 100.0
     _bv_h9     = _la_h9_score * 10.0 / 100.0
-    _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_sun + _bv_h9
+    _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_nav + _bv_sun + _bv_h9
     _bv_notes  = (f"Moon({_la_moon_score:.2f}*20%)={_bv_moon:.2f} + "
                   f"LL({_la_ll_score:.2f}*10%)={_bv_ll:.2f} + "
                   f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
                   f"H1({_la_h1_score:.2f}*20%)={_bv_h1:.2f} + "
-                  f"LP({_la_lagna_pt_score:.2f}*20%)={_bv_lp:.2f} + "
+                  f"LP({_la_lagna_pt_score:.2f}*5%)={_bv_lp:.2f} + "
+                  f"NavLagna({_la_nav_score:.2f}*5%)={_bv_nav:.2f} + "
                   f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
                   f"H9({_la_h9_score:.2f}*10%)={_bv_h9:.2f}")
 
@@ -3582,6 +3589,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         ['Lagna Lord Suchama', f"{_la_ll_suchama_score:.2f}", _la_ll_suchama_notes],
         ['1st House Points',   f"{_la_h1_score:.2f}",   _la_h1_notes],
         ['Lagna Point',        f"{_la_lagna_pt_score:.2f}", _la_lagna_pt_notes],
+        ['Navamsa Lagna Score',f"{_la_nav_score:.2f}",  _la_nav_notes],
         ['Sun Score',          f"{_la_sun_score:.2f}",  _la_sun_notes],
         ['9th House Points',   f"{_la_h9_score:.2f}",   _la_h9_notes],
         ['AG Bonus',           f"{_ag_total:.2f}",      _ag_notes],
