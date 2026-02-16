@@ -1781,6 +1781,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     for target_sign in ['Sagittarius', 'Pisces', 'Libra', 'Taurus']:
         sign_pot = pot_inventory[target_sign]
         currency_type = pot_currency_type[target_sign]
+        gifter = gift_pot_config[target_sign][0]  # 'Jupiter' or 'Venus'
+        gifter_sthana = planet_data[gifter]['sthana']  # Lord's Sthana Bala
         
         if sign_pot <= 0.001:
             continue
@@ -1794,6 +1796,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             house_reserves[target_sign][currency_type] += sign_pot
             pot_inventory[target_sign] = 0.0
             continue
+        
+        # Pre-compute malefic gift caps and tracking
+        malefic_gift_caps = {}
+        malefic_gifts_given = {}
         
         p4_cycle_limit = 200
         p4_cycles = 0
@@ -1821,6 +1827,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     sign_benefics.append(p)
                 elif p == 'Moon' and not moon_is_malefic_p4:
                     sign_benefics.append(p)
+            
+            # Initialize gift caps for malefics on first encounter
+            # Cap = abs(debt) * 50% * (lord's sthana bala / 100)
+            for m in sign_malefics:
+                if m not in malefic_gift_caps:
+                    m_debt = phase4_data[m]['p4_current_debt']
+                    if m_debt < -0.001:
+                        malefic_gift_caps[m] = abs(m_debt) * 0.50 * (gifter_sthana / 100.0)
+                    else:
+                        malefic_gift_caps[m] = 0.0
+                    malefic_gifts_given[m] = 0.0
             
             def get_p4_malefic_rank(p):
                 if p == 'Moon':
@@ -1857,21 +1874,31 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 
                 if debt < -0.001:
                     needed = abs(debt)
-                    take = min(1.0, needed, sign_pot)
+                    
+                    # Apply malefic gift cap restriction
+                    remaining_cap = malefic_gift_caps.get(malefic, 0.0) - malefic_gifts_given.get(malefic, 0.0)
+                    if remaining_cap <= 0.001:
+                        continue  # This malefic has reached its gift cap
+                    
+                    take = min(1.0, needed, sign_pot, remaining_cap)
                     
                     if take > 0.001:
                         sign_pot -= take
                         phase4_data[malefic]['p4_inventory'][currency_type] += take
                         phase4_data[malefic]['p4_current_debt'] += take
+                        malefic_gifts_given[malefic] = malefic_gifts_given.get(malefic, 0.0) + take
                         p4_something_happened = True
             
-            all_malefics_cleared = True
+            # Check if all malefics are done (either debt cleared OR gift cap reached)
+            all_malefics_done = True
             for malefic in sign_malefics:
                 if phase4_data[malefic]['p4_current_debt'] < -0.001:
-                    all_malefics_cleared = False
-                    break
+                    remaining_cap = malefic_gift_caps.get(malefic, 0.0) - malefic_gifts_given.get(malefic, 0.0)
+                    if remaining_cap > 0.001:
+                        all_malefics_done = False
+                        break
             
-            if all_malefics_cleared or len(sign_malefics) == 0:
+            if all_malefics_done or len(sign_malefics) == 0:
                 for benefic in sign_benefics_sorted:
                     if sign_pot <= 0.001:
                         break
@@ -3567,7 +3594,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _bv_moon   = _la_moon_score * 20.0 / 100.0
     _bv_ll     = _la_ll_score * 10.0 / 100.0
     _bv_ll_str = _bv_ll_str_combined * 10.0 / 100.0
-    _bv_h1     = _la_h1_score * 20.0 / 100.0
+    _bv_h1     = _la_h1_score * 30.0 / 100.0
     _bv_lp     = _la_lagna_pt_score * 5.0 / 100.0
     _bv_nav    = _la_nav_score * 5.0 / 100.0
     _bv_sun    = _la_sun_score * 10.0 / 100.0
@@ -3576,7 +3603,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _bv_notes  = (f"Moon({_la_moon_score:.2f}*20%)={_bv_moon:.2f} + "
                   f"LL({_la_ll_score:.2f}*10%)={_bv_ll:.2f} + "
                   f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
-                  f"H1({_la_h1_score:.2f}*20%)={_bv_h1:.2f} + "
+                  f"H1({_la_h1_score:.2f}*30%)={_bv_h1:.2f} + "
                   f"LP({_la_lagna_pt_score:.2f}*5%)={_bv_lp:.2f} + "
                   f"NavLagna({_la_nav_score:.2f}*5%)={_bv_nav:.2f} + "
                   f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
