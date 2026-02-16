@@ -2486,6 +2486,33 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     occupant_score = {s: 0.0 for s in sign_names}
     occupant_notes = {s: [] for s in sign_names}
 
+    # ---- NATURAL PLANETARY RELATIONSHIPS (Moved here for use in Aspect Logic) ----
+    NATURAL_FRIENDSHIPS = {
+        'Sun': {'Friends': ['Moon', 'Mars', 'Jupiter'], 'Neutral': ['Mercury'], 'Enemies': ['Venus', 'Saturn']},
+        'Moon': {'Friends': ['Sun', 'Mercury'], 'Neutral': ['Mars', 'Jupiter', 'Venus', 'Saturn'], 'Enemies': []},
+        # MODIFIED: Venus & Saturn moved to Enemies
+        'Mars': {'Friends': ['Sun', 'Moon', 'Jupiter'], 'Neutral': [], 'Enemies': ['Venus', 'Saturn', 'Mercury']}, 
+        'Mercury': {'Friends': ['Sun', 'Venus'], 'Neutral': ['Mars', 'Jupiter', 'Saturn'], 'Enemies': ['Moon']},
+        'Jupiter': {'Friends': ['Sun', 'Moon', 'Mars'], 'Neutral': ['Saturn'], 'Enemies': ['Mercury', 'Venus']},
+        'Venus': {'Friends': ['Mercury', 'Saturn'], 'Neutral': ['Mars', 'Jupiter'], 'Enemies': ['Sun', 'Moon']},
+        # MODIFIED: Jupiter moved to Enemies
+        'Saturn': {'Friends': ['Mercury', 'Venus'], 'Neutral': [], 'Enemies': ['Sun', 'Moon', 'Mars', 'Jupiter']},
+        'Rahu': {'Friends': ['Mercury', 'Venus', 'Saturn'], 'Neutral': ['Jupiter'], 'Enemies': ['Sun', 'Moon', 'Mars']},
+        'Ketu': {'Friends': ['Mars', 'Venus', 'Saturn'], 'Neutral': ['Mercury', 'Jupiter'], 'Enemies': ['Sun', 'Moon']}
+    }
+
+    def check_friendship(planet, target):
+        """Check relationship of planet toward target using NATURAL_FRIENDSHIPS."""
+        if planet == target:
+            return 'Friend'
+        rels = NATURAL_FRIENDSHIPS.get(planet, {})
+        if target in rels.get('Friends', []):
+            return 'Friend'
+        elif target in rels.get('Enemies', []):
+            return 'Enemy'
+        else:
+            return 'Neutral'
+
     hp_static_malefics = {'Saturn', 'Mars', 'Sun', 'Rahu'}
     hp_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
 
@@ -2530,9 +2557,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if own_key:
                 own_val = clone['inventory'].get(own_key, 0.0)
                 if own_val > 0.001:
-                    bonus = own_val
-                    aspect_score[target_sign] += bonus
-                    aspect_sources[target_sign].append(f"{parent}(Own Good)")
+                    # NEW LOGIC: Mars/Saturn check specifically for Enemy House
+                    is_enemy_house = False
+                    if parent in ['Mars', 'Saturn']:
+                         target_lord = get_sign_lord(target_sign)
+                         relation = check_friendship(parent, target_lord)
+                         if relation == 'Enemy':
+                             is_enemy_house = True
+                    
+                    if is_enemy_house:
+                        aspect_score[target_sign] -= own_val
+                        aspect_sources[target_sign].append(f"{parent}(Own Good converted to Neg [Enemy House])")
+                    else:
+                        bonus = own_val
+                        aspect_score[target_sign] += bonus
+                        aspect_sources[target_sign].append(f"{parent}(Own Good)")
         else:
             good_total = 0.0
             for c_key, c_val in clone['inventory'].items():
@@ -2588,31 +2627,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ---- NORMALIZED PLANET SCORES ----
     _nps_static_malefics = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
     _nps_static_benefics = {'Jupiter', 'Venus', 'Mercury'}
-    # ---- NATURAL PLANETARY RELATIONSHIPS (Naisargika Graha Maitri) ----
-    NATURAL_FRIENDSHIPS = {
-        'Sun': {'Friends': ['Moon', 'Mars', 'Jupiter'], 'Neutral': ['Mercury'], 'Enemies': ['Venus', 'Saturn']},
-        'Moon': {'Friends': ['Sun', 'Mercury'], 'Neutral': ['Mars', 'Jupiter', 'Venus', 'Saturn'], 'Enemies': []},
-        'Mars': {'Friends': ['Sun', 'Moon', 'Jupiter'], 'Neutral': ['Venus', 'Saturn'], 'Enemies': ['Mercury']},
-        'Mercury': {'Friends': ['Sun', 'Venus'], 'Neutral': ['Mars', 'Jupiter', 'Saturn'], 'Enemies': ['Moon']},
-        'Jupiter': {'Friends': ['Sun', 'Moon', 'Mars'], 'Neutral': ['Saturn'], 'Enemies': ['Mercury', 'Venus']},
-        'Venus': {'Friends': ['Mercury', 'Saturn'], 'Neutral': ['Mars', 'Jupiter'], 'Enemies': ['Sun', 'Moon']},
-        'Saturn': {'Friends': ['Mercury', 'Venus'], 'Neutral': ['Jupiter'], 'Enemies': ['Sun', 'Moon', 'Mars']},
-        'Rahu': {'Friends': ['Mercury', 'Venus', 'Saturn'], 'Neutral': ['Jupiter'], 'Enemies': ['Sun', 'Moon', 'Mars']},
-        'Ketu': {'Friends': ['Mars', 'Venus', 'Saturn'], 'Neutral': ['Mercury', 'Jupiter'], 'Enemies': ['Sun', 'Moon']}
-    }
-
-    def check_friendship(planet, target):
-        """Check relationship of planet toward target using NATURAL_FRIENDSHIPS."""
-        if planet == target:
-            return 'Friend'
-        rels = NATURAL_FRIENDSHIPS.get(planet, {})
-        if target in rels.get('Friends', []):
-            return 'Friend'
-        elif target in rels.get('Enemies', []):
-            return 'Enemy'
-        else:
-            return 'Neutral'
-
+    # (NATURAL_FRIENDSHIPS moved up)
+    
     _nps_neecha_statuses = {'Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'}
     _nps_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
 
