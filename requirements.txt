@@ -4,7 +4,7 @@ geopy
 astropy
 matplotlib
 jplephem
-timezonefinder==6.2.0
+timezonefinder>=6.0.0
 pytz
 pyswisseph
 numpy<2.0.0
