@@ -557,6 +557,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if planet_cap == 'Moon': key = "Bad Moon"
                 planet_data[planet_cap]['final_inventory'][key] = bad_val
 
+    # SWAP Good/Bad default currency for Mars if Mars is in Leo
+    if planet_data['Mars']['sign'] == 'Leo':
+        _mars_good = planet_data['Mars']['final_inventory'].get('Good Mars', 0.0)
+        _mars_bad = planet_data['Mars']['final_inventory'].get('Bad Mars', 0.0)
+        planet_data['Mars']['final_inventory']['Good Mars'] = _mars_bad
+        planet_data['Mars']['final_inventory']['Bad Mars'] = _mars_good
+        # Update debt to equal the new bad currency (swapped value)
+        planet_data['Mars']['current_debt'] = -_mars_good if _mars_good > 0 else 0.0
+        # Update display strings
+        swapped_parts = []
+        if _mars_bad > 0: swapped_parts.append(f"Good Mars[{_mars_bad:.2f}]")
+        if _mars_good > 0: swapped_parts.append(f"Bad Mars[{_mars_good:.2f}]")
+        planet_data['Mars']['default_currency'] = ", ".join(swapped_parts)
+        planet_data['Mars']['debt'] = f"{planet_data['Mars']['current_debt']:.2f}"
+
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         data = planet_data[p]
         rows.append([
@@ -3666,7 +3681,7 @@ if use_custom_coords:
     with clat: lat = st.number_input("Birth Latitude", value=13.08, format="%.4f")
     with clon: lon = st.number_input("Birth Longitude", value=80.27, format="%.4f")
 else:
-    birth_city_query = st.text_input("Birth City", placeholder="Start typing birth city name...", key="birth_city_input")
+    birth_city_query = st.text_input("Birth City", value="Chennai", placeholder="Start typing birth city name...", key="birth_city_input")
     if birth_city_query and len(birth_city_query) >= 2:
         try:
             locations = geocode(birth_city_query, exactly_one=False, limit=5)
