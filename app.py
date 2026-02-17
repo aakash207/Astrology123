@@ -1982,6 +1982,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         return phase5_data['Moon']['bad_inv'] > 0.001
     
     PLANET_SEQUENCE = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
+    _jp_poison_notes = []  # Jupiter Poison diagnostic notes (initialized before loop)
     
     for current_planet in PLANET_SEQUENCE:
         if current_planet not in ASPECT_RULES:
@@ -2099,22 +2100,31 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
             jupiter_poison_multiplier = 0.0
             jupiter_poison_case = None
+            _jp_poison_notes = []  # diagnostic log
 
-            if _jp_current_val > 0.001:
+            if _jp_current_val <= 0.001:
+                _jp_poison_notes.append("[SKIP] Jupiter has no currency to poison (value={:.2f})".format(_jp_current_val))
+            else:
+                _jp_poison_notes.append("[INFO] Jupiter currency available: {:.2f}".format(_jp_current_val))
+                _jp_poison_notes.append("[INFO] Jupiter sign: {}, L: {:.2f}°".format(_jp_sign, _jp_L))
+
                 # --- Helper: check no malefic planet or malefic clone within 22° of Jupiter ---
                 def _jp_malefic_free_zone():
                     _malefic_check_planets = ['Saturn', 'Mars', 'Rahu']
                     # Check Ketu if it holds bad currency
                     if phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001:
                         _malefic_check_planets.append('Ketu')
+                        _jp_poison_notes.append("[INFO] Ketu has Bad Ketu currency -> included in malefic check")
                     # Check Moon if malefic
                     if is_moon_malefic_p5():
                         _malefic_check_planets.append('Moon')
+                        _jp_poison_notes.append("[INFO] Moon is malefic -> included in malefic check")
                     for _mp in _malefic_check_planets:
                         _mp_L = phase5_data[_mp]['L']
                         _md = abs(_jp_L - _mp_L)
                         if _md > 180: _md = 360 - _md
                         if _md < 22:
+                            _jp_poison_notes.append("[FAIL] Malefic-free zone: {} is {:.1f}° from Jupiter (< 22°)".format(_mp, _md))
                             return False
                     # Check malefic virtual clones (from Saturn/Mars already created)
                     for _cl in all_leftover_clones:
@@ -2122,21 +2132,36 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             _cd = abs(_jp_L - _cl['L'])
                             if _cd > 180: _cd = 360 - _cd
                             if _cd < 22:
+                                _jp_poison_notes.append("[FAIL] Malefic-free zone: Clone({}_H{}) is {:.1f}° from Jupiter (< 22°)".format(_cl['parent'], _cl['offset'], _cd))
                                 return False
+                    _jp_poison_notes.append("[PASS] Malefic-free zone: No malefic planet or clone within 22° of Jupiter")
                     return True
 
                 # --- Case A: Jupiter-Venus Poisoning ---
                 _case_a_multiplier = 0.0
                 _venus_sign = planet_sign_map.get('Venus', '')
                 _case_a_signs = {'Sagittarius', 'Pisces', 'Libra', 'Taurus', 'Cancer'}
+                _jp_poison_notes.append("--- Case A: Jupiter-Venus Poison ---")
+                _jp_poison_notes.append("[CHECK] Jupiter sign '{}' in {{Sagittarius,Pisces,Libra,Taurus,Cancer}}: {}".format(_jp_sign, _jp_sign in _case_a_signs))
+                _jp_poison_notes.append("[CHECK] Venus sign '{}' in {{Sagittarius,Pisces,Libra,Taurus,Cancer}}: {}".format(_venus_sign, _venus_sign in _case_a_signs))
                 if _jp_sign in _case_a_signs and _venus_sign in _case_a_signs:
                     _venus_L = phase5_data['Venus']['L']
                     _jv_diff = abs(_jp_L - _venus_L)
                     if _jv_diff > 180: _jv_diff = 360 - _jv_diff
                     _jv_gap = int(_jv_diff)
-                    if _jv_gap <= 22 and _jp_malefic_free_zone():
-                        _cap_pct_a = mix_dict.get(_jv_gap, 0)
-                        _case_a_multiplier = (_cap_pct_a / 100.0) * 0.5
+                    _jp_poison_notes.append("[CHECK] Jupiter-Venus distance: {:.1f}° (gap={}) <= 22°: {}".format(_jv_diff, _jv_gap, _jv_gap <= 22))
+                    if _jv_gap <= 22:
+                        _mfz_a = _jp_malefic_free_zone()
+                        if _mfz_a:
+                            _cap_pct_a = mix_dict.get(_jv_gap, 0)
+                            _case_a_multiplier = (_cap_pct_a / 100.0) * 0.5
+                            _jp_poison_notes.append("[PASS] Case A: mix_dict[{}]={}, multiplier={}*50%={:.2%}".format(_jv_gap, _cap_pct_a, _cap_pct_a, _case_a_multiplier))
+                        else:
+                            _jp_poison_notes.append("[FAIL] Case A: Malefic-free zone check failed")
+                    else:
+                        _jp_poison_notes.append("[FAIL] Case A: Jupiter-Venus too far apart ({}° > 22°)".format(_jv_gap))
+                else:
+                    _jp_poison_notes.append("[FAIL] Case A: Sign condition not met")
 
                 # --- Case B: Jupiter-Moon Poisoning ---
                 _case_b_multiplier = 0.0
@@ -2146,29 +2171,58 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 _jp_case_b_sign_ok = (_jp_sign in _case_b_signs) or _jp_in_parivarthana
                 _moon_case_b_sign_ok = _moon_sign in _case_b_signs
 
+                _jp_poison_notes.append("--- Case B: Jupiter-Moon Poison ---")
+                _jp_poison_notes.append("[CHECK] Jupiter sign '{}' in {{Sagittarius,Pisces,Cancer}}: {} | Parivarthana: {}".format(_jp_sign, _jp_sign in _case_b_signs, _jp_in_parivarthana))
+                _jp_poison_notes.append("[CHECK] Jupiter Case B sign OK (sign or parivarthana): {}".format(_jp_case_b_sign_ok))
+                _jp_poison_notes.append("[CHECK] Moon sign '{}' in {{Sagittarius,Pisces,Cancer}}: {}".format(_moon_sign, _moon_case_b_sign_ok))
+
                 if _jp_case_b_sign_ok and _moon_case_b_sign_ok:
                     # Moon phase check: waxing with >50% good OR waning with <2% bad
                     _moon_good_pct = planet_data['Moon'].get('moon_good_pct', 0)
                     _moon_bad_pct = planet_data['Moon'].get('moon_bad_pct', 0)
                     _moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
                     _moon_phase_ok = (_moon_is_waxing and _moon_good_pct > 50) or (not _moon_is_waxing and _moon_bad_pct < 2)
+                    _jp_poison_notes.append("[CHECK] Moon phase: paksha={}, waxing={}, good_pct={}, bad_pct={}".format(paksha, _moon_is_waxing, _moon_good_pct, _moon_bad_pct))
+                    _jp_poison_notes.append("[CHECK] Moon phase OK (waxing>50% or waning<2% bad): {}".format(_moon_phase_ok))
 
                     # Moon purity check: Bad Moon < 2% of Moon's total inventory
                     _moon_inv = phase5_data['Moon']['p5_inventory']
                     _moon_bad_currency = _moon_inv.get('Bad Moon', 0.0)
                     _moon_total_inv = sum(abs(v) for v in _moon_inv.values())
                     _moon_pure = _moon_total_inv < 0.001 or (_moon_bad_currency / _moon_total_inv) < 0.02
+                    _moon_bad_ratio = (_moon_bad_currency / _moon_total_inv * 100) if _moon_total_inv > 0.001 else 0.0
+                    _jp_poison_notes.append("[CHECK] Moon purity: Bad Moon={:.2f}, Total={:.2f}, Bad ratio={:.1f}% < 2%: {}".format(_moon_bad_currency, _moon_total_inv, _moon_bad_ratio, _moon_pure))
 
                     if _moon_phase_ok and _moon_pure:
                         _moon_L = phase5_data['Moon']['L']
                         _jm_diff = abs(_jp_L - _moon_L)
                         if _jm_diff > 180: _jm_diff = 360 - _jm_diff
                         _jm_gap = int(_jm_diff)
-                        if _jm_gap <= 22 and _jp_malefic_free_zone():
-                            _cap_pct_b = mix_dict.get(_jm_gap, 0)
-                            _case_b_multiplier = _cap_pct_b / 100.0
+                        _jp_poison_notes.append("[CHECK] Jupiter-Moon distance: {:.1f}° (gap={}) <= 22°: {}".format(_jm_diff, _jm_gap, _jm_gap <= 22))
+                        if _jm_gap <= 22:
+                            _mfz_b = _jp_malefic_free_zone()
+                            if _mfz_b:
+                                _cap_pct_b = mix_dict.get(_jm_gap, 0)
+                                _case_b_multiplier = _cap_pct_b / 100.0
+                                _jp_poison_notes.append("[PASS] Case B: mix_dict[{}]={}, multiplier={:.2%}".format(_jm_gap, _cap_pct_b, _case_b_multiplier))
+                            else:
+                                _jp_poison_notes.append("[FAIL] Case B: Malefic-free zone check failed")
+                        else:
+                            _jp_poison_notes.append("[FAIL] Case B: Jupiter-Moon too far apart ({}° > 22°)".format(_jm_gap))
+                    else:
+                        if not _moon_phase_ok:
+                            _jp_poison_notes.append("[FAIL] Case B: Moon phase condition not met")
+                        if not _moon_pure:
+                            _jp_poison_notes.append("[FAIL] Case B: Moon purity condition not met (Bad Moon ratio {:.1f}% >= 2%)".format(_moon_bad_ratio))
+                else:
+                    if not _jp_case_b_sign_ok:
+                        _jp_poison_notes.append("[FAIL] Case B: Jupiter sign condition not met")
+                    if not _moon_case_b_sign_ok:
+                        _jp_poison_notes.append("[FAIL] Case B: Moon sign condition not met")
 
                 # --- Pick the highest multiplier if both qualify ---
+                _jp_poison_notes.append("--- Result ---")
+                _jp_poison_notes.append("[INFO] Case A multiplier: {:.2%}, Case B multiplier: {:.2%}".format(_case_a_multiplier, _case_b_multiplier))
                 if _case_a_multiplier > 0.001 or _case_b_multiplier > 0.001:
                     if _case_a_multiplier >= _case_b_multiplier:
                         jupiter_poison_multiplier = _case_a_multiplier
@@ -2176,12 +2230,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     else:
                         jupiter_poison_multiplier = _case_b_multiplier
                         jupiter_poison_case = 'CaseB_Moon'
+                    _jp_poison_notes.append("[APPLIED] Winner: {} with multiplier {:.2%}".format(jupiter_poison_case, jupiter_poison_multiplier))
+                else:
+                    _jp_poison_notes.append("[NOT APPLIED] Neither case qualified — no poison applied")
 
                 # --- Apply poison to Jupiter's own inventory ---
                 if jupiter_poison_multiplier > 0.001:
                     _poison_amount = jupiter_poison_multiplier * _jp_current_val
                     _jp_inv['Jupiter'] = _jp_current_val - _poison_amount
                     _jp_inv['Jupiter Poison'] = _jp_inv.get('Jupiter Poison', 0.0) + _poison_amount
+                    _jp_poison_notes.append("[ACTION] Jupiter own: {:.2f} -> Jupiter[{:.2f}] + Poison[{:.2f}]".format(_jp_current_val, _jp_current_val - _poison_amount, _poison_amount))
 
                     # --- Apply poison to all Jupiter clones ---
                     for _jcl in clones:
@@ -2196,6 +2254,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 _cl_orig_poison = jupiter_poison_multiplier * _jcl_orig_val
                                 _jcl['original_inventory']['Jupiter'] = _jcl_orig_val - _cl_orig_poison
                                 _jcl['original_inventory']['Jupiter Poison'] = _jcl['original_inventory'].get('Jupiter Poison', 0.0) + _cl_orig_poison
+                            _jp_poison_notes.append("[ACTION] Clone(H{}): {:.2f} -> Jupiter[{:.2f}] + Poison[{:.2f}]".format(_jcl['offset'], _jcl_jup_val, _jcl_jup_val - _cl_poison, _cl_poison))
 
         # Part B: The Interaction Cycle
         # MODIFICATION 2: Reordered - Step 1 is Active Pulling, Step 2 is Real Malefics Pull
@@ -2593,6 +2652,30 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
     
+    # JUPITER POISON DIAGNOSTIC NOTES
+    _jp_diag_rows = []
+    if not _jp_poison_notes:
+        _jp_poison_notes = ["[INFO] No Jupiter Poison conditions were evaluated"]
+    for _note_idx, _note_line in enumerate(_jp_poison_notes, 1):
+        _jp_diag_rows.append([_note_idx, _note_line])
+    # Post-sharing poison debt summary
+    _jp_debt_notes = []
+    for _jdp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        _jdp_poison = phase5_data[_jdp]['p5_inventory'].get('Jupiter Poison', 0.0)
+        if _jdp_poison > 0.001:
+            _jp_debt_notes.append("{}: holds {:.2f} Jupiter Poison -> debt penalty: {:.2f}".format(_jdp, _jdp_poison, -2.0 * _jdp_poison))
+    for _jcl_d in all_leftover_clones:
+        _jcl_d_poison = _jcl_d['inventory'].get('Jupiter Poison', 0.0)
+        if _jcl_d_poison > 0.001:
+            _jp_debt_notes.append("Clone({}_H{}): holds {:.2f} Jupiter Poison -> debt penalty: {:.2f}".format(_jcl_d['parent'], _jcl_d['offset'], _jcl_d_poison, -2.0 * _jcl_d_poison))
+    if _jp_debt_notes:
+        _jp_diag_rows.append([len(_jp_diag_rows) + 1, "--- Post-Sharing Debt Application ---"])
+        for _dbn in _jp_debt_notes:
+            _jp_diag_rows.append([len(_jp_diag_rows) + 1, _dbn])
+    else:
+        _jp_diag_rows.append([len(_jp_diag_rows) + 1, "[INFO] No planet or clone holds Jupiter Poison after sharing"])
+    df_jupiter_poison_notes = pd.DataFrame(_jp_diag_rows, columns=['#', 'Jupiter Poison Diagnostic'])
+
     # CREATE HOUSE RESERVES DATAFRAME
     reserve_rows = []
     for sign_name in sign_names:
@@ -3783,6 +3866,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_navamsa_phase3': df_navamsa_phase3,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
+        'df_jupiter_poison_notes': df_jupiter_poison_notes,
         'df_house_reserves': df_house_reserves,
         'df_bonus': df_bonus,
         'df_lagna_analysis': df_lagna_analysis,
@@ -4006,6 +4090,9 @@ if st.session_state.chart_data:
 
     st.subheader("Leftover Aspect Clones (Phase 5)")
     st.dataframe(cd['df_leftover_aspects'], hide_index=True, use_container_width=True)
+
+    st.subheader("Jupiter Poison Diagnostic")
+    st.dataframe(cd['df_jupiter_poison_notes'], hide_index=True, use_container_width=True)
 
     st.subheader("Normalized Planet Scores")
     st.dataframe(cd['df_normalized_planet_scores'], hide_index=True, use_container_width=True)
