@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
 from collections import defaultdict
 import pandas as pd
+import json
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import matplotlib.pyplot as plt
@@ -4170,6 +4171,88 @@ if st.button("Generate Chart", use_container_width=True):
             st.rerun()
         except Exception as e: st.error(f"Error: {e}")
 
+def _serialize_dasa_periods(periods, level_names=None, depth=0):
+    """Recursively serialize Dasa/Bhukti/Antara periods to JSON-friendly dicts."""
+    if level_names is None:
+        level_names = ['Dasa', 'Bhukti', 'Anthara', 'Sukshma', 'Prana', 'Sub-Prana']
+    result = []
+    current_level = level_names[depth] if depth < len(level_names) else f"Level-{depth+1}"
+    for lord, start, end, subs in periods:
+        entry = {
+            'level': current_level,
+            'planet': lord,
+            'start': start.strftime('%Y-%m-%d %H:%M'),
+            'end': end.strftime('%Y-%m-%d %H:%M'),
+            'duration': duration_str(end - start, current_level.lower())
+        }
+        if subs:
+            entry['sub_periods'] = _serialize_dasa_periods(subs, level_names, depth + 1)
+        result.append(entry)
+    return result
+
+def build_export_json(cd):
+    """Build a comprehensive JSON dict from chart data, excluding Phase 1-4
+    currency exchange and Navamsa Phase 1-3."""
+    data = {}
+
+    # ── 1. Chart Summary ──
+    data['chart_summary'] = {
+        'name': cd['name'],
+        'lagna_sign': cd['lagna_sign'],
+        'lagna_degrees': round(cd['lagna_sid'], 2),
+        'navamsa_lagna_sign': cd['nav_lagna_sign'],
+        'navamsa_lagna_degrees': round(cd['nav_lagna'], 2),
+        'moon_rasi': cd['moon_rasi'],
+        'moon_nakshatra': cd['moon_nakshatra'],
+        'moon_pada': cd['moon_pada'],
+        'dasa_depth': cd['selected_depth'],
+        'utc_datetime': cd['utc_dt'].strftime('%Y-%m-%d %H:%M:%S')
+    }
+
+    # ── 2. Planetary Positions ──
+    data['planetary_positions'] = cd['df_planets'].to_dict(orient='records')
+
+    # ── 3. Rasi Chart (D1) ──
+    data['rasi_chart'] = cd['df_rasi'].to_dict(orient='records')
+
+    # ── 4. Navamsa Chart (D9) ──
+    data['navamsa_chart'] = cd['df_nav'].to_dict(orient='records')
+
+    # ── 5. House Analysis ──
+    data['house_analysis'] = cd['df_house_status'].to_dict(orient='records')
+
+    # ── 6. House Bonus Points (Reserve) ──
+    data['house_bonus_reserves'] = cd['df_house_reserves'].to_dict(orient='records')
+
+    # ── 7. Currency Exchange Phase 5 (Final) ──
+    data['currency_exchange_phase5'] = cd['df_phase5'].to_dict(orient='records')
+
+    # ── 8. Leftover Aspect Clones (Phase 5) ──
+    data['leftover_aspect_clones'] = cd['df_leftover_aspects'].to_dict(orient='records')
+
+    # ── 9. Jupiter Poison Diagnostic ──
+    data['jupiter_poison_diagnostic'] = cd['df_jupiter_poison_notes'].to_dict(orient='records')
+
+    # ── 10. Normalized Planet Scores ──
+    data['normalized_planet_scores'] = cd['df_normalized_planet_scores'].to_dict(orient='records')
+
+    # ── 11. House Points Analysis ──
+    data['house_points_analysis'] = cd['df_house_points'].to_dict(orient='records')
+
+    # ── 12. Planet Strengths ──
+    data['planet_strengths'] = cd['df_planet_strengths'].to_dict(orient='records')
+
+    # ── 13. Lagna Point Score Simulation ──
+    data['lagna_simulation'] = cd['df_bonus'].to_dict(orient='records')
+
+    # ── 14. Lagna Analysis ──
+    data['lagna_analysis'] = cd['df_lagna_analysis'].to_dict(orient='records')
+
+    # ── 15. Vimshottari Dasa (Full Hierarchy: Dasa → Bhukti → Anthara ...) ──
+    data['vimshottari_dasa'] = _serialize_dasa_periods(cd['dasa_periods_filtered'])
+
+    return data
+
 def show_png(fig):
     fig.tight_layout(pad=0.10)
     st.pyplot(fig, use_container_width=False, dpi=300)
@@ -4314,6 +4397,29 @@ if st.session_state.chart_data:
                                 tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
                         st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
             except Exception as e: st.error(f"Error: {e}")
+
+    # ====== EXPORT ALL DATA AS JSON ======
+    st.markdown("---")
+    st.subheader("Export All Data as JSON")
+    st.caption("Excludes: Phase 1-4 Currency Exchange & Navamsa Phase 1-3. Includes everything else + full Dasa/Bhukti/Antara hierarchy.")
+    if st.button("Generate JSON", use_container_width=True, key="gen_json_btn"):
+        export_data = build_export_json(cd)
+        json_str = json.dumps(export_data, indent=2, ensure_ascii=False)
+        st.session_state['export_json'] = json_str
+
+    if 'export_json' in st.session_state and st.session_state['export_json']:
+        json_str = st.session_state['export_json']
+
+        st.download_button(
+            label="Download JSON File",
+            data=json_str,
+            file_name=f"{cd['name'].replace(' ', '_')}_chart_data.json",
+            mime="application/json",
+            use_container_width=True
+        )
+
+        with st.expander("View / Copy JSON", expanded=False):
+            st.code(json_str, language="json")
 
 else: st.info("Enter birth details above and click 'Generate Chart' to begin")
 
