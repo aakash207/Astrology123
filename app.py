@@ -2640,12 +2640,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if abs(d_val) < 0.01: phase5_data[p]['debt_p5'] = "0.00"
         else: phase5_data[p]['debt_p5'] = f"{d_val:.2f}"
     
+    # Jupiter Poison penalty multipliers
+    poisonpenality = 3    # used in HPS (aspect + occupant) and NPS
+    poisonpenality_1 = 2  # used in Phase 5 Net Currency Score
+
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         d_p5 = phase5_data[p]
         inv = phase5_data[p]['p5_inventory']
-        # Jupiter Poison treated as bad for net score after sharing
+        # Jupiter Poison treated as bad for net score after sharing (poisonpenality_1 = 2x)
         net_score = sum(
-            (-v if k == 'Jupiter Poison' else (v if is_good_currency(k) else -v))
+            (-poisonpenality_1*v if k == 'Jupiter Poison' else (v if is_good_currency(k) else -v))
             for k, v in inv.items()
         )
         phase5_rows.append([p, d_p5['currency_p5'], d_p5['debt_p5'], f"{net_score:.2f}"])
@@ -2801,10 +2805,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if good_total > 0.001:
                 aspect_score[target_sign] += good_total
                 aspect_sources[target_sign].append(f"{parent}(Benefic Bonus)")
-            # Subtract Jupiter Poison as a penalty
+            # Subtract Jupiter Poison as a penalty (poisonpenality - 1 extra beyond removal)
             if _hp_cl_poison > 0.001:
-                aspect_score[target_sign] -= _hp_cl_poison
-                aspect_sources[target_sign].append(f"{parent}(Jupiter Poison Penalty)")
+                aspect_score[target_sign] -= (poisonpenality - 1) * _hp_cl_poison
+                aspect_sources[target_sign].append(f"{parent}(Jupiter Poison Penalty x{poisonpenality})")
 
     sign_occupants = defaultdict(list)
     for p_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
@@ -2819,11 +2823,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if _hp_is_malefic(occ):
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
                 total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-                # Jupiter Poison: treat as bad for HPS occupant scoring
+                # Jupiter Poison: treat as bad for HPS occupant scoring (poisonpenality = 3x)
                 _hp_occ_poison = inv.get('Jupiter Poison', 0.0)
                 if _hp_occ_poison > 0.001:
                     total_good -= _hp_occ_poison
-                    total_bad += _hp_occ_poison
+                    total_bad += (poisonpenality - 1) * _hp_occ_poison
                 if occ == lagna_lord and is_malefic_lagna_lord and s == lagna_sign_hp:
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
@@ -2835,7 +2839,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
-                # Jupiter Poison: treat as bad for HPS benefic occupant scoring
+                # Jupiter Poison: treat as bad for HPS benefic occupant scoring (poisonpenality = 3x)
                 _hp_occ_poison_b = inv.get('Jupiter Poison', 0.0)
                 if _hp_occ_poison_b > 0.001:
                     total_good -= _hp_occ_poison_b
@@ -2843,8 +2847,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     occupant_score[s] += total_good
                     occupant_notes[s].append(f"{occ}(Benefic Sum)")
                 if _hp_occ_poison_b > 0.001:
-                    occupant_score[s] -= _hp_occ_poison_b
-                    occupant_notes[s].append(f"{occ}(Jupiter Poison Penalty)")
+                    occupant_score[s] -= (poisonpenality - 1) * _hp_occ_poison_b
+                    occupant_notes[s].append(f"{occ}(Jupiter Poison Penalty x{poisonpenality})")
 
     hp_gift_pot_config = {
         'Sagittarius': ('Jupiter', 100),
@@ -2880,11 +2884,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
         total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
-        # Jupiter Poison: treated as bad for NPS (remove from good, add to bad)
+        # Jupiter Poison: treated as bad for NPS (poisonpenality = 3x)
         _nps_jp_poison = inv.get('Jupiter Poison', 0.0)
         if _nps_jp_poison > 0.001:
             total_good -= _nps_jp_poison
-            total_bad += _nps_jp_poison
+            total_bad += (poisonpenality - 1) * _nps_jp_poison
         self_bad   = inv.get(f'Bad {p}', 0.0)
         net_score  = total_good - total_bad
 
