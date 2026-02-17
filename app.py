@@ -3025,13 +3025,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # --- Determine case and calculate ---
         if p == 'Moon' and _nps_moon_is_waxing and not is_neecha:
             # Case A: Waxing Moon, NOT Negative Status
-            swapped_debt = -1 * p5_debt
-            denom_val = total_good + swapped_debt
+            abs_debt = abs(p5_debt)
+            denom_val = total_good + abs_debt + total_bad
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((total_good - swapped_debt) / denom_val) * 100
-            formula_type = f"CaseA: [(TG{total_good:.2f}-SD{swapped_debt:.2f})/(TG{total_good:.2f}+SD{swapped_debt:.2f})]*100"
+                final_ns = ((total_good - total_bad) / denom_val) * 100
+            formula_type = f"CaseA: Waxing Moon [(Good {total_good:.2f} - Bad {total_bad:.2f}) / (Good {total_good:.2f} + |Debt| {abs_debt:.2f} + Bad {total_bad:.2f})] x100 = {final_ns:.2f}"
 
         elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
             # Case B: Waxing Moon, IS Negative Status
