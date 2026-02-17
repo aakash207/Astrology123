@@ -2123,18 +2123,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         _mp_L = phase5_data[_mp]['L']
                         _md = abs(_jp_L - _mp_L)
                         if _md > 180: _md = 360 - _md
-                        if _md < 22:
-                            _jp_poison_notes.append("[FAIL] Malefic-free zone: {} is {:.1f}° from Jupiter (< 22°)".format(_mp, _md))
+                        if _md < 28:
+                            _jp_poison_notes.append("[FAIL] Malefic-free zone: {} is {:.1f}° from Jupiter (< 28°)".format(_mp, _md))
                             return False
                     # Check malefic virtual clones (from Saturn/Mars already created)
                     for _cl in all_leftover_clones:
                         if _cl['parent'] in ['Saturn', 'Mars']:
                             _cd = abs(_jp_L - _cl['L'])
                             if _cd > 180: _cd = 360 - _cd
-                            if _cd < 22:
-                                _jp_poison_notes.append("[FAIL] Malefic-free zone: Clone({}_H{}) is {:.1f}° from Jupiter (< 22°)".format(_cl['parent'], _cl['offset'], _cd))
+                            if _cd < 28:
+                                _jp_poison_notes.append("[FAIL] Malefic-free zone: Clone({}_H{}) is {:.1f}° from Jupiter (< 28°)".format(_cl['parent'], _cl['offset'], _cd))
                                 return False
-                    _jp_poison_notes.append("[PASS] Malefic-free zone: No malefic planet or clone within 22° of Jupiter")
+                    _jp_poison_notes.append("[PASS] Malefic-free zone: No malefic planet or clone within 28° of Jupiter")
                     return True
 
                 # --- Case A: Jupiter-Venus Poisoning ---
@@ -2149,17 +2149,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     _jv_diff = abs(_jp_L - _venus_L)
                     if _jv_diff > 180: _jv_diff = 360 - _jv_diff
                     _jv_gap = int(_jv_diff)
-                    _jp_poison_notes.append("[CHECK] Jupiter-Venus distance: {:.1f}° (gap={}) <= 22°: {}".format(_jv_diff, _jv_gap, _jv_gap <= 22))
-                    if _jv_gap <= 22:
+                    _jp_poison_notes.append("[CHECK] Jupiter-Venus distance: {:.1f}° (gap={}) <= 28°: {}".format(_jv_diff, _jv_gap, _jv_gap <= 28))
+                    if _jv_gap <= 28:
                         _mfz_a = _jp_malefic_free_zone()
                         if _mfz_a:
-                            _cap_pct_a = mix_dict.get(_jv_gap, 0)
+                            _cap_pct_a = mix_dict.get(_jv_gap, 0) if _jv_gap <= 22 else 5
                             _case_a_multiplier = (_cap_pct_a / 100.0) * 0.5
                             _jp_poison_notes.append("[PASS] Case A: mix_dict[{}]={}, multiplier={}*50%={:.2%}".format(_jv_gap, _cap_pct_a, _cap_pct_a, _case_a_multiplier))
                         else:
                             _jp_poison_notes.append("[FAIL] Case A: Malefic-free zone check failed")
                     else:
-                        _jp_poison_notes.append("[FAIL] Case A: Jupiter-Venus too far apart ({}° > 22°)".format(_jv_gap))
+                        _jp_poison_notes.append("[FAIL] Case A: Jupiter-Venus too far apart ({}° > 28°)".format(_jv_gap))
                 else:
                     _jp_poison_notes.append("[FAIL] Case A: Sign condition not met")
 
@@ -2181,9 +2181,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     _moon_good_pct = planet_data['Moon'].get('moon_good_pct', 0)
                     _moon_bad_pct = planet_data['Moon'].get('moon_bad_pct', 0)
                     _moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
-                    _moon_phase_ok = (_moon_is_waxing and _moon_good_pct > 50) or (not _moon_is_waxing and _moon_bad_pct < 2)
+                    _moon_phase_ok = (_moon_is_waxing and _moon_good_pct > 50) or (not _moon_is_waxing and _moon_bad_pct < 10)
                     _jp_poison_notes.append("[CHECK] Moon phase: paksha={}, waxing={}, good_pct={}, bad_pct={}".format(paksha, _moon_is_waxing, _moon_good_pct, _moon_bad_pct))
-                    _jp_poison_notes.append("[CHECK] Moon phase OK (waxing>50% or waning<2% bad): {}".format(_moon_phase_ok))
+                    _jp_poison_notes.append("[CHECK] Moon phase OK (waxing>50% or waning<10% bad): {}".format(_moon_phase_ok))
 
                     # Moon purity check: Bad Moon < 2% of Moon's total inventory
                     _moon_inv = phase5_data['Moon']['p5_inventory']
@@ -2198,17 +2198,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         _jm_diff = abs(_jp_L - _moon_L)
                         if _jm_diff > 180: _jm_diff = 360 - _jm_diff
                         _jm_gap = int(_jm_diff)
-                        _jp_poison_notes.append("[CHECK] Jupiter-Moon distance: {:.1f}° (gap={}) <= 22°: {}".format(_jm_diff, _jm_gap, _jm_gap <= 22))
-                        if _jm_gap <= 22:
+                        _jp_poison_notes.append("[CHECK] Jupiter-Moon distance: {:.1f}° (gap={}) <= 28°: {}".format(_jm_diff, _jm_gap, _jm_gap <= 28))
+                        if _jm_gap <= 28:
                             _mfz_b = _jp_malefic_free_zone()
                             if _mfz_b:
-                                _cap_pct_b = mix_dict.get(_jm_gap, 0)
+                                _cap_pct_b = mix_dict.get(_jm_gap, 0) if _jm_gap <= 22 else 5
                                 _case_b_multiplier = _cap_pct_b / 100.0
                                 _jp_poison_notes.append("[PASS] Case B: mix_dict[{}]={}, multiplier={:.2%}".format(_jm_gap, _cap_pct_b, _case_b_multiplier))
                             else:
                                 _jp_poison_notes.append("[FAIL] Case B: Malefic-free zone check failed")
                         else:
-                            _jp_poison_notes.append("[FAIL] Case B: Jupiter-Moon too far apart ({}° > 22°)".format(_jm_gap))
+                            _jp_poison_notes.append("[FAIL] Case B: Jupiter-Moon too far apart ({}° > 28°)".format(_jm_gap))
                     else:
                         if not _moon_phase_ok:
                             _jp_poison_notes.append("[FAIL] Case B: Moon phase condition not met")
