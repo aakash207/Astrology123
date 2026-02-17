@@ -2816,48 +2816,119 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         sign_occupants[occ_sign].append(p_name)
 
     # ---- KENDRAADHIBATHYA DOSHA CHECK ----
-    # If Sagittarius lagna and Jupiter sits in Pisces, with no malefic within 22°,
-    # Jupiter gives -50 occupant penalty to Pisces and no good currency; unused bonus skipped.
-    _kad_active = False
-    _kad_sign = 'Pisces'  # the house Jupiter sits in for this dosha
-    if lagna_sign_hp == 'Sagittarius' and planet_sign_map.get('Jupiter') == 'Pisces':
-        _jp_L_kad = phase5_data['Jupiter']['L']
-        _kad_malefic_free = True
-        _kad_check_planets = ['Saturn', 'Mars', 'Rahu', 'Ketu']
-        # Include Moon if malefic
+    # Config: (lagna_sign, planet, planet_sign, penalty)
+    _kad_configs = [
+        ('Sagittarius', 'Jupiter', 'Pisces', -150.0),
+        ('Gemini', 'Mercury', 'Virgo', -70.0),
+    ]
+    _kad_results = {}  # planet -> target_sign (for skipping in occupant loop & gift pot)
+
+    for _kad_lagna, _kad_planet, _kad_target, _kad_penalty in _kad_configs:
+        if lagna_sign_hp == _kad_lagna and planet_sign_map.get(_kad_planet) == _kad_target:
+            _kad_pL = phase5_data[_kad_planet]['L']
+            _kad_mf = True
+            _kad_chk = ['Saturn', 'Mars', 'Rahu']
+            # Include Ketu only if it holds Bad Ketu currency
+            if phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001:
+                _kad_chk.append('Ketu')
+            # Include Moon if malefic
+            if is_moon_malefic_p5():
+                _kad_chk.append('Moon')
+            for _km in _kad_chk:
+                if _km == _kad_planet:
+                    continue  # don't check planet against itself
+                _km_L = phase5_data[_km]['L']
+                _km_d = abs(_kad_pL - _km_L)
+                if _km_d > 180: _km_d = 360 - _km_d
+                if _km_d < 22:
+                    _kad_mf = False
+                    break
+            # Also check malefic virtual clones within 22°
+            if _kad_mf:
+                for _kcl in all_leftover_clones:
+                    if _kcl['parent'] in ['Saturn', 'Mars', 'Rahu', 'Ketu']:
+                        _kcl_d = abs(_kad_pL - _kcl['L'])
+                        if _kcl_d > 180: _kcl_d = 360 - _kcl_d
+                        if _kcl_d < 22:
+                            _kcl_inv = _kcl['inventory']
+                            _kcl_bad = sum(v for k, v in _kcl_inv.items() if v > 0.001 and 'Bad' in k)
+                            if _kcl_bad > 0.001:
+                                _kad_mf = False
+                                break
+            if _kad_mf:
+                _kad_results[_kad_planet] = _kad_target
+                occupant_score[_kad_target] += _kad_penalty
+                occupant_notes[_kad_target].append(f"{_kad_planet}({_kad_penalty:.0f} Kendraadhibathya Dosha)")
+
+    # ---- KONA DOSHA CHECK ----
+    # Pisces lagna + Jupiter in Cancer: if Jupiter is malefic-free AND Pisces (1st house) is
+    # malefic-free (no malefic planet sitting in Pisces, no malefic clone aspecting Pisces),
+    # penalize 1st house occupant score by -100. Benefics in Pisces still contribute normally.
+    _kona_dosha_active = False
+    if lagna_sign_hp == 'Pisces' and planet_sign_map.get('Jupiter') == 'Cancer':
+        _kona_jp_L = phase5_data['Jupiter']['L']
+        _kona_pass = True
+
+        # Step 1: Check Jupiter is malefic-free (no malefic planet within 22° of Jupiter)
+        _kona_mal_list = ['Saturn', 'Mars', 'Rahu']
+        if phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001:
+            _kona_mal_list.append('Ketu')
         if is_moon_malefic_p5():
-            _kad_check_planets.append('Moon')
-        for _km in _kad_check_planets:
+            _kona_mal_list.append('Moon')
+
+        for _km in _kona_mal_list:
             _km_L = phase5_data[_km]['L']
-            _km_d = abs(_jp_L_kad - _km_L)
+            _km_d = abs(_kona_jp_L - _km_L)
             if _km_d > 180: _km_d = 360 - _km_d
             if _km_d < 22:
-                _kad_malefic_free = False
+                _kona_pass = False
                 break
-        # Also check malefic virtual clones within 22°
-        if _kad_malefic_free:
+
+        # Check malefic virtual clones within 22° of Jupiter
+        if _kona_pass:
             for _kcl in all_leftover_clones:
                 if _kcl['parent'] in ['Saturn', 'Mars', 'Rahu', 'Ketu']:
-                    _kcl_d = abs(_jp_L_kad - _kcl['L'])
+                    _kcl_d = abs(_kona_jp_L - _kcl['L'])
                     if _kcl_d > 180: _kcl_d = 360 - _kcl_d
                     if _kcl_d < 22:
-                        _kcl_inv = _kcl['inventory']
-                        _kcl_bad = sum(v for k, v in _kcl_inv.items() if v > 0.001 and 'Bad' in k)
+                        _kcl_bad = sum(v for k, v in _kcl['inventory'].items() if v > 0.001 and 'Bad' in k)
                         if _kcl_bad > 0.001:
-                            _kad_malefic_free = False
+                            _kona_pass = False
                             break
-        if _kad_malefic_free:
-            _kad_active = True
-            occupant_score[_kad_sign] += -150.0
-            occupant_notes[_kad_sign].append("Jupiter(-150 Kendraadhibathya Dosha)")
+
+        # Step 2: Check Pisces (1st house) is malefic-free
+        # 2a: No malefic planet sitting in Pisces
+        if _kona_pass:
+            for _km in _kona_mal_list:
+                if planet_sign_map.get(_km) == 'Pisces':
+                    _kona_pass = False
+                    break
+
+        # 2b: No malefic clone aspecting (targeting) Pisces
+        if _kona_pass:
+            for _kcl in all_leftover_clones:
+                if _kcl['parent'] in ['Saturn', 'Mars', 'Rahu', 'Ketu']:
+                    _kcl_parent_L = phase5_data[_kcl['parent']]['L']
+                    _kcl_target_lon = (_kcl_parent_L + (_kcl['offset'] - 1) * 30) % 360
+                    _kcl_target_sign = get_sign(_kcl_target_lon)
+                    if _kcl_target_sign == 'Pisces':
+                        _kcl_bad = sum(v for k, v in _kcl['inventory'].items() if v > 0.001 and 'Bad' in k)
+                        if _kcl_bad > 0.001:
+                            _kona_pass = False
+                            break
+
+        if _kona_pass:
+            _kona_dosha_active = True
+            occupant_score['Pisces'] += -100.0
+            occupant_notes['Pisces'].append("Jupiter(-100 Kona Dosha)")
 
     for s in sign_names:
         for occ in sign_occupants.get(s, []):
             if occ == 'Rahu':
                 continue  # Rahu uses Rahu Score directly, applied after NPS calculation
-            # Skip Jupiter's occupant contribution to Pisces if Kendraadhibathya Dosha is active
-            if _kad_active and occ == 'Jupiter' and s == _kad_sign:
-                occupant_notes[s].append("Jupiter(Good skipped - Kendraadhibathya Dosha)")
+            # Skip planet's occupant contribution if Kendraadhibathya Dosha is active for it
+            if occ in _kad_results and s == _kad_results[occ]:
+                occupant_notes[s].append(f"{occ}(Good skipped - Kendraadhibathya Dosha)")
                 continue
             inv = phase5_data[occ]['p5_inventory']
             if _hp_is_malefic(occ):
@@ -2897,8 +2968,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'Taurus': ('Venus', 60)
     }
     for gift_sign, (gifter, multiplier) in hp_gift_pot_config.items():
-        # Skip unused bonus for Pisces if Kendraadhibathya Dosha is active
-        if _kad_active and gift_sign == _kad_sign:
+        # Skip unused bonus if Kendraadhibathya Dosha is active for this sign
+        if gifter in _kad_results and gift_sign == _kad_results[gifter]:
             occupant_notes[gift_sign].append("Unused Bonus skipped (Kendraadhibathya Dosha)")
             continue
         gifter_sthana = planet_data[gifter]['sthana']
