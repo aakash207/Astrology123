@@ -2848,8 +2848,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             break
         if _kad_malefic_free:
             _kad_active = True
-            occupant_score[_kad_sign] += -50.0
-            occupant_notes[_kad_sign].append("Jupiter(-50 Kendraadhibathya Dosha)")
+            occupant_score[_kad_sign] += -150.0
+            occupant_notes[_kad_sign].append("Jupiter(-150 Kendraadhibathya Dosha)")
 
     for s in sign_names:
         for occ in sign_occupants.get(s, []):
