@@ -2123,18 +2123,28 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         _mp_L = phase5_data[_mp]['L']
                         _md = abs(_jp_L - _mp_L)
                         if _md > 180: _md = 360 - _md
-                        if _md < 28:
-                            _jp_poison_notes.append("[FAIL] Malefic-free zone: {} is {:.1f}° from Jupiter (< 28°)".format(_mp, _md))
+                        if _md < 22:
+                            _jp_poison_notes.append("[FAIL] Malefic-free zone: {} is {:.1f}° from Jupiter (< 22°)".format(_mp, _md))
                             return False
                     # Check malefic virtual clones (from Saturn/Mars already created)
                     for _cl in all_leftover_clones:
                         if _cl['parent'] in ['Saturn', 'Mars']:
                             _cd = abs(_jp_L - _cl['L'])
                             if _cd > 180: _cd = 360 - _cd
-                            if _cd < 28:
-                                _jp_poison_notes.append("[FAIL] Malefic-free zone: Clone({}_H{}) is {:.1f}° from Jupiter (< 28°)".format(_cl['parent'], _cl['offset'], _cd))
-                                return False
-                    _jp_poison_notes.append("[PASS] Malefic-free zone: No malefic planet or clone within 28° of Jupiter")
+                            if _cd < 22:
+                                # Check logic: stop only if > 5% bad currency
+                                _cl_inv = _cl['inventory']
+                                _cl_total_val = sum(v for v in _cl_inv.values() if v > 0.001)
+                                _cl_bad_val = sum(v for k, v in _cl_inv.items() if v > 0.001 and 'Bad' in k)
+                                _cl_bad_pct = (_cl_bad_val / _cl_total_val * 100.0) if _cl_total_val > 0.001 else 0.0
+                                
+                                if _cl_bad_pct > 5.0:
+                                    _jp_poison_notes.append("[FAIL] Malefic-free zone: Clone({}_H{}) is {:.1f}° from Jupiter (< 22°) with {:.1f}% Bad Currency (>5%)".format(_cl['parent'], _cl['offset'], _cd, _cl_bad_pct))
+                                    return False
+                                else:
+                                    _jp_poison_notes.append("[INFO] Malefic clone ({}_H{}) near ({:.1f}°) but Bad% {:.1f} <= 5% -> Ignored".format(_cl['parent'], _cl['offset'], _cd, _cl_bad_pct))
+
+                    _jp_poison_notes.append("[PASS] Malefic-free zone: No malefic planet or clone (with >5% bad) within 22° of Jupiter")
                     return True
 
                 # --- Case A: Jupiter-Venus Poisoning ---
@@ -2153,9 +2163,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     if _jv_gap <= 28:
                         _mfz_a = _jp_malefic_free_zone()
                         if _mfz_a:
-                            _cap_pct_a = mix_dict.get(_jv_gap, 0) if _jv_gap <= 22 else 5
+                            _cap_pct_a = max(50.0, 100.0 - (_jv_gap * (50.0 / 22.0))) if _jv_gap <= 22 else 50.0
                             _case_a_multiplier = (_cap_pct_a / 100.0) * 0.5
-                            _jp_poison_notes.append("[PASS] Case A: mix_dict[{}]={}, multiplier={}*50%={:.2%}".format(_jv_gap, _cap_pct_a, _cap_pct_a, _case_a_multiplier))
+                            _jp_poison_notes.append("[PASS] Case A: gap={}°, cap_pct={:.1f}%, multiplier(cap*50%)={:.2%}".format(_jv_gap, _cap_pct_a, _case_a_multiplier))
                         else:
                             _jp_poison_notes.append("[FAIL] Case A: Malefic-free zone check failed")
                     else:
@@ -2202,9 +2212,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         if _jm_gap <= 28:
                             _mfz_b = _jp_malefic_free_zone()
                             if _mfz_b:
-                                _cap_pct_b = mix_dict.get(_jm_gap, 0) if _jm_gap <= 22 else 5
+                                _cap_pct_b = max(50.0, 100.0 - (_jm_gap * (50.0 / 22.0))) if _jm_gap <= 22 else 50.0
                                 _case_b_multiplier = _cap_pct_b / 100.0
-                                _jp_poison_notes.append("[PASS] Case B: mix_dict[{}]={}, multiplier={:.2%}".format(_jm_gap, _cap_pct_b, _case_b_multiplier))
+                                _jp_poison_notes.append("[PASS] Case B: gap={}°, cap_pct={:.1f}%, multiplier={:.2%}".format(_jm_gap, _cap_pct_b, _case_b_multiplier))
                             else:
                                 _jp_poison_notes.append("[FAIL] Case B: Malefic-free zone check failed")
                         else:
