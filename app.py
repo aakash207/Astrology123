@@ -559,20 +559,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if planet_cap == 'Moon': key = "Bad Moon"
                 planet_data[planet_cap]['final_inventory'][key] = bad_val
 
-    # SWAP Good/Bad default currency for Mars if Mars is in Leo
+    # Mars in Leo: 100% Good Mars, no Bad Mars, no debt
     if planet_data['Mars']['sign'] == 'Leo':
         _mars_good = planet_data['Mars']['final_inventory'].get('Good Mars', 0.0)
         _mars_bad = planet_data['Mars']['final_inventory'].get('Bad Mars', 0.0)
-        planet_data['Mars']['final_inventory']['Good Mars'] = _mars_bad
-        planet_data['Mars']['final_inventory']['Bad Mars'] = _mars_good
-        # Update debt to equal the new bad currency (swapped value)
-        planet_data['Mars']['current_debt'] = -_mars_good if _mars_good > 0 else 0.0
-        # Update display strings
-        swapped_parts = []
-        if _mars_bad > 0: swapped_parts.append(f"Good Mars[{_mars_bad:.2f}]")
-        if _mars_good > 0: swapped_parts.append(f"Bad Mars[{_mars_good:.2f}]")
-        planet_data['Mars']['default_currency'] = ", ".join(swapped_parts)
-        planet_data['Mars']['debt'] = f"{planet_data['Mars']['current_debt']:.2f}"
+        _mars_total = _mars_good + _mars_bad
+        planet_data['Mars']['final_inventory']['Good Mars'] = _mars_total
+        planet_data['Mars']['final_inventory'].pop('Bad Mars', None)
+        planet_data['Mars']['current_debt'] = 0.0
+        planet_data['Mars']['default_currency'] = f"Good Mars[{_mars_total:.2f}]"
+        planet_data['Mars']['debt'] = "0.00"
 
     # Saturn in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Good Venus)
     if planet_data['Saturn']['sign'] == 'Taurus':
@@ -2149,12 +2145,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
                 # --- Case A: Jupiter-Venus Poisoning ---
                 _case_a_multiplier = 0.0
-                _venus_sign = planet_sign_map.get('Venus', '')
                 _case_a_signs = {'Sagittarius', 'Pisces', 'Libra', 'Taurus', 'Cancer'}
+                _jp_in_parivarthana = 'Jupiter' in parivardhana_map
+                _jp_case_a_sign_ok = (_jp_sign in _case_a_signs) or _jp_in_parivarthana
                 _jp_poison_notes.append("--- Case A: Jupiter-Venus Poison ---")
-                _jp_poison_notes.append("[CHECK] Jupiter sign '{}' in {{Sagittarius,Pisces,Libra,Taurus,Cancer}}: {}".format(_jp_sign, _jp_sign in _case_a_signs))
-                _jp_poison_notes.append("[CHECK] Venus sign '{}' in {{Sagittarius,Pisces,Libra,Taurus,Cancer}}: {}".format(_venus_sign, _venus_sign in _case_a_signs))
-                if _jp_sign in _case_a_signs and _venus_sign in _case_a_signs:
+                _jp_poison_notes.append("[CHECK] Jupiter sign '{}' in {{Sag,Pis,Lib,Tau,Can}}: {} | Parivarthana: {}".format(_jp_sign, _jp_sign in _case_a_signs, _jp_in_parivarthana))
+                _jp_poison_notes.append("[CHECK] Jupiter Case A sign OK (sign or parivarthana): {}".format(_jp_case_a_sign_ok))
+                _jp_poison_notes.append("[INFO] Venus sign check: SKIPPED (not required)")
+                if _jp_case_a_sign_ok:
                     _venus_L = phase5_data['Venus']['L']
                     _jv_diff = abs(_jp_L - _venus_L)
                     if _jv_diff > 180: _jv_diff = 360 - _jv_diff
@@ -2171,22 +2169,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     else:
                         _jp_poison_notes.append("[FAIL] Case A: Jupiter-Venus too far apart ({}° > 28°)".format(_jv_gap))
                 else:
-                    _jp_poison_notes.append("[FAIL] Case A: Sign condition not met")
+                    _jp_poison_notes.append("[FAIL] Case A: Jupiter sign condition not met")
 
                 # --- Case B: Jupiter-Moon Poisoning ---
                 _case_b_multiplier = 0.0
-                _moon_sign = planet_sign_map.get('Moon', '')
                 _case_b_signs = {'Sagittarius', 'Pisces', 'Cancer'}
-                _jp_in_parivarthana = 'Jupiter' in parivardhana_map
                 _jp_case_b_sign_ok = (_jp_sign in _case_b_signs) or _jp_in_parivarthana
-                _moon_case_b_sign_ok = _moon_sign in _case_b_signs
 
                 _jp_poison_notes.append("--- Case B: Jupiter-Moon Poison ---")
-                _jp_poison_notes.append("[CHECK] Jupiter sign '{}' in {{Sagittarius,Pisces,Cancer}}: {} | Parivarthana: {}".format(_jp_sign, _jp_sign in _case_b_signs, _jp_in_parivarthana))
+                _jp_poison_notes.append("[CHECK] Jupiter sign '{}' in {{Sag,Pis,Can}}: {} | Parivarthana: {}".format(_jp_sign, _jp_sign in _case_b_signs, _jp_in_parivarthana))
                 _jp_poison_notes.append("[CHECK] Jupiter Case B sign OK (sign or parivarthana): {}".format(_jp_case_b_sign_ok))
-                _jp_poison_notes.append("[CHECK] Moon sign '{}' in {{Sagittarius,Pisces,Cancer}}: {}".format(_moon_sign, _moon_case_b_sign_ok))
+                _jp_poison_notes.append("[INFO] Moon sign check: SKIPPED (not required)")
 
-                if _jp_case_b_sign_ok and _moon_case_b_sign_ok:
+                if _jp_case_b_sign_ok:
                     # Moon phase check: waxing with >50% good OR waning with <2% bad
                     _moon_good_pct = planet_data['Moon'].get('moon_good_pct', 0)
                     _moon_bad_pct = planet_data['Moon'].get('moon_bad_pct', 0)
@@ -2225,10 +2220,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         if not _moon_pure:
                             _jp_poison_notes.append("[FAIL] Case B: Moon purity condition not met (Bad Moon ratio {:.1f}% >= 2%)".format(_moon_bad_ratio))
                 else:
-                    if not _jp_case_b_sign_ok:
-                        _jp_poison_notes.append("[FAIL] Case B: Jupiter sign condition not met")
-                    if not _moon_case_b_sign_ok:
-                        _jp_poison_notes.append("[FAIL] Case B: Moon sign condition not met")
+                    _jp_poison_notes.append("[FAIL] Case B: Jupiter sign condition not met")
 
                 # --- Pick the highest multiplier if both qualify ---
                 _jp_poison_notes.append("--- Result ---")
