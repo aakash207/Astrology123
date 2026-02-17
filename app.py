@@ -3327,13 +3327,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _hap_score_str = str(_hap_score)
         _hap_notes_str = " | ".join(_hap_notes) if _hap_notes else "-"
 
-        # Currency % breakdown from Phase 5 inventory (currency / volume * 100)
+        # Currency % breakdown from Phase 5 inventory
+        # Waxing Moon: Currency / (Good + Bad + |Debt|) * 100
+        # Others: Currency / volume * 100
         _cur_pct_parts = []
-        _cur_vol = p_volume if p_volume > 0.001 else 1.0
+        if p == 'Moon' and _nps_moon_is_waxing:
+            _cur_denom = total_good + total_bad + abs(p5_debt)
+            _cur_denom = _cur_denom if _cur_denom > 0.001 else 1.0
+        else:
+            _cur_denom = p_volume if p_volume > 0.001 else 1.0
         for _ck in sorted(inv.keys(), key=lambda x: abs(inv[x]), reverse=True):
             _cv = inv[_ck]
             if abs(_cv) > 0.001:
-                _cpct = (abs(_cv) / _cur_vol) * 100.0
+                _cpct = (abs(_cv) / _cur_denom) * 100.0
                 _cur_pct_parts.append(f"{_ck}({_cpct:.1f}%)")
         _cur_pct_str = ", ".join(_cur_pct_parts) if _cur_pct_parts else "-"
 
