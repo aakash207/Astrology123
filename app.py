@@ -3168,8 +3168,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     # No reduction
                     adjusted = final_ns
                     # Suchama Score uses original m_pct (not reduced)
-                    # Sun does NOT get suchama from maraivu — only from digbala
-                    suchama = 0.0 if p == 'Sun' else (sthana_val / 100.0) * m_pct
+                    # Sun gets suchama only from digbala, not from maraivu
+                    if p == 'Sun':
+                        suchama = 0.0
+                    else:
+                        suchama = (sthana_val / 100.0) * m_pct
                 else:
                     # Reduce using updated maraivu %
                     if final_ns < 0:
