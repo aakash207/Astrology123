@@ -2773,10 +2773,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     # NEW LOGIC: Mars/Saturn check specifically for Enemy House
                     is_enemy_house = False
                     if parent in ['Mars', 'Saturn']:
-                         target_lord = get_sign_lord(target_sign)
-                         relation = check_friendship(parent, target_lord)
-                         if relation == 'Enemy':
-                             is_enemy_house = True
+                         # Special rule: Mars in Leo is never negative for enemy houses
+                         if parent == 'Mars' and planet_data['Mars']['sign'] == 'Leo':
+                             is_enemy_house = False
+                         else:
+                             target_lord = get_sign_lord(target_sign)
+                             relation = check_friendship(parent, target_lord)
+                             if relation == 'Enemy':
+                                 is_enemy_house = True
                     
                     if is_enemy_house:
                         aspect_score[target_sign] -= own_val
