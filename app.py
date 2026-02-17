@@ -2575,6 +2575,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             leftover_aspects.append([
                 clone['parent'],
                 clone['offset'],
+                f"{clone['L']:.2f}",
                 inv_str,
                 debt_str
             ])
@@ -2657,7 +2658,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
     
-    df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Remaining Inventory', 'Final Debt'])
+    df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Position', 'Remaining Inventory', 'Final Debt'])
     
     # JUPITER POISON DIAGNOSTIC NOTES
     _jp_diag_rows = []
@@ -3328,6 +3329,32 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
         columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes', 'Happiness Score', 'Happiness Notes'])
+
+    # ---- NEECHAM STATUS UPGRADE BASED ON FINAL NORMALIZED SCORE ----
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        _p_status = planet_data[p].get('status', '-')
+        _p_updated = planet_data[p].get('updated_status', '-')
+        if _p_status == 'Neecham':
+            _p_fns = _nps_score_dict.get(p, 0.0)
+            if _p_updated == 'Neechabhangam':
+                # Already Neechabhangam — promote to Raja Yoga if score > 115
+                if _p_fns > 115:
+                    planet_data[p]['updated_status'] = 'Neechabhanga Raja Yoga'
+                    for row in rows:
+                        if row[0] == p:
+                            row[11] = 'Neechabhanga Raja Yoga'
+            elif _p_updated in ('-', '', None):
+                # No updated status yet — assign based on score
+                if _p_fns > 115:
+                    planet_data[p]['updated_status'] = 'Neechabhanga Raja Yoga'
+                    for row in rows:
+                        if row[0] == p:
+                            row[11] = 'Neechabhanga Raja Yoga'
+                elif _p_fns > 75:
+                    planet_data[p]['updated_status'] = 'Neechabhangam'
+                    for row in rows:
+                        if row[0] == p:
+                            row[11] = 'Neechabhangam'
 
     # ---- Apply Rahu Score directly as occupant score for Rahu's house ----
     _rahu_occ_sign = planet_sign_map.get('Rahu', 'Aries')
