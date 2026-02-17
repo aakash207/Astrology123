@@ -2815,10 +2815,50 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         occ_sign = planet_sign_map[p_name]
         sign_occupants[occ_sign].append(p_name)
 
+    # ---- KENDRAADHIBATHYA DOSHA CHECK ----
+    # If Sagittarius lagna and Jupiter sits in Pisces, with no malefic within 22°,
+    # Jupiter gives -50 occupant penalty to Pisces and no good currency; unused bonus skipped.
+    _kad_active = False
+    _kad_sign = 'Pisces'  # the house Jupiter sits in for this dosha
+    if lagna_sign_hp == 'Sagittarius' and planet_sign_map.get('Jupiter') == 'Pisces':
+        _jp_L_kad = phase5_data['Jupiter']['L']
+        _kad_malefic_free = True
+        _kad_check_planets = ['Saturn', 'Mars', 'Rahu', 'Ketu']
+        # Include Moon if malefic
+        if is_moon_malefic_p5():
+            _kad_check_planets.append('Moon')
+        for _km in _kad_check_planets:
+            _km_L = phase5_data[_km]['L']
+            _km_d = abs(_jp_L_kad - _km_L)
+            if _km_d > 180: _km_d = 360 - _km_d
+            if _km_d < 22:
+                _kad_malefic_free = False
+                break
+        # Also check malefic virtual clones within 22°
+        if _kad_malefic_free:
+            for _kcl in all_leftover_clones:
+                if _kcl['parent'] in ['Saturn', 'Mars', 'Rahu', 'Ketu']:
+                    _kcl_d = abs(_jp_L_kad - _kcl['L'])
+                    if _kcl_d > 180: _kcl_d = 360 - _kcl_d
+                    if _kcl_d < 22:
+                        _kcl_inv = _kcl['inventory']
+                        _kcl_bad = sum(v for k, v in _kcl_inv.items() if v > 0.001 and 'Bad' in k)
+                        if _kcl_bad > 0.001:
+                            _kad_malefic_free = False
+                            break
+        if _kad_malefic_free:
+            _kad_active = True
+            occupant_score[_kad_sign] += -50.0
+            occupant_notes[_kad_sign].append("Jupiter(-50 Kendraadhibathya Dosha)")
+
     for s in sign_names:
         for occ in sign_occupants.get(s, []):
             if occ == 'Rahu':
                 continue  # Rahu uses Rahu Score directly, applied after NPS calculation
+            # Skip Jupiter's occupant contribution to Pisces if Kendraadhibathya Dosha is active
+            if _kad_active and occ == 'Jupiter' and s == _kad_sign:
+                occupant_notes[s].append("Jupiter(Good skipped - Kendraadhibathya Dosha)")
+                continue
             inv = phase5_data[occ]['p5_inventory']
             if _hp_is_malefic(occ):
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
@@ -2857,6 +2897,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'Taurus': ('Venus', 60)
     }
     for gift_sign, (gifter, multiplier) in hp_gift_pot_config.items():
+        # Skip unused bonus for Pisces if Kendraadhibathya Dosha is active
+        if _kad_active and gift_sign == _kad_sign:
+            occupant_notes[gift_sign].append("Unused Bonus skipped (Kendraadhibathya Dosha)")
+            continue
         gifter_sthana = planet_data[gifter]['sthana']
         original_pot = multiplier * (gifter_sthana / 100.0)
         unused_reserve = sum(v for v in house_reserves[gift_sign].values() if v > 0.001)
