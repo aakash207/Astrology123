@@ -295,6 +295,8 @@ def is_good_currency(c_key):
         return False
     if c_key in ['Jupiter', 'Venus', 'Mercury']:
         return True
+    if c_key == 'Jupiter Poison':
+        return True
     if 'Good' in c_key:
         return True
     return False
@@ -1960,6 +1962,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     def get_p5_currency_rank_score(c_key):
         if c_key == 'Jupiter': return 990
+        if c_key == 'Jupiter Poison': return 990
         if c_key == 'Venus': return 980
         if c_key == 'Mercury': return 970
         if c_key == 'Good Moon': return 950
@@ -2087,6 +2090,113 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             clones.append(clone)
             all_initial_clones.append({'parent': current_planet, 'offset': offset, 'L': clone_L})
         
+        # ---- JUPITER POISON LOGIC (applied before interaction cycle) ----
+        if current_planet == 'Jupiter':
+            _jp_sign = planet_sign_map.get('Jupiter', '')
+            _jp_L = phase5_data['Jupiter']['L']
+            _jp_inv = phase5_data['Jupiter']['p5_inventory']
+            _jp_current_val = _jp_inv.get('Jupiter', 0.0)
+
+            jupiter_poison_multiplier = 0.0
+            jupiter_poison_case = None
+
+            if _jp_current_val > 0.001:
+                # --- Helper: check no malefic planet or malefic clone within 22° of Jupiter ---
+                def _jp_malefic_free_zone():
+                    _malefic_check_planets = ['Saturn', 'Mars', 'Rahu']
+                    # Check Ketu if it holds bad currency
+                    if phase5_data['Ketu']['p5_inventory'].get('Bad Ketu', 0.0) > 0.001:
+                        _malefic_check_planets.append('Ketu')
+                    # Check Moon if malefic
+                    if is_moon_malefic_p5():
+                        _malefic_check_planets.append('Moon')
+                    for _mp in _malefic_check_planets:
+                        _mp_L = phase5_data[_mp]['L']
+                        _md = abs(_jp_L - _mp_L)
+                        if _md > 180: _md = 360 - _md
+                        if _md < 22:
+                            return False
+                    # Check malefic virtual clones (from Saturn/Mars already created)
+                    for _cl in all_leftover_clones:
+                        if _cl['parent'] in ['Saturn', 'Mars']:
+                            _cd = abs(_jp_L - _cl['L'])
+                            if _cd > 180: _cd = 360 - _cd
+                            if _cd < 22:
+                                return False
+                    return True
+
+                # --- Case A: Jupiter-Venus Poisoning ---
+                _case_a_multiplier = 0.0
+                _venus_sign = planet_sign_map.get('Venus', '')
+                _case_a_signs = {'Sagittarius', 'Pisces', 'Libra', 'Taurus', 'Cancer'}
+                if _jp_sign in _case_a_signs and _venus_sign in _case_a_signs:
+                    _venus_L = phase5_data['Venus']['L']
+                    _jv_diff = abs(_jp_L - _venus_L)
+                    if _jv_diff > 180: _jv_diff = 360 - _jv_diff
+                    _jv_gap = int(_jv_diff)
+                    if _jv_gap <= 22 and _jp_malefic_free_zone():
+                        _cap_pct_a = mix_dict.get(_jv_gap, 0)
+                        _case_a_multiplier = (_cap_pct_a / 100.0) * 0.5
+
+                # --- Case B: Jupiter-Moon Poisoning ---
+                _case_b_multiplier = 0.0
+                _moon_sign = planet_sign_map.get('Moon', '')
+                _case_b_signs = {'Sagittarius', 'Pisces', 'Cancer'}
+                _jp_in_parivarthana = 'Jupiter' in parivardhana_map
+                _jp_case_b_sign_ok = (_jp_sign in _case_b_signs) or _jp_in_parivarthana
+                _moon_case_b_sign_ok = _moon_sign in _case_b_signs
+
+                if _jp_case_b_sign_ok and _moon_case_b_sign_ok:
+                    # Moon phase check: waxing with >50% good OR waning with <2% bad
+                    _moon_good_pct = planet_data['Moon'].get('moon_good_pct', 0)
+                    _moon_bad_pct = planet_data['Moon'].get('moon_bad_pct', 0)
+                    _moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
+                    _moon_phase_ok = (_moon_is_waxing and _moon_good_pct > 50) or (not _moon_is_waxing and _moon_bad_pct < 2)
+
+                    # Moon purity check: Bad Moon < 2% of Moon's total inventory
+                    _moon_inv = phase5_data['Moon']['p5_inventory']
+                    _moon_bad_currency = _moon_inv.get('Bad Moon', 0.0)
+                    _moon_total_inv = sum(abs(v) for v in _moon_inv.values())
+                    _moon_pure = _moon_total_inv < 0.001 or (_moon_bad_currency / _moon_total_inv) < 0.02
+
+                    if _moon_phase_ok and _moon_pure:
+                        _moon_L = phase5_data['Moon']['L']
+                        _jm_diff = abs(_jp_L - _moon_L)
+                        if _jm_diff > 180: _jm_diff = 360 - _jm_diff
+                        _jm_gap = int(_jm_diff)
+                        if _jm_gap <= 22 and _jp_malefic_free_zone():
+                            _cap_pct_b = mix_dict.get(_jm_gap, 0)
+                            _case_b_multiplier = _cap_pct_b / 100.0
+
+                # --- Pick the highest multiplier if both qualify ---
+                if _case_a_multiplier > 0.001 or _case_b_multiplier > 0.001:
+                    if _case_a_multiplier >= _case_b_multiplier:
+                        jupiter_poison_multiplier = _case_a_multiplier
+                        jupiter_poison_case = 'CaseA_Venus'
+                    else:
+                        jupiter_poison_multiplier = _case_b_multiplier
+                        jupiter_poison_case = 'CaseB_Moon'
+
+                # --- Apply poison to Jupiter's own inventory ---
+                if jupiter_poison_multiplier > 0.001:
+                    _poison_amount = jupiter_poison_multiplier * _jp_current_val
+                    _jp_inv['Jupiter'] = _jp_current_val - _poison_amount
+                    _jp_inv['Jupiter Poison'] = _jp_inv.get('Jupiter Poison', 0.0) + _poison_amount
+
+                    # --- Apply poison to all Jupiter clones ---
+                    for _jcl in clones:
+                        _jcl_jup_val = _jcl['inventory'].get('Jupiter', 0.0)
+                        if _jcl_jup_val > 0.001:
+                            _cl_poison = jupiter_poison_multiplier * _jcl_jup_val
+                            _jcl['inventory']['Jupiter'] = _jcl_jup_val - _cl_poison
+                            _jcl['inventory']['Jupiter Poison'] = _jcl['inventory'].get('Jupiter Poison', 0.0) + _cl_poison
+                            # Also update original_inventory so Steps 2 & 3 pull poisoned values
+                            _jcl_orig_val = _jcl['original_inventory'].get('Jupiter', 0.0)
+                            if _jcl_orig_val > 0.001:
+                                _cl_orig_poison = jupiter_poison_multiplier * _jcl_orig_val
+                                _jcl['original_inventory']['Jupiter'] = _jcl_orig_val - _cl_orig_poison
+                                _jcl['original_inventory']['Jupiter Poison'] = _jcl['original_inventory'].get('Jupiter Poison', 0.0) + _cl_orig_poison
+
         # Part B: The Interaction Cycle
         # MODIFICATION 2: Reordered - Step 1 is Active Pulling, Step 2 is Real Malefics Pull
         p5_cycle_limit = 500
@@ -2408,6 +2518,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             ])
             all_leftover_clones.append(clone)
     
+    # ---- JUPITER POISON POST-SHARING DEBT APPLICATION ----
+    # After all sharing is done, add -2 debt per unit of Jupiter Poison held
+    # This converts Jupiter Poison from appearing good during sharing to being penalised
+    for _jp_p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        _jp_poison_held = phase5_data[_jp_p]['p5_inventory'].get('Jupiter Poison', 0.0)
+        if _jp_poison_held > 0.001:
+            phase5_data[_jp_p]['p5_current_debt'] -= 2.0 * _jp_poison_held
+
+    # Apply debt to leftover clones holding Jupiter Poison
+    for _jp_cl in all_leftover_clones:
+        _jp_cl_poison = _jp_cl['inventory'].get('Jupiter Poison', 0.0)
+        if _jp_cl_poison > 0.001:
+            _jp_cl['debt'] -= 2.0 * _jp_cl_poison
+
     # ---- KETU ALONE & UNASPECTED CHECK ----
     # If Ketu is not conjuncted or aspected by any planet (within 22 degrees)
     # and resides alone in Gemini, Leo, Scorpio, or Aquarius => add -25 Bad Ketu and -25 debt
@@ -2458,7 +2582,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         d_p5 = phase5_data[p]
         inv = phase5_data[p]['p5_inventory']
-        net_score = sum(v if is_good_currency(k) else -v for k, v in inv.items())
+        # Jupiter Poison treated as bad for net score after sharing
+        net_score = sum(
+            (-v if k == 'Jupiter Poison' else (v if is_good_currency(k) else -v))
+            for k, v in inv.items()
+        )
         phase5_rows.append([p, d_p5['currency_p5'], d_p5['debt_p5'], f"{net_score:.2f}"])
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
@@ -2577,9 +2705,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             for c_key, c_val in clone['inventory'].items():
                 if c_val > 0.001 and is_good_currency(c_key):
                     good_total += c_val
+            # Jupiter Poison: treat as bad in HPS (subtract from benefic bonus)
+            _hp_cl_poison = clone['inventory'].get('Jupiter Poison', 0.0)
+            if _hp_cl_poison > 0.001:
+                good_total -= _hp_cl_poison  # remove poison from good
             if good_total > 0.001:
                 aspect_score[target_sign] += good_total
                 aspect_sources[target_sign].append(f"{parent}(Benefic Bonus)")
+            # Subtract Jupiter Poison as a penalty
+            if _hp_cl_poison > 0.001:
+                aspect_score[target_sign] -= _hp_cl_poison
+                aspect_sources[target_sign].append(f"{parent}(Jupiter Poison Penalty)")
 
     sign_occupants = defaultdict(list)
     for p_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
@@ -2594,6 +2730,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if _hp_is_malefic(occ):
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
                 total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+                # Jupiter Poison: treat as bad for HPS occupant scoring
+                _hp_occ_poison = inv.get('Jupiter Poison', 0.0)
+                if _hp_occ_poison > 0.001:
+                    total_good -= _hp_occ_poison
+                    total_bad += _hp_occ_poison
                 if occ == lagna_lord and is_malefic_lagna_lord and s == lagna_sign_hp:
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
@@ -2605,9 +2746,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
+                # Jupiter Poison: treat as bad for HPS benefic occupant scoring
+                _hp_occ_poison_b = inv.get('Jupiter Poison', 0.0)
+                if _hp_occ_poison_b > 0.001:
+                    total_good -= _hp_occ_poison_b
                 if total_good > 0.001:
                     occupant_score[s] += total_good
                     occupant_notes[s].append(f"{occ}(Benefic Sum)")
+                if _hp_occ_poison_b > 0.001:
+                    occupant_score[s] -= _hp_occ_poison_b
+                    occupant_notes[s].append(f"{occ}(Jupiter Poison Penalty)")
 
     hp_gift_pot_config = {
         'Sagittarius': ('Jupiter', 100),
@@ -2643,10 +2791,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
         total_bad  = sum(v for k, v in inv.items() if v > 0.001 and 'Bad' in k)
+        # Jupiter Poison: treated as bad for NPS (remove from good, add to bad)
+        _nps_jp_poison = inv.get('Jupiter Poison', 0.0)
+        if _nps_jp_poison > 0.001:
+            total_good -= _nps_jp_poison
+            total_bad += _nps_jp_poison
         self_bad   = inv.get(f'Bad {p}', 0.0)
         net_score  = total_good - total_bad
-
-        _nps_st = planet_data[p].get('updated_status', '')
         if not _nps_st or _nps_st == '-':
             _nps_st = planet_data[p].get('status', '')
         is_neecha = _nps_st in _nps_neecha_statuses
@@ -3327,7 +3478,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 src_label = pot['name']
                 sim_sources.setdefault(c_key, []).append(f"{src_label}({take:.2f})")
                 # Track good currency from malefic pots
-                if pot['is_malefic'] and is_good_currency(c_key):
+                if pot['is_malefic'] and is_good_currency(c_key) and c_key != 'Jupiter Poison':
                     sim_good_from_malefic[c_key] += take
 
     # Post-sim: halve good currency that came from malefic pots
@@ -3338,6 +3489,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # 3. Output Generation
     sim_good_total = sum(v for k, v in sim_gained_inv.items() if is_good_currency(k))
     sim_bad_total = sum(v for k, v in sim_gained_inv.items() if 'Bad' in k)
+    # Jupiter Poison: treat as bad in Lagna simulation
+    _sim_jp_poison = sim_gained_inv.get('Jupiter Poison', 0.0)
+    if _sim_jp_poison > 0.001:
+        sim_good_total -= _sim_jp_poison
+        sim_bad_total += _sim_jp_poison
     sim_net_score = sim_good_total - sim_bad_total
 
     # Currency breakdown string
@@ -3500,6 +3656,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_moon_inv = phase5_data['Moon']['p5_inventory']
     _la_moon_good = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and is_good_currency(k))
     _la_moon_bad = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and 'Bad' in k)
+    # Jupiter Poison: treat as bad for Moon's Light
+    _la_moon_jp_poison = _la_moon_inv.get('Jupiter Poison', 0.0)
+    if _la_moon_jp_poison > 0.001:
+        _la_moon_good -= _la_moon_jp_poison
+        _la_moon_bad += _la_moon_jp_poison
     _la_moon_debt = phase5_data['Moon']['p5_current_debt']
     _la_moon_abs_debt = abs(_la_moon_debt) if _la_moon_debt < -0.001 else 0.0
     _la_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
