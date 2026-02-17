@@ -3094,6 +3094,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             raw_khs = (_khs_avg / 10.0) * 2
             _khs_val = min(raw_khs, 20.0)
 
+        _ns_without_khs = final_ns  # capture score before KHS
+
         final_ns += _khs_val
         if abs(_khs_val) > 0.001:
             formula_type += f" + KHS({_khs_val:.2f})"
@@ -3325,10 +3327,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _hap_score_str = str(_hap_score)
         _hap_notes_str = " | ".join(_hap_notes) if _hap_notes else "-"
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", m_pct_str, adjusted_str, suchama_str, rahu_score_str, rahu_notes_str, _hap_score_str, _hap_notes_str])
+        # Currency % breakdown from Phase 5 inventory (currency / volume * 100)
+        _cur_pct_parts = []
+        _cur_vol = p_volume if p_volume > 0.001 else 1.0
+        for _ck in sorted(inv.keys(), key=lambda x: abs(inv[x]), reverse=True):
+            _cv = inv[_ck]
+            if abs(_cv) > 0.001:
+                _cpct = (abs(_cv) / _cur_vol) * 100.0
+                _cur_pct_parts.append(f"{_ck}({_cpct:.1f}%)")
+        _cur_pct_str = ", ".join(_cur_pct_parts) if _cur_pct_parts else "-"
+
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _cur_pct_str, m_pct_str, adjusted_str, suchama_str, rahu_score_str, rahu_notes_str, _hap_score_str, _hap_notes_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes', 'Happiness Score', 'Happiness Notes'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Rahu Score', 'Rahu Notes', 'Happiness Score', 'Happiness Notes'])
 
     # ---- NEECHAM STATUS UPGRADE BASED ON FINAL NORMALIZED SCORE ----
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
