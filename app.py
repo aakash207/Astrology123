@@ -1744,7 +1744,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         for k, v in navp3_gained.items():
             if v > 0.001:
-                add_amount = v * 0.10
+                add_amount = v * 0.20
                 phase3_data[p]['p3_inventory'][k] += add_amount
         
         navp3_debt = navamsa_phase3_data[p]['navp3_debt']
