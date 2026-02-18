@@ -633,7 +633,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_cap = p.capitalize()
         navamsa_house_planets[nav_house].append(planet_cap)
         
-        nav_volume = planet_data[planet_cap]['volume']
+        # Use 100% sthanabala for Navamsa (full capacity as volume)
+        nav_volume = capacity_dict.get(planet_cap, 0)
         
         if planet_cap == 'Moon':
             if paksha == 'Shukla':
@@ -1648,7 +1649,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 phase3_data[p]['p3_inventory'][k] += add_amount
         
         navp3_debt = navamsa_phase3_data[p]['navp3_debt']
-        phase3_data[p]['p3_current_debt'] += navp3_debt * 0.10
+        phase3_data[p]['p3_current_debt'] += navp3_debt * 0.20
     
     planets_in_house_11 = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
