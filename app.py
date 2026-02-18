@@ -1939,6 +1939,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if 'Bad' in k:
                 phase5_data[p]['bad_inv'] += v
     
+    # Snapshot inventories & debts BEFORE any exchange, so all clones are created simultaneously
+    _p5_snapshot_inv = {}
+    _p5_snapshot_debt = {}
+    for _sp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        _p5_snapshot_inv[_sp] = dict(phase5_data[_sp]['p5_inventory'])
+        _p5_snapshot_debt[_sp] = phase5_data[_sp]['p5_current_debt']
+
     P5_STANDARD_MALEFICS = ['Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu']
     P5_STANDARD_BENEFICS = ['Jupiter', 'Venus', 'Mercury']
     
@@ -1980,7 +1987,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     PLANET_SEQUENCE = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
     _jp_poison_notes = []  # Jupiter Poison diagnostic notes (initialized before loop)
-    
+    all_planet_clones = {}  # stores clones per planet, created simultaneously
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PASS 1: CREATE ALL VIRTUAL CLONES SIMULTANEOUSLY (from snapshot)
+    # All planets read the same pre-exchange baseline so creation is simultaneous.
+    # ═══════════════════════════════════════════════════════════════════════
     for current_planet in PLANET_SEQUENCE:
         if current_planet not in ASPECT_RULES:
             continue
@@ -1988,7 +2000,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         aspect_offsets = ASPECT_RULES[current_planet]
         parent_data = phase5_data[current_planet]
         parent_L = parent_data['L']
-        parent_debt = parent_data['p5_current_debt']
+        # Read debt from snapshot so clone debt is not affected by prior exchanges
+        parent_debt = _p5_snapshot_debt[current_planet]
 
         # Local scaling for Malefic Neecham/Neechabhangam planets (applied to clones only)
         _cp_is_malefic = (
@@ -2001,12 +2014,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             scaling_factor = 1.0
         
-        # Part A: Clone Creation
+        # Part A: Clone Creation (reads from snapshot inventory)
         clones = []
         
         for offset, aspect_pct in aspect_offsets.items():
             clone_L = (parent_L + (offset - 1) * 30) % 360
-            parent_inv = parent_data['p5_inventory']
+            # Read from snapshot so all clones see the same pre-exchange state
+            parent_inv = _p5_snapshot_inv[current_planet]
             
             clone_inventory = defaultdict(float)
             clone_debt = 0.0
@@ -2088,6 +2102,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             clones.append(clone)
             all_initial_clones.append({'parent': current_planet, 'offset': offset, 'L': clone_L})
         
+        all_planet_clones[current_planet] = clones
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PASS 2: CURRENCY EXCHANGE (sequential, in original PLANET_SEQUENCE order)
+    # Jupiter Poison + Interaction Cycle + Logging, using the pre-created clones.
+    # ═══════════════════════════════════════════════════════════════════════
+    for current_planet in PLANET_SEQUENCE:
+        if current_planet not in ASPECT_RULES:
+            continue
+
+        clones = all_planet_clones[current_planet]
+
         # ---- JUPITER POISON LOGIC (applied before interaction cycle) ----
         if current_planet == 'Jupiter':
             _jp_sign = planet_sign_map.get('Jupiter', '')
