@@ -508,6 +508,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if capacity is not None:
                     total_debt = -((1.2 * capacity) - good_val)
                     has_debt = True
+            
+            # For Saturn/Mars Neechabhangam: explicitly reduce debt by Good currency added
+            if is_neechabhangam and planet_cap in ['Saturn', 'Mars']:
+                total_debt += neechabhangam_good_add
                     
         else:
             if bad_val > 0:
