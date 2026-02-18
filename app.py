@@ -1543,6 +1543,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     if debtor_is_malefic and _tgt_is_malefic:
                         _infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                         planet_data[_tgt_name]['final_inventory'][_infection_key] += take
+                        # Infection adds Bad Currency => Debt Increases
+                        planet_data[_tgt_name]['current_debt'] -= take
                     
                     good_available = any(t['is_good'] and planet_data[t['planet']]['final_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
