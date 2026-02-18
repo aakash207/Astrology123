@@ -470,13 +470,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             house_lord = get_sign_lord(sign)
             house_lord_status = planet_status_map.get(house_lord, '-')
             
-            if house_lord_status in ['Uchcham', 'Moolathirigonam']:
+            if house_lord_status in ['Uchcham', 'Moolathirigonam', 'Aatchi']:
                 updated_status = 'Neechabhangam'
                 is_neechabhangam = True
                 
                 nb_base_vol = capacity * 0.40
-                neechabhangam_good_add = nb_base_vol * (good_pct / 100.0)
-                neechabhangam_bad_add = nb_base_vol * (bad_pct / 100.0)
+                
+                if planet_cap in ['Saturn', 'Mars']:
+                    # Refill with 100% Good currency and reduce debt equivalently
+                    neechabhangam_good_add = nb_base_vol
+                    neechabhangam_bad_add = 0.0
+                else:
+                    neechabhangam_good_add = nb_base_vol * (good_pct / 100.0)
+                    neechabhangam_bad_add = nb_base_vol * (bad_pct / 100.0)
                 
                 good_val += neechabhangam_good_add
                 bad_val += neechabhangam_bad_add
@@ -571,19 +577,19 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_data['Mars']['default_currency'] = f"Good Mars[{_mars_total:.2f}]"
         planet_data['Mars']['debt'] = "0.00"
 
-    # Saturn in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Good Venus)
+    # Saturn in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Good Saturn)
     if planet_data['Saturn']['sign'] == 'Taurus':
         _saturn_bad = planet_data['Saturn']['final_inventory'].get('Bad Saturn', 0.0)
-        # Split: 50% stays as Bad Saturn, 50% becomes Venus (benefic)
+        # Split: 50% stays as Bad Saturn, 50% becomes Good Saturn (benefic)
         new_bad_saturn = _saturn_bad * 0.50
-        new_good_venus = _saturn_bad * 0.50
+        new_good_saturn = _saturn_bad * 0.50
         planet_data['Saturn']['final_inventory']['Bad Saturn'] = new_bad_saturn
-        planet_data['Saturn']['final_inventory']['Venus'] = new_good_venus
-        # Update debt to equal the new bad currency
-        planet_data['Saturn']['current_debt'] = -new_bad_saturn if new_bad_saturn > 0 else 0.0
+        planet_data['Saturn']['final_inventory']['Good Saturn'] = new_good_saturn
+        # Update debt: Good Saturn reduces the debt
+        planet_data['Saturn']['current_debt'] = (-new_bad_saturn + new_good_saturn) if new_bad_saturn > 0 else 0.0
         # Update display strings
         saturn_parts = []
-        if new_good_venus > 0: saturn_parts.append(f"Good Venus[{new_good_venus:.2f}]")
+        if new_good_saturn > 0: saturn_parts.append(f"Good Saturn[{new_good_saturn:.2f}]")
         if new_bad_saturn > 0: saturn_parts.append(f"Bad Saturn[{new_bad_saturn:.2f}]")
         planet_data['Saturn']['default_currency'] = ", ".join(saturn_parts)
         planet_data['Saturn']['debt'] = f"{planet_data['Saturn']['current_debt']:.2f}"
@@ -838,6 +844,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         navamsa_data[debtor]['nav_gained_currencies']['Good Ketu'] += take
                         navamsa_data[debtor]['nav_current_debt'] += take
                         navamsa_data[debtor]['nav_debt'] += take
+                    elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                        # Rahu converts Good Saturn to Bad Saturn and adds debt
+                        navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
+                        navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
+                        navamsa_data[debtor]['nav_current_debt'] -= take
+                        navamsa_data[debtor]['nav_debt'] -= take
                     else:
                         navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
                         navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
@@ -1489,6 +1501,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     if is_ketu_currency and not is_sun_or_moon:
                         planet_data[debtor]['final_inventory']['Good Ketu'] += take
                         planet_data[debtor]['current_debt'] += take
+                    elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                        # Rahu converts Good Saturn to Bad Saturn and adds debt
+                        planet_data[debtor]['final_inventory']['Bad Saturn'] += take
+                        planet_data[debtor]['current_debt'] -= take
                     else:
                         planet_data[debtor]['final_inventory'][tgt['key']] += take
                         
