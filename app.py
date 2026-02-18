@@ -521,12 +521,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         currency_parts = []
         if planet_cap in single_currency_planets:
-            total_val = good_val + bad_val
-            if total_val > 0:
-                if planet_cap in bad_currency_planets:
-                    currency_parts.append(f"Bad {planet_cap}[{total_val:.2f}]")
-                else:
-                    currency_parts.append(f"{planet_cap}[{total_val:.2f}]")
+            if planet_cap in ['Saturn', 'Mars'] and is_neechabhangam and good_val > 0:
+                # Neechabhangam: show Good and Bad separately
+                currency_parts.append(f"Good {planet_cap}[{good_val:.2f}]")
+                if bad_val > 0:
+                    currency_parts.append(f"Bad {planet_cap}[{bad_val:.2f}]")
+            else:
+                total_val = good_val + bad_val
+                if total_val > 0:
+                    if planet_cap in bad_currency_planets:
+                        currency_parts.append(f"Bad {planet_cap}[{total_val:.2f}]")
+                    else:
+                        currency_parts.append(f"{planet_cap}[{total_val:.2f}]")
         else:
             if good_val > 0:
                 currency_parts.append(f"Good {planet_cap}[{good_val:.2f}]")
@@ -552,6 +558,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if planet_cap in ['Jupiter', 'Venus', 'Mercury']:
             if good_val > 0: planet_data[planet_cap]['final_inventory'][planet_cap] = good_val
         elif planet_cap in ['Saturn', 'Rahu']:
+            if is_neechabhangam and good_val > 0:
+                planet_data[planet_cap]['final_inventory'][f"Good {planet_cap}"] = good_val
             if bad_val > 0: planet_data[planet_cap]['final_inventory'][f"Bad {planet_cap}"] = bad_val
         elif planet_cap == 'Ketu':
             if good_val > 0: planet_data[planet_cap]['final_inventory'][f"Good {planet_cap}"] = good_val
