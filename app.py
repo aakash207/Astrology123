@@ -3324,14 +3324,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                          adjusted = (final_ns / 2.0) + (final_ns * (100 + _um_pct) / 100.0) / 2.0
                     else:
                          adjusted = (final_ns / 2.0) + (final_ns * (100 - _um_pct) / 100.0) / 2.0
-                    suchama = 0.0
+                    # Enemy house: give half the maraivu suchama (not for Sun)
+                    if p == 'Sun':
+                        suchama = 0.0
+                    else:
+                        suchama = 0.5 * (sthana_val / 100.0) * m_pct
 
                 # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
                 if p_dig_bala > 92:
                     suchama += 0.5 * sthana_val
 
-                # Step 2: If Saturn or Mars has Neecham, add 0.5 * Sthana Balam
-                if p in ('Saturn', 'Mars') and p_status == 'Neecham':
+                # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
+                _p_eff_status = planet_data[p].get('updated_status') or p_status
+                _neg_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+                if p != 'Sun' and _p_eff_status in _neg_statuses:
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
@@ -3349,8 +3355,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if p_dig_bala > 92:
                     suchama += 0.5 * sthana_val
 
-                # Step 2: If Saturn or Mars has Neecham, add 0.5 * Sthana Balam
-                if p in ('Saturn', 'Mars') and p_status == 'Neecham':
+                # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
+                _p_eff_status2 = planet_data[p].get('updated_status') or p_status
+                _neg_statuses2 = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+                if p != 'Sun' and _p_eff_status2 in _neg_statuses2:
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
