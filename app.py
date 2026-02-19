@@ -2138,7 +2138,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if clone_value > 0.001:
                     clone_inventory['Good Saturn'] = clone_value
                 
-                clone_debt = parent_debt * aspect_pct * scaling_factor
+                # Neecha/Neechabhangam Saturn: debt = net(Good - Bad) from parent snapshot
+                if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+                    _sat_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
+                    _sat_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
+                    clone_debt = (_sat_good_total - _sat_bad_total) * aspect_pct * scaling_factor
+                else:
+                    clone_debt = parent_debt * aspect_pct * scaling_factor
                 clone_type = 'Active'
                 
             elif current_planet == 'Mars':
@@ -2154,7 +2160,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if clone_value > 0.001:
                     clone_inventory['Good Mars'] = clone_value
                 
-                clone_debt = parent_debt * aspect_pct * scaling_factor
+                # Neecha/Neechabhangam Mars: debt = net(Good - Bad) from parent snapshot
+                if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+                    _mars_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
+                    _mars_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
+                    clone_debt = (_mars_good_total - _mars_bad_total) * aspect_pct * scaling_factor
+                else:
+                    clone_debt = parent_debt * aspect_pct * scaling_factor
                 clone_type = 'Active'
                 
             elif current_planet in ['Jupiter', 'Venus', 'Mercury']:
