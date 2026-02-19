@@ -3421,10 +3421,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 _cur_pct_parts.append(f"{_ck}({_cpct:.1f}%)")
         _cur_pct_str = ", ".join(_cur_pct_parts) if _cur_pct_parts else "-"
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _cur_pct_str, m_pct_str, adjusted_str, suchama_str, _hap_score_str, _hap_notes_str])
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _cur_pct_str, m_pct_str, adjusted_str, _hap_score_str, _hap_notes_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score', 'Suchama Score', 'Happiness Score', 'Happiness Notes'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score', 'Happiness Score', 'Happiness Notes'])
+
+    # ---- SUCHAMA SCORES TABLE ----
+    _suchama_rows = []
+    for _sp in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+        _sv = _suchama_score_dict.get(_sp, 0.0)
+        _suchama_rows.append([_sp, f"{_sv:.2f}"])
+    df_suchama_scores = pd.DataFrame(_suchama_rows, columns=['Planet', 'Suchama Score'])
 
     # ---- NEECHAM STATUS UPGRADE BASED ON FINAL NORMALIZED SCORE ----
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
@@ -4112,6 +4119,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
         'df_navamsa_phase3': df_navamsa_phase3,
+        'df_suchama_scores': df_suchama_scores,
         'df_phase0': df_phase0,
         'df_phase1': df_phase1, 'df_phase2': df_phase2, 'df_phase3': df_phase3, 'df_phase4': df_phase4,
         'df_phase5': df_phase5, 'df_leftover_aspects': df_leftover_aspects,
@@ -4406,6 +4414,9 @@ if st.session_state.chart_data:
 
     st.subheader("Navamsa Phase 3 Exchange")
     st.dataframe(cd['df_navamsa_phase3'], hide_index=True, use_container_width=True)
+
+    st.subheader("Suchama Scores")
+    st.dataframe(cd['df_suchama_scores'], hide_index=True, use_container_width=True)
 
     st.subheader("Currency Exchange Phase 0 (Rahu)")
     st.dataframe(cd['df_phase0'], hide_index=True, use_container_width=True)
