@@ -4785,8 +4785,6 @@ if st.session_state.chart_data:
             info = _hw.get(h, {})
             occ_str = ', '.join(info.get('occupants', [])) if info.get('occupants') else '—'
             lord_comp_str = ', '.join(info.get('lord_companions', [])) if info.get('lord_companions') else '—'
-            lord_str = info.get('lord_total_strength', 0.0)
-            lord_madj = info.get('lord_maraivu_adj', 0.0)
             lord_nps = info.get('lord_nps', 0.0)
             lord_note = (f"{info.get('lord', '')} in House {info.get('lord_house', '')} "
                          f"({info.get('lord_sign', '')}) [{info.get('lord_status', '')}]")
@@ -4798,9 +4796,7 @@ if st.session_state.chart_data:
                 'House Points': f"{info.get('house_points', 0.0):.2f}",
                 'Occupants': occ_str,
                 'House Lord Placement': lord_note,
-                'Lord NPS': f"{lord_nps:.2f}" if lord_str else '—',
-                'Lord Total Strength': f"{lord_str:.2f}" if lord_str else '—',
-                'Lord Maraivu Adj Strength': f"{lord_madj:.2f}" if lord_madj else '—',
+                'Lord Shubathuva Score': f"{lord_nps:.2f}",
             })
         st.dataframe(pd.DataFrame(hw_rows), hide_index=True, use_container_width=True)
 
@@ -4831,19 +4827,13 @@ if st.session_state.chart_data:
                 disp_note += f" with {disp_comp}"
 
             nps_val = info.get('nps', 0.0)
-            nps_adj = info.get('nps_adjusted', 0.0)
-            tot_str = info.get('total_strength', 0.0)
-            mar_adj = info.get('maraivu_adj_strength', 0.0)
             pw_rows.append({
                 'Planet': info.get('label', p),
                 'House': info.get('house', ''),
                 'Sign': info.get('sign', ''),
                 'Status': info.get('status', ''),
                 'Rules Houses': ruled_str,
-                'NPS': f"{nps_val:.2f}",
-                'NPS Adjusted': f"{nps_adj:.2f}" if nps_adj else '—',
-                'Total Strength': f"{tot_str:.2f}" if tot_str else '—',
-                'Maraivu Adj Strength': f"{mar_adj:.2f}" if mar_adj else '—',
+                'Shubathuva Score': f"{nps_val:.2f}",
                 'Co-Occupants': co_str,
                 'Dispositor': disp_note,
             })
