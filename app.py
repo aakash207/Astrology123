@@ -2277,16 +2277,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             _such_l_grp = 'A' if _such_house_lord in _such_grp_a else 'B'
             _such_friendly = (_such_p_grp == _such_l_grp)
             _such_pos_status = _sp_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
-            # Saturn & Mars with negative status also earn full maraivu suchama
-            # Also check raw status since updated_status may still be '-'
-            _such_neg_status = _sp_eff_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-            _such_neg_from_raw = _sp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-            _such_is_neg = _such_neg_status or _such_neg_from_raw
-            _such_full_eligible = _such_friendly or _such_pos_status or (_such_is_neg and _sp in {'Saturn', 'Mars'})
 
-            if _such_full_eligible:
+            if _such_friendly or _such_pos_status:
                 _such_val = 0.0 if _sp == 'Sun' else (_sp_sthana / 100.0) * _sp_m_pct
             else:
+                # Enemy house: halve the maraivu suchama
                 _such_val = 0.0 if _sp == 'Sun' else 0.5 * (_sp_sthana / 100.0) * _sp_m_pct
         # else: no maraivu, _such_val stays 0.0
 
@@ -3437,64 +3432,51 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
                 # Check if planet itself has positive status
                 has_positive_status = p_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
-                # Saturn & Mars with negative status earn full maraivu suchama
-                # (Step-2 still adds the neecha bonus, giving suchama for BOTH reasons)
+                # Resolve effective status (fix: '-' means no status, fall back to raw)
                 _p_updated_raw = planet_data[p].get('updated_status', '-')
-                # Fix: '-' is truthy but means "no status" — fall back to original status
                 _p_eff_status = _p_updated_raw if _p_updated_raw not in ('-', '', None) else p_status
-                _has_neg_status = _p_eff_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-                # Also check raw status (Neecham) since updated_status may not be set yet
-                _has_neg_from_raw = p_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-                _is_neg = _has_neg_status or _has_neg_from_raw
-                _full_suchama_eligible = is_friendly_house or has_positive_status or (_is_neg and p in {'Saturn', 'Mars'})
 
                 # ---- SUCHAMA DIAGNOSTIC NOTES ----
                 _such_notes = []
-                _such_notes.append(f"[{p}] House={p_house}, m_pct={m_pct}, sthana={sthana_val}")
-                _such_notes.append(f"  p_status='{p_status}', updated_raw='{_p_updated_raw}', eff_status='{_p_eff_status}'")
-                _such_notes.append(f"  friendly_house={is_friendly_house}, pos_status={has_positive_status}, neg={_is_neg}, full_eligible={_full_suchama_eligible}")
+                _such_notes.append(f"[{p}] H{p_house}, m_pct={m_pct}%, sthana={sthana_val}")
+                _such_notes.append(f"status='{p_status}', upd='{_p_updated_raw}', eff='{_p_eff_status}'")
+                _such_notes.append(f"friendly={is_friendly_house}, pos_status={has_positive_status}")
 
-                if _full_suchama_eligible:
-                    # No reduction
+                if is_friendly_house or has_positive_status:
+                    # No reduction — friendly/positive
                     adjusted = final_ns
-                    # Suchama Score uses original m_pct (not reduced)
-                    # Sun gets suchama only from digbala, not from maraivu
                     if p == 'Sun':
                         suchama = 0.0
-                        _such_notes.append(f"  → FULL path (Sun excluded): suchama=0")
+                        _such_notes.append(f"FULL(Sun excl)=0")
                     else:
                         suchama = (sthana_val / 100.0) * m_pct
-                        _such_notes.append(f"  → FULL maraivu suchama: ({sthana_val}/100)*{m_pct} = {suchama:.2f}")
+                        _such_notes.append(f"FULL: ({sthana_val}/100)*{m_pct}={suchama:.2f}")
                 else:
-                    # Reduce using updated maraivu %
+                    # Enemy house: halve maraivu suchama
                     if final_ns < 0:
                          adjusted = (final_ns / 2.0) + (final_ns * (100 + _um_pct) / 100.0) / 2.0
                     else:
                          adjusted = (final_ns / 2.0) + (final_ns * (100 - _um_pct) / 100.0) / 2.0
-                    # Enemy house: give half the maraivu suchama (not for Sun)
                     if p == 'Sun':
                         suchama = 0.0
-                        _such_notes.append(f"  → HALF path (Sun excluded): suchama=0")
+                        _such_notes.append(f"HALF(Sun excl)=0")
                     else:
                         suchama = 0.5 * (sthana_val / 100.0) * m_pct
-                        _such_notes.append(f"  → HALF maraivu suchama: 0.5*({sthana_val}/100)*{m_pct} = {suchama:.2f}")
+                        _such_notes.append(f"HALF(enemy): 0.5*({sthana_val}/100)*{m_pct}={suchama:.2f}")
 
                 # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
                 if p_dig_bala > 92:
                     suchama += 0.5 * sthana_val
-                    _such_notes.append(f"  + Step1 Digbala({p_dig_bala}>92): +0.5*{sthana_val} = +{0.5*sthana_val:.2f}")
+                    _such_notes.append(f"+Step1 DigBala({p_dig_bala}>92): +{0.5*sthana_val:.2f}")
 
-                # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
-                # (_p_eff_status already computed above; also check raw p_status)
+                # Step 2: Neg status bonus (check both eff and raw status)
                 _neg_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
                 _step2_fires = p != 'Sun' and (_p_eff_status in _neg_statuses or p_status in _neg_statuses)
                 if _step2_fires:
                     suchama += 0.5 * sthana_val
-                    _such_notes.append(f"  + Step2 NegStatus(eff='{_p_eff_status}',raw='{p_status}'): +0.5*{sthana_val} = +{0.5*sthana_val:.2f}")
-                else:
-                    _such_notes.append(f"  - Step2 SKIPPED (eff='{_p_eff_status}', raw='{p_status}', isSun={p=='Sun'})")
+                    _such_notes.append(f"+Step2 Neg('{_p_eff_status}'): +{0.5*sthana_val:.2f}")
 
-                _such_notes.append(f"  = TOTAL SUCHAMA: {suchama:.2f}")
+                _such_notes.append(f"TOTAL={suchama:.2f}")
                 _suchama_notes_dict[p] = ' | '.join(_such_notes)
 
                 suchama_str = f"{suchama:.2f}"
