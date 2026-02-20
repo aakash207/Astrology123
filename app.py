@@ -4276,6 +4276,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'lord_status': h_lord_status,
             'lord_companions': h_lord_companions,
             'occupants': occupants,
+            'house_points': _house_total_points.get(h, 0.0),
+            'lord_total_strength': planet_final_strengths.get(h_lord, 0.0),
+            'lord_maraivu_adj': _planet_maraivu_adj_strengths.get(h_lord, 0.0),
+            'lord_nps': _nps_score_dict.get(h_lord, 0.0),
         }
 
     # ── 2. PLANET-WISE ANALYSIS ──
@@ -4318,6 +4322,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'dispositor_house': disp_house,
             'dispositor_status': disp_status,
             'dispositor_companions': disp_companions,
+            'nps': _nps_score_dict.get(p, 0.0),
+            'nps_adjusted': _nps_score_dict.get(p + '_adjusted', 0.0),
+            'total_strength': planet_final_strengths.get(p, 0.0),
+            'maraivu_adj_strength': _planet_maraivu_adj_strengths.get(p, 0.0),
         }
 
     # ── 3. BHAVA CHALIT (DASABHUKTI PERSPECTIVE) ──
@@ -4771,20 +4779,28 @@ if st.session_state.chart_data:
 
     # ── House-wise Analysis ──
     with st.expander("🏠 House-wise Analysis", expanded=False):
-        st.caption("Each house: its sign, lord placement, and occupants with their lordships.")
+        st.caption("Each house: sign, house points, lord placement (with strength), occupants with lordships.")
         hw_rows = []
         for h in range(1, 13):
             info = _hw.get(h, {})
             occ_str = ', '.join(info.get('occupants', [])) if info.get('occupants') else '—'
             lord_comp_str = ', '.join(info.get('lord_companions', [])) if info.get('lord_companions') else '—'
-            lord_note = f"{info.get('lord', '')} in House {info.get('lord_house', '')} ({info.get('lord_sign', '')}) [{info.get('lord_status', '')}]"
+            lord_str = info.get('lord_total_strength', 0.0)
+            lord_madj = info.get('lord_maraivu_adj', 0.0)
+            lord_nps = info.get('lord_nps', 0.0)
+            lord_note = (f"{info.get('lord', '')} in House {info.get('lord_house', '')} "
+                         f"({info.get('lord_sign', '')}) [{info.get('lord_status', '')}]")
             if info.get('lord_companions'):
                 lord_note += f" with {lord_comp_str}"
             hw_rows.append({
                 'House': h,
                 'Sign': info.get('sign', ''),
+                'House Points': f"{info.get('house_points', 0.0):.2f}",
                 'Occupants': occ_str,
                 'House Lord Placement': lord_note,
+                'Lord NPS': f"{lord_nps:.2f}" if lord_str else '—',
+                'Lord Total Strength': f"{lord_str:.2f}" if lord_str else '—',
+                'Lord Maraivu Adj Strength': f"{lord_madj:.2f}" if lord_madj else '—',
             })
         st.dataframe(pd.DataFrame(hw_rows), hide_index=True, use_container_width=True)
 
@@ -4814,12 +4830,20 @@ if st.session_state.chart_data:
             if info.get('dispositor_companions'):
                 disp_note += f" with {disp_comp}"
 
+            nps_val = info.get('nps', 0.0)
+            nps_adj = info.get('nps_adjusted', 0.0)
+            tot_str = info.get('total_strength', 0.0)
+            mar_adj = info.get('maraivu_adj_strength', 0.0)
             pw_rows.append({
                 'Planet': info.get('label', p),
                 'House': info.get('house', ''),
                 'Sign': info.get('sign', ''),
                 'Status': info.get('status', ''),
                 'Rules Houses': ruled_str,
+                'NPS': f"{nps_val:.2f}",
+                'NPS Adjusted': f"{nps_adj:.2f}" if nps_adj else '—',
+                'Total Strength': f"{tot_str:.2f}" if tot_str else '—',
+                'Maraivu Adj Strength': f"{mar_adj:.2f}" if mar_adj else '—',
                 'Co-Occupants': co_str,
                 'Dispositor': disp_note,
             })
@@ -4845,11 +4869,27 @@ if st.session_state.chart_data:
                 # Compute actual house number
                 actual_h = ((p_info.get('house', 1) - 1) + (h_rel - 1)) % 12 + 1
                 _hw_info = _hw.get(actual_h, {})
+                # Collect strength info for planets in this relative house
+                actual_occ = [op for op in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
+                              if _pw.get(op, {}).get('house', 0) == actual_h and op != _bc_planet_sel]
+                if h_rel == 1:
+                    actual_occ_for_str = [_bc_planet_sel] + actual_occ
+                else:
+                    actual_occ_for_str = actual_occ
+                str_parts = []
+                for _op in actual_occ_for_str:
+                    _op_str = _pw.get(_op, {}).get('total_strength', 0.0)
+                    _op_mad = _pw.get(_op, {}).get('maraivu_adj_strength', 0.0)
+                    if _op_str or _op_mad:
+                        str_parts.append(f"{_op}: Str {_op_str:.1f} / MAdj {_op_mad:.1f}")
+                str_note = '; '.join(str_parts) if str_parts else '—'
                 bc_rows.append({
                     'Relative House': h_rel,
                     'Actual House': actual_h,
                     'Sign': _hw_info.get('sign', ''),
+                    'House Points': f"{_hw_info.get('house_points', 0.0):.2f}",
                     'Planets': occ_str,
+                    'Planet Strengths': str_note,
                 })
             st.dataframe(pd.DataFrame(bc_rows), hide_index=True, use_container_width=True)
 
