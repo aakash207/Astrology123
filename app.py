@@ -2089,6 +2089,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     PLANET_SEQUENCE = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
     _jp_poison_notes = []  # Jupiter Poison diagnostic notes (initialized before loop)
+    _jp_poison_case_final = None  # Stores which case caused poison: 'CaseA_Venus' or 'CaseB_Moon'
     all_planet_clones = {}  # stores clones per planet, created simultaneously
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -2374,6 +2375,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         jupiter_poison_multiplier = _case_b_multiplier
                         jupiter_poison_case = 'CaseB_Moon'
                     _jp_poison_notes.append("[APPLIED] Winner: {} with multiplier {:.2%}".format(jupiter_poison_case, jupiter_poison_multiplier))
+                    _jp_poison_case_final = jupiter_poison_case  # propagate to outer scope
                 else:
                     _jp_poison_notes.append("[NOT APPLIED] Neither case qualified — no poison applied")
 
@@ -2725,18 +2727,23 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             all_leftover_clones.append(clone)
     
     # ---- JUPITER POISON POST-SHARING DEBT APPLICATION ----
-    # After all sharing is done, add -2 debt per unit of Jupiter Poison held
-    # This converts Jupiter Poison from appearing good during sharing to being penalised
+    # Debt multiplier depends on which case caused the poison:
+    #   CaseB_Moon  -> -1.0 per unit;  CaseA_Venus -> -0.5 per unit;  default (none) -> 0
+    _jp_debt_mult = 0.0
+    if _jp_poison_case_final == 'CaseB_Moon':
+        _jp_debt_mult = 1.0
+    elif _jp_poison_case_final == 'CaseA_Venus':
+        _jp_debt_mult = 0.5
     for _jp_p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         _jp_poison_held = phase5_data[_jp_p]['p5_inventory'].get('Jupiter Poison', 0.0)
         if _jp_poison_held > 0.001:
-            phase5_data[_jp_p]['p5_current_debt'] -= 2.0 * _jp_poison_held
+            phase5_data[_jp_p]['p5_current_debt'] -= _jp_debt_mult * _jp_poison_held
 
     # Apply debt to leftover clones holding Jupiter Poison
     for _jp_cl in all_leftover_clones:
         _jp_cl_poison = _jp_cl['inventory'].get('Jupiter Poison', 0.0)
         if _jp_cl_poison > 0.001:
-            _jp_cl['debt'] -= 2.0 * _jp_cl_poison
+            _jp_cl['debt'] -= _jp_debt_mult * _jp_cl_poison
 
     # ---- KETU ALONE & UNASPECTED CHECK ----
     # If Ketu is not conjuncted or aspected by any planet (within 22 degrees)
@@ -2785,9 +2792,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if abs(d_val) < 0.01: phase5_data[p]['debt_p5'] = "0.00"
         else: phase5_data[p]['debt_p5'] = f"{d_val:.2f}"
     
-    # Jupiter Poison penalty multipliers
-    poisonpenality = 3    # used in HPS (aspect + occupant) and NPS
-    poisonpenality_1 = 2  # used in Phase 5 Net Currency Score
+    # Jupiter Poison penalty multipliers (case-dependent)
+    # CaseB_Moon:  HPS/NPS = 2x, Net Score = 1x
+    # CaseA_Venus: HPS/NPS = 1x, Net Score = 0.5x
+    if _jp_poison_case_final == 'CaseB_Moon':
+        poisonpenality = 2    # used in HPS (aspect + occupant) and NPS
+        poisonpenality_1 = 1  # used in Phase 5 Net Currency Score
+    elif _jp_poison_case_final == 'CaseA_Venus':
+        poisonpenality = 1    # used in HPS (aspect + occupant) and NPS
+        poisonpenality_1 = 0.5  # used in Phase 5 Net Currency Score
+    else:
+        poisonpenality = 0    # no poison active
+        poisonpenality_1 = 0
 
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         d_p5 = phase5_data[p]
@@ -2811,14 +2827,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _jp_diag_rows.append([_note_idx, _note_line])
     # Post-sharing poison debt summary
     _jp_debt_notes = []
+    _jp_debt_notes.append("Poison Case: {} | Debt mult: {}x | Net Score mult: {}x | HPS/NPS mult: {}x".format(
+        _jp_poison_case_final or 'None', _jp_debt_mult, poisonpenality_1, poisonpenality))
     for _jdp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         _jdp_poison = phase5_data[_jdp]['p5_inventory'].get('Jupiter Poison', 0.0)
         if _jdp_poison > 0.001:
-            _jp_debt_notes.append("{}: holds {:.2f} Jupiter Poison -> debt penalty: {:.2f}".format(_jdp, _jdp_poison, -2.0 * _jdp_poison))
+            _jp_debt_notes.append("{}: holds {:.2f} Jupiter Poison -> debt penalty: {:.2f}".format(_jdp, _jdp_poison, -_jp_debt_mult * _jdp_poison))
     for _jcl_d in all_leftover_clones:
         _jcl_d_poison = _jcl_d['inventory'].get('Jupiter Poison', 0.0)
         if _jcl_d_poison > 0.001:
-            _jp_debt_notes.append("Clone({}_H{}): holds {:.2f} Jupiter Poison -> debt penalty: {:.2f}".format(_jcl_d['parent'], _jcl_d['offset'], _jcl_d_poison, -2.0 * _jcl_d_poison))
+            _jp_debt_notes.append("Clone({}_H{}): holds {:.2f} Jupiter Poison -> debt penalty: {:.2f}".format(_jcl_d['parent'], _jcl_d['offset'], _jcl_d_poison, -_jp_debt_mult * _jcl_d_poison))
     if _jp_debt_notes:
         _jp_diag_rows.append([len(_jp_diag_rows) + 1, "--- Post-Sharing Debt Application ---"])
         for _dbn in _jp_debt_notes:
@@ -3195,12 +3213,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         elif is_malefic and is_neecha:
             # Case D: Malefic, IS Negative Status
+            # Sun, Mars, Saturn use self_bad/2 (reduced self-bad for neecha/neechabhanga/neechabhanga raja yoga)
             denom_val = p_capacity * 1.2
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
+            elif p in {'Sun', 'Mars', 'Saturn'}:
+                sb_used = self_bad / 2.0
+                final_ns = ((net_score + sb_used) / denom_val) * 120
+                formula_type = f"CaseD: ((Net{net_score:.2f}+SB/2({sb_used:.2f}))/(Cap{p_capacity}*1.2))*120"
             else:
                 final_ns = ((net_score + self_bad) / denom_val) * 120
-            formula_type = f"CaseD: ((Net{net_score:.2f}+SB{self_bad:.2f})/(Cap{p_capacity}*1.2))*120"
+                formula_type = f"CaseD: ((Net{net_score:.2f}+SB{self_bad:.2f})/(Cap{p_capacity}*1.2))*120"
 
         elif not is_malefic and not is_neecha:
             # Case E: Benefic, NOT Negative Status
