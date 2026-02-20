@@ -2275,8 +2275,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             _such_l_grp = 'A' if _such_house_lord in _such_grp_a else 'B'
             _such_friendly = (_such_p_grp == _such_l_grp)
             _such_pos_status = _sp_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
+            # Saturn & Mars with negative status also earn full maraivu suchama
+            # (they additionally receive the Step-2 neecha bonus below,
+            #  so suchama is contributed for BOTH reasons)
+            _such_neg_status = _sp_eff_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+            _such_full_eligible = _such_friendly or _such_pos_status or (_such_neg_status and _sp in {'Saturn', 'Mars'})
 
-            if _such_friendly or _such_pos_status:
+            if _such_full_eligible:
                 _such_val = 0.0 if _sp == 'Sun' else (_sp_sthana / 100.0) * _sp_m_pct
             else:
                 _such_val = 0.0 if _sp == 'Sun' else 0.5 * (_sp_sthana / 100.0) * _sp_m_pct
@@ -3428,8 +3433,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
                 # Check if planet itself has positive status
                 has_positive_status = p_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
+                # Saturn & Mars with negative status earn full maraivu suchama
+                # (Step-2 still adds the neecha bonus, giving suchama for BOTH reasons)
+                _p_eff_status = planet_data[p].get('updated_status') or p_status
+                _has_neg_status = _p_eff_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+                _full_suchama_eligible = is_friendly_house or has_positive_status or (_has_neg_status and p in {'Saturn', 'Mars'})
 
-                if is_friendly_house or has_positive_status:
+                if _full_suchama_eligible:
                     # No reduction
                     adjusted = final_ns
                     # Suchama Score uses original m_pct (not reduced)
@@ -3455,7 +3465,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
-                _p_eff_status = planet_data[p].get('updated_status') or p_status
+                # (_p_eff_status already computed above)
                 _neg_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
                 if p != 'Sun' and _p_eff_status in _neg_statuses:
                     suchama += 0.5 * sthana_val
