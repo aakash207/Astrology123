@@ -3697,19 +3697,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
         columns=['Planet', 'Total Strength', 'Maraivu Adjusted Strength', 'Score Breakdown'])
 
-    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
-    # Update planet_data and rows with overridden Sthana Bala for negative-status planets
-    if _overridden_sthana:
-        for row in rows:
-            p_name = row[0]
-            if p_name in _overridden_sthana:
-                row[9] = f"{_overridden_sthana[p_name]:.2f}%"
-                planet_data[p_name]['sthana'] = _overridden_sthana[p_name]
-        # Recreate df_planets so it reflects the overridden Sthana Bala values
-        df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
-                                                 'Parivardhana',
-                                                 'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
-                                                 'Volume', 'Default Currencies', 'Debt'])
+    # Note: _overridden_sthana contains NPS values (0-120 scale) for negative-status planets.
+    # These are used ONLY within Planet Strengths calculation above.
+    # The Planetary Positions table (rows/df_planets) should continue showing actual Sthana Bala (0-100 scale).
     # ---- END PLANET STRENGTHS ----
 
     # ── 4. BUILD DATAFRAME ──
@@ -4226,6 +4216,127 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
     # ====== END LAGNA ANALYSIS TABLE ======
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # CHART ANALYSIS — House-wise, Planet-wise & Bhava Chalit Perspectives
+    # ═══════════════════════════════════════════════════════════════════════
+    _ALL_PLANETS = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
+    _ca_lagna_idx = sign_names.index(get_sign(lagna_sid))
+
+    # Helper: sign → house number (1-based)
+    def _sign_to_house(sign_str):
+        return (sign_names.index(sign_str) - _ca_lagna_idx) % 12 + 1
+
+    # Helper: houses ruled by a planet (empty for Rahu/Ketu)
+    def _houses_ruled(p):
+        ruled_signs = planet_ruled_signs.get(p, [])
+        return sorted([_sign_to_house(s) for s in ruled_signs])
+
+    # Pre-compute lordship label per planet  e.g. "Sun (5th lord)"
+    def _lord_label(p):
+        hrs = _houses_ruled(p)
+        if not hrs:
+            return p                    # Rahu / Ketu — no lordship
+        parts = []
+        for h in hrs:
+            suffix = {1:'st',2:'nd',3:'rd'}.get(h if h < 20 else h % 10, 'th')
+            parts.append(f"{h}{suffix}")
+        return f"{p} ({', '.join(parts)} lord)"
+
+    # ── 1. HOUSE-WISE ANALYSIS ──
+    _ca_house_wise = {}
+    for h in range(1, 13):
+        h_sign = sign_names[(_ca_lagna_idx + h - 1) % 12]
+        h_lord = sign_lords[sign_names.index(h_sign)]
+        h_lord_house = planet_house_map.get(h_lord, 0)
+        h_lord_sign = planet_sign_map.get(h_lord, '')
+
+        # Co-occupants where the house lord sits
+        h_lord_companions = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == h_lord_house and op != h_lord
+        ]
+
+        # Planets occupying this house (exclude Asc label)
+        occupants = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == h
+        ]
+
+        # Status of the house lord
+        h_lord_status = planet_data[h_lord].get('updated_status', '-')
+        if h_lord_status == '-':
+            h_lord_status = planet_data[h_lord].get('status', '-')
+
+        _ca_house_wise[h] = {
+            'sign': h_sign,
+            'lord': h_lord,
+            'lord_label': _lord_label(h_lord),
+            'lord_house': h_lord_house,
+            'lord_sign': h_lord_sign,
+            'lord_status': h_lord_status,
+            'lord_companions': h_lord_companions,
+            'occupants': occupants,
+        }
+
+    # ── 2. PLANET-WISE ANALYSIS ──
+    _ca_planet_wise = {}
+    for p in _ALL_PLANETS:
+        p_house = planet_house_map.get(p, 0)
+        p_sign = planet_sign_map.get(p, '')
+        p_status = planet_data[p].get('updated_status', '-')
+        if p_status == '-':
+            p_status = planet_data[p].get('status', '-')
+        p_ruled_houses = _houses_ruled(p)
+
+        # Co-occupants in the same house
+        co_occupants = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == p_house and op != p
+        ]
+
+        # Dispositor (lord of the sign planet sits in)
+        dispositor = get_sign_lord(p_sign) if p_sign else ''
+        disp_house = planet_house_map.get(dispositor, 0)
+        disp_companions = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == disp_house and op != dispositor
+        ]
+        disp_status = ''
+        if dispositor:
+            disp_status = planet_data[dispositor].get('updated_status', '-')
+            if disp_status == '-':
+                disp_status = planet_data[dispositor].get('status', '-')
+
+        _ca_planet_wise[p] = {
+            'house': p_house,
+            'sign': p_sign,
+            'status': p_status,
+            'ruled_houses': p_ruled_houses,
+            'label': _lord_label(p),
+            'co_occupants': co_occupants,
+            'dispositor': dispositor,
+            'dispositor_house': disp_house,
+            'dispositor_status': disp_status,
+            'dispositor_companions': disp_companions,
+        }
+
+    # ── 3. BHAVA CHALIT (DASABHUKTI PERSPECTIVE) ──
+    # Treat each planet's house as "1st house" and compute relative positions
+    _ca_bhava_chalit = {}
+    for p in _ALL_PLANETS:
+        p_house = planet_house_map.get(p, 0)
+        relative_map = {}   # relative_house_num -> list of planet labels
+        for h_rel in range(1, 13):
+            actual_house = ((p_house - 1) + (h_rel - 1)) % 12 + 1
+            occupants = [
+                _lord_label(op) for op in _ALL_PLANETS
+                if planet_house_map.get(op, 0) == actual_house and op != p
+            ]
+            if h_rel == 1:
+                occupants.insert(0, f"★ {_lord_label(p)}")   # mark the planet itself
+            relative_map[h_rel] = occupants
+        _ca_bhava_chalit[p] = relative_map
+
     return {
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
@@ -4247,7 +4358,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'nav_lagna_sign': get_sign(nav_lagna), 'moon_rasi': get_sign(moon_lon),
         'moon_nakshatra': get_nakshatra_details(moon_lon)[0], 'moon_pada': get_nakshatra_details(moon_lon)[1],
         'selected_depth': depth_map[max_depth], 'utc_dt': utc_dt, 'max_depth': max_depth,
-        'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav
+        'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav,
+        'chart_house_wise': _ca_house_wise,
+        'chart_planet_wise': _ca_planet_wise,
+        'chart_bhava_chalit': _ca_bhava_chalit,
     }
 
 # South Indian plotter
@@ -4644,6 +4758,100 @@ if st.session_state.chart_data:
                                 tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
                         st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
             except Exception as e: st.error(f"Error: {e}")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # CHART ANALYSIS — House-wise, Planet-wise & Bhava Chalit Perspectives
+    # ═══════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.subheader("Chart Analysis — Multiple Perspectives")
+
+    _hw = cd.get('chart_house_wise', {})
+    _pw = cd.get('chart_planet_wise', {})
+    _bc = cd.get('chart_bhava_chalit', {})
+
+    # ── House-wise Analysis ──
+    with st.expander("🏠 House-wise Analysis", expanded=False):
+        st.caption("Each house: its sign, lord placement, and occupants with their lordships.")
+        hw_rows = []
+        for h in range(1, 13):
+            info = _hw.get(h, {})
+            occ_str = ', '.join(info.get('occupants', [])) if info.get('occupants') else '—'
+            lord_comp_str = ', '.join(info.get('lord_companions', [])) if info.get('lord_companions') else '—'
+            lord_note = f"{info.get('lord', '')} in House {info.get('lord_house', '')} ({info.get('lord_sign', '')}) [{info.get('lord_status', '')}]"
+            if info.get('lord_companions'):
+                lord_note += f" with {lord_comp_str}"
+            hw_rows.append({
+                'House': h,
+                'Sign': info.get('sign', ''),
+                'Occupants': occ_str,
+                'House Lord Placement': lord_note,
+            })
+        st.dataframe(pd.DataFrame(hw_rows), hide_index=True, use_container_width=True)
+
+    # ── Planet-wise Analysis ──
+    with st.expander("🪐 Planet-wise Analysis", expanded=False):
+        st.caption("Each planet: placement, lordships, co-occupants, and dispositor chain.")
+        pw_rows = []
+        for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+            info = _pw.get(p, {})
+            ruled = info.get('ruled_houses', [])
+            if ruled:
+                ruled_parts = []
+                for rh in ruled:
+                    sfx = {1:'st',2:'nd',3:'rd'}.get(rh if rh < 20 else rh % 10, 'th')
+                    ruled_parts.append(f"{rh}{sfx}")
+                ruled_str = ', '.join(ruled_parts)
+            else:
+                ruled_str = '—'
+
+            co_str = ', '.join(info.get('co_occupants', [])) if info.get('co_occupants') else '—'
+
+            disp = info.get('dispositor', '')
+            disp_h = info.get('dispositor_house', 0)
+            disp_st = info.get('dispositor_status', '')
+            disp_comp = ', '.join(info.get('dispositor_companions', [])) if info.get('dispositor_companions') else '—'
+            disp_note = f"{disp} in House {disp_h} [{disp_st}]"
+            if info.get('dispositor_companions'):
+                disp_note += f" with {disp_comp}"
+
+            pw_rows.append({
+                'Planet': info.get('label', p),
+                'House': info.get('house', ''),
+                'Sign': info.get('sign', ''),
+                'Status': info.get('status', ''),
+                'Rules Houses': ruled_str,
+                'Co-Occupants': co_str,
+                'Dispositor': disp_note,
+            })
+        st.dataframe(pd.DataFrame(pw_rows), hide_index=True, use_container_width=True)
+
+    # ── Bhava Chalit (Dasabhukti Perspective) ──
+    with st.expander("🔄 Bhava Chalit — Dasabhukti Perspective", expanded=False):
+        st.caption("Treat each planet's house as 1st and see all other planets' relative positions.")
+        _bc_planet_sel = st.selectbox(
+            "Select Planet to view from its perspective:",
+            ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu'],
+            key='bc_planet_sel'
+        )
+        if _bc_planet_sel and _bc_planet_sel in _bc:
+            rel_map = _bc[_bc_planet_sel]
+            p_info = _pw.get(_bc_planet_sel, {})
+            st.markdown(f"**{p_info.get('label', _bc_planet_sel)}** sits in **House {p_info.get('house', '')}** ({p_info.get('sign', '')}). "
+                        f"Viewing all planets relative to this position:")
+            bc_rows = []
+            for h_rel in range(1, 13):
+                occupants = rel_map.get(h_rel, [])
+                occ_str = ', '.join(occupants) if occupants else '—'
+                # Compute actual house number
+                actual_h = ((p_info.get('house', 1) - 1) + (h_rel - 1)) % 12 + 1
+                _hw_info = _hw.get(actual_h, {})
+                bc_rows.append({
+                    'Relative House': h_rel,
+                    'Actual House': actual_h,
+                    'Sign': _hw_info.get('sign', ''),
+                    'Planets': occ_str,
+                })
+            st.dataframe(pd.DataFrame(bc_rows), hide_index=True, use_container_width=True)
 
     # ====== EXPORT ALL DATA AS JSON ======
     st.markdown("---")
