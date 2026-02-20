@@ -2278,10 +2278,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             _such_friendly = (_such_p_grp == _such_l_grp)
             _such_pos_status = _sp_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
             # Saturn & Mars with negative status also earn full maraivu suchama
-            # (they additionally receive the Step-2 neecha bonus below,
-            #  so suchama is contributed for BOTH reasons)
+            # Also check raw status since updated_status may still be '-'
             _such_neg_status = _sp_eff_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-            _such_full_eligible = _such_friendly or _such_pos_status or (_such_neg_status and _sp in {'Saturn', 'Mars'})
+            _such_neg_from_raw = _sp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+            _such_is_neg = _such_neg_status or _such_neg_from_raw
+            _such_full_eligible = _such_friendly or _such_pos_status or (_such_is_neg and _sp in {'Saturn', 'Mars'})
 
             if _such_full_eligible:
                 _such_val = 0.0 if _sp == 'Sun' else (_sp_sthana / 100.0) * _sp_m_pct
@@ -2293,9 +2294,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         if _sp_dig_bala > 92:
             _such_val += 0.5 * _sp_sthana
 
-        # Neecha bonus (not for Sun)
+        # Neecha bonus (not for Sun) — also check raw status
         _such_neg_sts = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-        if _sp != 'Sun' and _sp_eff_status in _such_neg_sts:
+        if _sp != 'Sun' and (_sp_eff_status in _such_neg_sts or _sp_status in _such_neg_sts):
             _such_val += 0.5 * _sp_sthana
 
         _pre_suchama[_sp] = _such_val
@@ -3256,6 +3257,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     nps_rows = []
     _nps_score_dict = {}  # planet -> raw final_ns value for use in Planet Strengths
     _suchama_score_dict = {}  # planet -> raw suchama value
+    _suchama_notes_dict = {}  # planet -> notes string
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         inv = phase5_data[p]['p5_inventory']
         p5_debt = phase5_data[p]['p5_current_debt']
@@ -3493,9 +3495,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     _such_notes.append(f"  - Step2 SKIPPED (eff='{_p_eff_status}', raw='{p_status}', isSun={p=='Sun'})")
 
                 _such_notes.append(f"  = TOTAL SUCHAMA: {suchama:.2f}")
-                # Print diagnostic
-                for _sn in _such_notes:
-                    print(_sn)
+                _suchama_notes_dict[p] = ' | '.join(_such_notes)
 
                 suchama_str = f"{suchama:.2f}"
                 _suchama_score_dict[p] = suchama
@@ -3507,10 +3507,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 final_adjusted_score = adjusted
                 adjusted_str = f"{adjusted:.2f}"
                 suchama = 0.0
+                _such_notes_no_m = [f"[{p}] No maraivu (house={p_house})"]
 
                 # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
                 if p_dig_bala > 92:
                     suchama += 0.5 * sthana_val
+                    _such_notes_no_m.append(f"Step1 Digbala({p_dig_bala}>92): +0.5*{sthana_val}={0.5*sthana_val:.2f}")
 
                 # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
                 _p_eff_status2 = planet_data[p].get('updated_status', '-')
@@ -3518,7 +3520,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 _neg_statuses2 = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
                 if p != 'Sun' and (_p_eff_status2 in _neg_statuses2 or p_status in _neg_statuses2):
                     suchama += 0.5 * sthana_val
+                    _such_notes_no_m.append(f"Step2 NegStatus('{_p_eff_status2}'): +0.5*{sthana_val}={0.5*sthana_val:.2f}")
 
+                _such_notes_no_m.append(f"TOTAL={suchama:.2f}")
+                _suchama_notes_dict[p] = ' | '.join(_such_notes_no_m)
                 suchama_str = f"{suchama:.2f}"
                 _suchama_score_dict[p] = suchama
         else:
@@ -3596,8 +3601,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _suchama_rows = []
     for _sp in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
         _sv = _suchama_score_dict.get(_sp, 0.0)
-        _suchama_rows.append([_sp, f"{_sv:.2f}"])
-    df_suchama_scores = pd.DataFrame(_suchama_rows, columns=['Planet', 'Suchama Score'])
+        _sn = _suchama_notes_dict.get(_sp, 'Benefic (no suchama)')
+        _suchama_rows.append([_sp, f"{_sv:.2f}", _sn])
+    df_suchama_scores = pd.DataFrame(_suchama_rows, columns=['Planet', 'Suchama Score', 'Notes'])
 
     # ---- NEECHAM STATUS UPGRADE BASED ON FINAL NORMALIZED SCORE ----
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
