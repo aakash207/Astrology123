@@ -199,7 +199,7 @@ def compute_positions_swisseph(utc_dt, lat, lon):
 
     # Rahu = True Node (matches most modern Jyotish software)
     result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
-    
+
     lon_trop['rahu'] = result[0]
     lon_trop['ketu'] = (result[0] + 180.0) % 360.0
 
@@ -329,8 +329,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
                 ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic()); lon_trop[nm] = ecl.lon.deg
         d = jd - 2451545.0; T = d/36525.0
-        omega = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
-        lon_trop['rahu'] = omega; lon_trop['ketu'] = (omega + 180) % 360
+        # Mean Node (IAU polynomial)
+        omega_mean = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
+        # Convert Mean Node → True Node via 5 main perturbation terms (Meeus, Astronomical Algorithms)
+        # Fundamental arguments
+        Ls   = (280.4665  + 36000.7698    * T) % 360   # mean longitude of Sun
+        D    = (297.85036 + 445267.111480 * T) % 360   # mean elongation of Moon
+        Mp   = (134.96298 + 477198.867398 * T) % 360   # mean anomaly of Moon (M')
+        omega_r = radians(omega_mean)
+        Ls_r    = radians(Ls)
+        D_r     = radians(D)
+        Mp_r    = radians(Mp)
+        delta = (-1.4979 * sin(omega_r)
+                 - 0.1500 * sin(2 * Ls_r)
+                 - 0.1226 * sin(2 * D_r)
+                 + 0.1013 * sin(2 * omega_r)
+                 - 0.0344 * sin(Mp_r))
+        omega_true = (omega_mean + delta) % 360
+        lon_trop['rahu'] = omega_true; lon_trop['ketu'] = (omega_true + 180) % 360
         lon_sid = {p: get_sidereal_lon(lon_trop[p], ayan) for p in lon_trop}
         lagna_sid = get_sidereal_lon(get_ascendant(jd, lat, lon), ayan)
     
