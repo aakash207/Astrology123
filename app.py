@@ -2220,6 +2220,86 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         all_planet_clones[current_planet] = clones
 
     # ═══════════════════════════════════════════════════════════════════════
+    # SUCHAMA DEBT REDUCTION: Reduce clone debt & bad currencies using
+    # parent planet's suchama, immediately after clone creation.
+    # Suchama capped at 100.  Only applies when clone debt is negative.
+    # Bad currencies in clone reduced by the same percentage as the debt.
+    # ═══════════════════════════════════════════════════════════════════════
+    _pre_suchama = {}
+    _such_grp_a = {'Sun', 'Moon', 'Mars', 'Jupiter', 'Ketu'}
+    _such_malefic_set = {'Sun', 'Mars', 'Saturn', 'Rahu', 'Ketu'}
+
+    for _sp in PLANET_SEQUENCE:
+        _pre_suchama[_sp] = 0.0
+
+        # Suchama applies only to malefic planets (same rule as NPS section)
+        _sp_is_malefic = (
+            _sp in _such_malefic_set
+            or (_sp == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
+        )
+        if not _sp_is_malefic:
+            continue
+
+        _sp_sign = planet_sign_map.get(_sp, 'Aries')
+        _sp_sthana = sthana_bala_dict.get(_sp, [0]*12)[sign_names.index(_sp_sign)]
+        _sp_house = planet_house_map.get(_sp, 0)
+        _sp_m_pct = maraivu_percentage.get(_sp, {}).get(_sp_house, None)
+        _sp_dig_bala = planet_data[_sp].get('dig_bala') or 0
+        _sp_status = planet_status_map.get(_sp, '-')
+        _sp_eff_status = planet_data[_sp].get('updated_status') or _sp_status
+
+        _such_val = 0.0
+        if _sp_m_pct is not None:
+            # Check friendly house
+            _such_lagna_sign = get_sign(lagna_sid)
+            _such_house_sign = sign_names[(sign_names.index(_such_lagna_sign) + (_sp_house - 1)) % 12]
+            _such_house_lord = sign_lords[sign_names.index(_such_house_sign)]
+            _such_p_grp = 'A' if _sp in _such_grp_a else 'B'
+            _such_l_grp = 'A' if _such_house_lord in _such_grp_a else 'B'
+            _such_friendly = (_such_p_grp == _such_l_grp)
+            _such_pos_status = _sp_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
+
+            if _such_friendly or _such_pos_status:
+                _such_val = 0.0 if _sp == 'Sun' else (_sp_sthana / 100.0) * _sp_m_pct
+            else:
+                _such_val = 0.0 if _sp == 'Sun' else 0.5 * (_sp_sthana / 100.0) * _sp_m_pct
+        # else: no maraivu, _such_val stays 0.0
+
+        # Digbala bonus
+        if _sp_dig_bala > 92:
+            _such_val += 0.5 * _sp_sthana
+
+        # Neecha bonus (not for Sun)
+        _such_neg_sts = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+        if _sp != 'Sun' and _sp_eff_status in _such_neg_sts:
+            _such_val += 0.5 * _sp_sthana
+
+        _pre_suchama[_sp] = _such_val
+
+    # Apply suchama reduction to each clone's debt and bad currencies
+    for _sp, _sp_clones in all_planet_clones.items():
+        _eff_such = min(_pre_suchama.get(_sp, 0.0), 100.0)   # cap at 100
+        if _eff_such < 0.001:
+            continue
+        for _cl in _sp_clones:
+            if _cl['debt'] >= 0:
+                continue   # only reduce negative (debtor) clones
+
+            _orig_debt = _cl['debt']                           # negative value
+            _reduction = min(_eff_such, abs(_orig_debt))       # don't overshoot 0
+            _pct = _reduction / abs(_orig_debt)                # e.g. 20/100 = 0.20
+
+            _cl['debt'] = _orig_debt + _reduction              # less negative
+
+            # Reduce every Bad currency by the same percentage
+            for _ck in list(_cl['inventory'].keys()):
+                if 'Bad' in _ck and _cl['inventory'][_ck] > 0.001:
+                    _cl['inventory'][_ck] *= (1.0 - _pct)
+            for _ck in list(_cl['original_inventory'].keys()):
+                if 'Bad' in _ck and _cl['original_inventory'][_ck] > 0.001:
+                    _cl['original_inventory'][_ck] *= (1.0 - _pct)
+
+    # ═══════════════════════════════════════════════════════════════════════
     # PASS 2: CURRENCY EXCHANGE (sequential, in original PLANET_SEQUENCE order)
     # Jupiter Poison + Interaction Cycle + Logging, using the pre-created clones.
     # ═══════════════════════════════════════════════════════════════════════
@@ -3195,12 +3275,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
             # Case B: Waxing Moon, IS Negative Status
             swapped_debt = -1 * p5_debt
-            denom_val = total_good + swapped_debt
+            denom_val = p_capacity * 1.2
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
             else:
                 final_ns = ((total_good - swapped_debt) / denom_val) * 120
-            formula_type = f"CaseB: [(TG{total_good:.2f}-SD{swapped_debt:.2f})/(TG{total_good:.2f}+SD{swapped_debt:.2f})]*120"
+            formula_type = f"CaseB: (TG{total_good:.2f}-SD{swapped_debt:.2f})/(Cap{p_capacity}*1.2)*120"
 
         elif not is_malefic and is_neecha:
             # Case C: Benefic, IS Negative Status
