@@ -2263,7 +2263,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _sp_m_pct = maraivu_percentage.get(_sp, {}).get(_sp_house, None)
         _sp_dig_bala = planet_data[_sp].get('dig_bala') or 0
         _sp_status = planet_status_map.get(_sp, '-')
-        _sp_eff_status = planet_data[_sp].get('updated_status') or _sp_status
+        _sp_updated_raw = planet_data[_sp].get('updated_status', '-')
+        # Fix: '-' is truthy but means "no status" — treat it as empty
+        _sp_eff_status = _sp_updated_raw if _sp_updated_raw not in ('-', '', None) else _sp_status
 
         _such_val = 0.0
         if _sp_m_pct is not None:
@@ -3435,9 +3437,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 has_positive_status = p_status in ('Uchcham', 'Aatchi', 'Moolathirigonam')
                 # Saturn & Mars with negative status earn full maraivu suchama
                 # (Step-2 still adds the neecha bonus, giving suchama for BOTH reasons)
-                _p_eff_status = planet_data[p].get('updated_status') or p_status
+                _p_updated_raw = planet_data[p].get('updated_status', '-')
+                # Fix: '-' is truthy but means "no status" — fall back to original status
+                _p_eff_status = _p_updated_raw if _p_updated_raw not in ('-', '', None) else p_status
                 _has_neg_status = _p_eff_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-                _full_suchama_eligible = is_friendly_house or has_positive_status or (_has_neg_status and p in {'Saturn', 'Mars'})
+                # Also check raw status (Neecham) since updated_status may not be set yet
+                _has_neg_from_raw = p_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+                _is_neg = _has_neg_status or _has_neg_from_raw
+                _full_suchama_eligible = is_friendly_house or has_positive_status or (_is_neg and p in {'Saturn', 'Mars'})
+
+                # ---- SUCHAMA DIAGNOSTIC NOTES ----
+                _such_notes = []
+                _such_notes.append(f"[{p}] House={p_house}, m_pct={m_pct}, sthana={sthana_val}")
+                _such_notes.append(f"  p_status='{p_status}', updated_raw='{_p_updated_raw}', eff_status='{_p_eff_status}'")
+                _such_notes.append(f"  friendly_house={is_friendly_house}, pos_status={has_positive_status}, neg={_is_neg}, full_eligible={_full_suchama_eligible}")
 
                 if _full_suchama_eligible:
                     # No reduction
@@ -3446,8 +3459,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     # Sun gets suchama only from digbala, not from maraivu
                     if p == 'Sun':
                         suchama = 0.0
+                        _such_notes.append(f"  → FULL path (Sun excluded): suchama=0")
                     else:
                         suchama = (sthana_val / 100.0) * m_pct
+                        _such_notes.append(f"  → FULL maraivu suchama: ({sthana_val}/100)*{m_pct} = {suchama:.2f}")
                 else:
                     # Reduce using updated maraivu %
                     if final_ns < 0:
@@ -3457,18 +3472,30 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     # Enemy house: give half the maraivu suchama (not for Sun)
                     if p == 'Sun':
                         suchama = 0.0
+                        _such_notes.append(f"  → HALF path (Sun excluded): suchama=0")
                     else:
                         suchama = 0.5 * (sthana_val / 100.0) * m_pct
+                        _such_notes.append(f"  → HALF maraivu suchama: 0.5*({sthana_val}/100)*{m_pct} = {suchama:.2f}")
 
                 # Step 1: If Digbala > 92%, add 0.5 * Sthana Balam
                 if p_dig_bala > 92:
                     suchama += 0.5 * sthana_val
+                    _such_notes.append(f"  + Step1 Digbala({p_dig_bala}>92): +0.5*{sthana_val} = +{0.5*sthana_val:.2f}")
 
                 # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
-                # (_p_eff_status already computed above)
+                # (_p_eff_status already computed above; also check raw p_status)
                 _neg_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-                if p != 'Sun' and _p_eff_status in _neg_statuses:
+                _step2_fires = p != 'Sun' and (_p_eff_status in _neg_statuses or p_status in _neg_statuses)
+                if _step2_fires:
                     suchama += 0.5 * sthana_val
+                    _such_notes.append(f"  + Step2 NegStatus(eff='{_p_eff_status}',raw='{p_status}'): +0.5*{sthana_val} = +{0.5*sthana_val:.2f}")
+                else:
+                    _such_notes.append(f"  - Step2 SKIPPED (eff='{_p_eff_status}', raw='{p_status}', isSun={p=='Sun'})")
+
+                _such_notes.append(f"  = TOTAL SUCHAMA: {suchama:.2f}")
+                # Print diagnostic
+                for _sn in _such_notes:
+                    print(_sn)
 
                 suchama_str = f"{suchama:.2f}"
                 _suchama_score_dict[p] = suchama
@@ -3486,9 +3513,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     suchama += 0.5 * sthana_val
 
                 # Step 2: If planet (not Sun) has Neecham/Neechabhangam/Neechabhanga Raja Yoga, add 0.5 * Sthana Balam
-                _p_eff_status2 = planet_data[p].get('updated_status') or p_status
+                _p_eff_status2 = planet_data[p].get('updated_status', '-')
+                _p_eff_status2 = _p_eff_status2 if _p_eff_status2 not in ('-', '', None) else p_status
                 _neg_statuses2 = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-                if p != 'Sun' and _p_eff_status2 in _neg_statuses2:
+                if p != 'Sun' and (_p_eff_status2 in _neg_statuses2 or p_status in _neg_statuses2):
                     suchama += 0.5 * sthana_val
 
                 suchama_str = f"{suchama:.2f}"
