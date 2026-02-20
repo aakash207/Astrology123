@@ -197,8 +197,9 @@ def compute_positions_swisseph(utc_dt, lat, lon):
         result, _flag = swe.calc_ut(jd, pid)
         lon_trop[name] = result[0]  # tropical longitude
 
-    # Rahu = Mean Node (Vedic/Jyotish standard; True Node oscillates ±1.7° causing sign errors)
-    result, _flag = swe.calc_ut(jd, swe.MEAN_NODE)
+    # Rahu = True Node (matches most modern Jyotish software)
+    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
+    
     lon_trop['rahu'] = result[0]
     lon_trop['ketu'] = (result[0] + 180.0) % 360.0
 
