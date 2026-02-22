@@ -3757,6 +3757,101 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # The Planetary Positions table (rows/df_planets) should continue showing actual Sthana Bala (0-100 scale).
     # ---- END PLANET STRENGTHS ----
 
+    # ---- PLANET CATEGORY TABLE (A / B / C) ----
+    _cat_rows = []
+    for _cat_p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        # --- Step 1: Evaluate Planetary Strength (Strong / Weak / Neutral) ---
+        _cat_status = planet_data[_cat_p].get('status', '-')
+        _cat_updated = planet_data[_cat_p].get('updated_status', '-')
+        _cat_eff = _cat_updated if _cat_updated not in ('-', '', None) else _cat_status
+        _cat_db = planet_data[_cat_p].get('dig_bala') or 0
+
+        _strong_statuses = {'Uchcham', 'Moolathirigonam', 'Aatchi'}
+        _has_strong_status = _cat_status in _strong_statuses
+        _has_dig_balam = _cat_db > 91
+        _is_neechabhanga_ry = _cat_eff == 'Neechabhanga Raja Yoga'
+        _is_neecham = (_cat_status == 'Neecham')
+        _is_neechabhangam = _cat_eff in ('Neechabhangam', 'Neechabhanga Raja Yoga')
+        _is_nishbalam = _cat_db < 10
+
+        # Base determination
+        if _has_strong_status or _has_dig_balam or _is_neechabhanga_ry:
+            _cat_strength = 'Strong'
+            _cat_s_reason = []
+            if _has_strong_status: _cat_s_reason.append(_cat_status)
+            if _has_dig_balam: _cat_s_reason.append(f'DigBala {_cat_db}%')
+            if _is_neechabhanga_ry: _cat_s_reason.append('Neechabhanga Raja Yoga')
+            _cat_s_reason_str = ', '.join(_cat_s_reason)
+        elif _is_neecham or _is_nishbalam:
+            _cat_strength = 'Weak'
+            _cat_s_reason = []
+            if _is_neecham: _cat_s_reason.append('Neecham')
+            if _is_nishbalam: _cat_s_reason.append(f'DigBala {_cat_db}% < 10')
+            _cat_s_reason_str = ', '.join(_cat_s_reason)
+        else:
+            _cat_strength = 'Neutral'
+            _cat_s_reason_str = f'Status: {_cat_status}, DigBala: {_cat_db}%'
+
+        # Overrides (take precedence)
+        # Uchcham + Nishbalam => Neutral
+        if _cat_status == 'Uchcham' and _is_nishbalam:
+            _cat_strength = 'Neutral'
+            _cat_s_reason_str = f'Uchcham + Nishbalam (DigBala {_cat_db}%)'
+        # Neecham + DigBala > 91% => Neutral
+        if _is_neecham and _has_dig_balam:
+            _cat_strength = 'Neutral'
+            _cat_s_reason_str = f'Neecham + DigBala {_cat_db}% > 91'
+        # Neechabhangam (not Raja Yoga) => Neutral
+        if _cat_eff == 'Neechabhangam':
+            _cat_strength = 'Neutral'
+            _cat_s_reason_str = 'Neechabhangam'
+
+        # --- Step 2: Evaluate Planetary Nature (Benefic / Malefic / Neutral) ---
+        _cat_nps = _nps_score_dict.get(_cat_p, 0.0)
+        if _cat_nps > 90:
+            _cat_nature = 'Benefic'
+            _cat_n_reason = f'NPS {_cat_nps:.2f} > 90'
+        elif _cat_nps < 60:
+            _cat_nature = 'Malefic'
+            _cat_n_reason = f'NPS {_cat_nps:.2f} < 60'
+        else:
+            _cat_nature = 'Neutral'
+            _cat_n_reason = f'NPS {_cat_nps:.2f} (60-90)'
+
+        # --- Step 3: Assign Final Category ---
+        _cat_matrix = {
+            ('Strong',  'Benefic'): 'A',
+            ('Strong',  'Neutral'): 'A',
+            ('Strong',  'Malefic'): 'B',
+            ('Neutral', 'Benefic'): 'A',
+            ('Neutral', 'Neutral'): 'B',
+            ('Neutral', 'Malefic'): 'C',
+            ('Weak',    'Benefic'): 'B',
+            ('Weak',    'Neutral'): 'C',
+            ('Weak',    'Malefic'): 'C',
+        }
+        _cat_final = _cat_matrix.get((_cat_strength, _cat_nature), 'C')
+
+        _cat_rows.append([
+            _cat_p,
+            _cat_status,
+            _cat_eff,
+            f"{_cat_db}%",
+            f"{_cat_nps:.2f}",
+            _cat_strength,
+            _cat_s_reason_str,
+            _cat_nature,
+            _cat_n_reason,
+            _cat_final
+        ])
+
+    df_planet_categories = pd.DataFrame(_cat_rows, columns=[
+        'Planet', 'Status', 'Effective Status', 'Dig Bala',
+        'Normalized Score', 'Strength', 'Strength Reason',
+        'Nature', 'Nature Reason', 'Category'
+    ])
+    # ---- END PLANET CATEGORY TABLE ----
+
     # ── 4. BUILD DATAFRAME ──
     hp_rows = []
     _house_total_points = {}  # house_number -> raw total_hp
@@ -4415,6 +4510,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
+        'df_planet_categories': df_planet_categories,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -4660,6 +4756,9 @@ def build_export_json(cd):
     # ── 12. Planet Strengths ──
     data['planet_strengths'] = cd['df_planet_strengths'].to_dict(orient='records')
 
+    # ── 12b. Planet Categories ──
+    data['planet_categories'] = cd['df_planet_categories'].to_dict(orient='records')
+
     # ── 13. Lagna Point Score Simulation ──
     data['lagna_simulation'] = cd['df_bonus'].to_dict(orient='records')
 
@@ -4738,6 +4837,9 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Strengths")
     st.dataframe(cd['df_planet_strengths'], hide_index=True, use_container_width=True)
+
+    st.subheader("Planet Categories (A / B / C)")
+    st.dataframe(cd['df_planet_categories'], hide_index=True, use_container_width=True)
 
     st.subheader("Lagna Point Score Simulation")
     st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
