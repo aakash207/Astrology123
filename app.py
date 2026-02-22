@@ -3360,15 +3360,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         else:
             # Case F: Malefic, NOT Negative Status
+            # Formula: [(Total Good - Total Debt) / Volume] x 100
+            _abs_debt = abs(p5_debt)
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                if p == 'Ketu':
-                    final_ns = (net_score / p_volume) * 100
-                    formula_type = f"CaseF: (Net{net_score:.2f}/Vol{p_volume:.2f})*100 [Ketu: SB excluded]"
-                else:
-                    final_ns = ((net_score + self_bad) / p_volume) * 100
-                    formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
+                final_ns = ((total_good - _abs_debt) / p_volume) * 100
+                formula_type = f"CaseF: ((TG{total_good:.2f}-Debt{_abs_debt:.2f})/Vol{p_volume:.2f})*100"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
