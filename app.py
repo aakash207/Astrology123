@@ -66,15 +66,16 @@ sign_lords = ['Mars','Venus','Mercury','Moon','Sun','Mercury','Venus','Mars','Ju
 
 # Sthana Bala Dict
 sthana_bala_dict = {
-    'Sun': [100,90,80,70,60,50,40,50,60,70,80,90],
-    'Moon': [70,100,70,80,70,60,50,40,50,60,60,70], 
-    'Jupiter': [60,60,70,100,90,60,75,60,80,40,50,80],
-    'Venus': [60,70,60,50,40,35,80,50,60,80,70,100],
-    'Mercury': [40,60,70,45,60,100,60,45,55,50,45,35],
-    'Mars': [80,70,45,35,60,45,50,60,60,100,90,60],
-    'Saturn': [35,50,60,70,80,60,100,90,50,60,80,50],
-    'Rahu': [100]*12,
-    'Ketu': [100]*12
+    # Houses: Aries, Taurus, Gemini, Cancer, Leo, Virgo, Libra, Scorpio, Sagittarius, Capricorn, Aquarius, Pisces
+    'Sun':     [100, 90, 80, 70, 60, 50, 40, 50, 60, 70, 80, 90],
+    'Moon':    [ 70,100, 70, 80, 70, 60, 50, 40, 50, 60, 60, 70],
+    'Jupiter': [ 60, 60, 70,100, 90, 60, 60, 70, 90, 40, 50, 80],
+    'Venus':   [ 60, 80, 60, 50, 40, 30, 90, 50, 60, 70, 60,100],
+    'Mercury': [ 40, 60, 80, 50, 70,100, 70, 50, 50, 60, 50, 30],
+    'Mars':    [ 80, 70, 50, 40, 70, 50, 50, 60, 70,100, 90, 60],
+    'Saturn':  [ 40, 50, 60, 70, 80, 60,100, 90, 50, 80, 90, 50],
+    'Rahu':    [100]*12,
+    'Ketu':    [100]*12
 }
 
 # Status Mapping
@@ -595,16 +596,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if planet_cap == 'Moon': key = "Bad Moon"
                 planet_data[planet_cap]['final_inventory'][key] = bad_val
 
-    # Mars in Leo: 100% Good Mars, no Bad Mars, no debt
+    # Mars in Leo: 75% Good Mars, 25% Bad Mars (benefic-dominant but not fully pure)
     if planet_data['Mars']['sign'] == 'Leo':
         _mars_good = planet_data['Mars']['final_inventory'].get('Good Mars', 0.0)
         _mars_bad = planet_data['Mars']['final_inventory'].get('Bad Mars', 0.0)
         _mars_total = _mars_good + _mars_bad
-        planet_data['Mars']['final_inventory']['Good Mars'] = _mars_total
-        planet_data['Mars']['final_inventory'].pop('Bad Mars', None)
-        planet_data['Mars']['current_debt'] = 0.0
-        planet_data['Mars']['default_currency'] = f"Good Mars[{_mars_total:.2f}]"
-        planet_data['Mars']['debt'] = "0.00"
+        _mars_new_good = _mars_total * 0.75
+        _mars_new_bad  = _mars_total * 0.25
+        planet_data['Mars']['final_inventory']['Good Mars'] = _mars_new_good
+        planet_data['Mars']['final_inventory']['Bad Mars']  = _mars_new_bad
+        planet_data['Mars']['current_debt'] = -_mars_new_bad
+        planet_data['Mars']['default_currency'] = f"Good Mars[{_mars_new_good:.2f}], Bad Mars[{_mars_new_bad:.2f}]"
+        planet_data['Mars']['debt'] = f"{-_mars_new_bad:.2f}"
 
     # Saturn in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Good Saturn)
     if planet_data['Saturn']['sign'] == 'Taurus':
@@ -3030,9 +3033,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     aspect_score[target_sign] -= penalty
                     aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2 [Lagna])")
                 else:
-                    penalty = abs(clone['debt'])
-                    aspect_score[target_sign] -= penalty
-                    aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
+                    # Mars aspecting Leo: exclude self-bad (Bad Mars) from debt penalty;
+                    # only carry grabbed/other debts into the aspect score.
+                    if parent == 'Mars' and target_sign == 'Leo':
+                        _mars_selfbad = clone['inventory'].get('Bad Mars', 0.0)
+                        penalty = max(abs(clone['debt']) - _mars_selfbad, 0.0)
+                        if penalty > 0.001:
+                            aspect_score[target_sign] -= penalty
+                            aspect_sources[target_sign].append(f"{parent}(Malefic Debt excl. SelfBad [Leo])")
+                    else:
+                        penalty = abs(clone['debt'])
+                        aspect_score[target_sign] -= penalty
+                        aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
             own_key = _own_good_key.get(parent)
             if own_key:
                 own_val = clone['inventory'].get(own_key, 0.0)
