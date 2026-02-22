@@ -12,11 +12,7 @@ from timezonefinder import TimezoneFinder
 import pytz
 import copy
 
-# ---- Swiss Ephemeris / Astropy ----
-# Astropy is always used for Rahu/Ketu (True Node); Swiss Ephemeris for all other planets.
-from astropy.time import Time as _AstroTime
-from astropy.coordinates import GeocentricTrueEcliptic as _GeoEcl
-
+# ---- Swiss Ephemeris / Astropy fallback ----
 USE_SWISSEPH = False
 try:
     import swisseph as swe
@@ -45,7 +41,8 @@ try:
 
     USE_SWISSEPH = True
 except ImportError:
-    pass  # Will use astropy for all planets via the else-branch in compute_chart
+    from astropy.time import Time
+    from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
 
 # ---- Matplotlib defaults (crisp + thin) ----
 plt.rcParams.update({"figure.dpi": 300, "savefig.dpi": 300, "lines.linewidth": 0.28})
@@ -201,22 +198,11 @@ def compute_positions_swisseph(utc_dt, lat, lon):
         result, _flag = swe.calc_ut(jd, pid)
         lon_trop[name] = result[0]  # tropical longitude
 
-    # Rahu/Ketu: use Astropy True Node polynomial (Meeus perturbation terms)
-    # for precise ecliptic node, independent of Swiss Ephemeris TRUE_NODE.
-    _t_astro = _AstroTime(utc_dt)
-    _T = (_t_astro.jd - 2451545.0) / 36525.0
-    _omega_mean = (125.04452 - 1934.136261*_T + 0.0020708*_T**2 + _T**3/450000) % 360
-    _Ls   = (280.4665  + 36000.7698    * _T) % 360
-    _D    = (297.85036 + 445267.111480 * _T) % 360
-    _Mp   = (134.96298 + 477198.867398 * _T) % 360
-    _delta = (-1.4979 * sin(radians(_omega_mean))
-              - 0.1500 * sin(2 * radians(_Ls))
-              - 0.1226 * sin(2 * radians(_D))
-              + 0.1013 * sin(2 * radians(_omega_mean))
-              - 0.0344 * sin(radians(_Mp)))
-    _omega_true = (_omega_mean + _delta) % 360
-    lon_trop['rahu'] = _omega_true
-    lon_trop['ketu'] = (_omega_true + 180.0) % 360.0
+    # Rahu = True Node (matches most modern Jyotish software)
+    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
+
+    lon_trop['rahu'] = result[0]
+    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
 
     # Ascendant
     cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
