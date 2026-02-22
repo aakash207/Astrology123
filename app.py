@@ -3832,6 +3832,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         }
         _cat_final = _cat_matrix.get((_cat_strength, _cat_nature), 'C')
 
+        _cat_notes = {'A': 'A - Good', 'B': 'B - Average', 'C': 'C - Bad'}.get(_cat_final, '')
+
         _cat_rows.append([
             _cat_p,
             _cat_status,
@@ -3842,15 +3844,73 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             _cat_s_reason_str,
             _cat_nature,
             _cat_n_reason,
-            _cat_final
+            _cat_final,
+            _cat_notes
         ])
 
     df_planet_categories = pd.DataFrame(_cat_rows, columns=[
         'Planet', 'Status', 'Effective Status', 'Dig Bala',
         'Normalized Score', 'Strength', 'Strength Reason',
-        'Nature', 'Nature Reason', 'Category'
+        'Nature', 'Nature Reason', 'Category', 'Notes'
     ])
     # ---- END PLANET CATEGORY TABLE ----
+
+    # ---- BAAVATH BAAVAGAM TABLE ----
+    # For dual-lord planets, determine primary vs secondary house lordship
+    # based on relative distance hierarchy from each ruled house to placement.
+    _bb_level = {
+        1: (1, 'Kendra'), 7: (1, 'Kendra'), 10: (1, 'Kendra'),
+        4: (1, 'Kendra'),
+        5: (2, 'Kona'), 9: (2, 'Kona'),
+        2: (3, 'Wealth/Gain'), 11: (3, 'Wealth/Gain'),
+        3: (4, 'Hidden'), 6: (4, 'Hidden'), 8: (4, 'Hidden'), 12: (4, 'Hidden'),
+    }
+    _bb_lagna_idx = sign_names.index(get_sign(lagna_sid))
+    _bb_rows = []
+    for _bb_p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        ruled_signs = planet_ruled_signs.get(_bb_p, [])
+        # Convert ruled signs to house numbers
+        ruled_houses = []
+        for rs in ruled_signs:
+            h_num = (sign_names.index(rs) - _bb_lagna_idx) % 12 + 1
+            ruled_houses.append(h_num)
+        p_house = planet_house_map.get(_bb_p, 0)
+
+        if len(ruled_houses) < 2:
+            # Single-lord planet (Sun, Moon) or Rahu/Ketu (no lordship)
+            if ruled_houses:
+                _bb_rows.append([_bb_p, ruled_houses[0], '-', f'Single lordship (House {ruled_houses[0]})'])
+            else:
+                _bb_rows.append([_bb_p, '-', '-', 'No house lordship'])
+            continue
+
+        h_a, h_b = ruled_houses[0], ruled_houses[1]
+        # Distance = inclusive count from ruled house to planet placement
+        dist_a = ((p_house - h_a) % 12) + 1
+        dist_b = ((p_house - h_b) % 12) + 1
+
+        level_a, name_a = _bb_level.get(dist_a, (5, 'Other'))
+        level_b, name_b = _bb_level.get(dist_b, (5, 'Other'))
+
+        note_a = f'H{h_a}→H{p_house}: {dist_a}th (L{level_a} {name_a})'
+        note_b = f'H{h_b}→H{p_house}: {dist_b}th (L{level_b} {name_b})'
+
+        if level_a < level_b:
+            primary, secondary = h_a, h_b
+            result = f'{note_a} > {note_b} → Primary H{h_a}'
+        elif level_b < level_a:
+            primary, secondary = h_b, h_a
+            result = f'{note_b} > {note_a} → Primary H{h_b}'
+        else:
+            primary, secondary = h_a, h_b
+            result = f'{note_a} = {note_b} → Equal Influence'
+
+        _bb_rows.append([_bb_p, primary, secondary, result])
+
+    df_baavath_baavagam = pd.DataFrame(_bb_rows, columns=[
+        'Planet', 'Primary House Lord', 'Secondary House Lord', 'Notes'
+    ])
+    # ---- END BAAVATH BAAVAGAM TABLE ----
 
     # ── 4. BUILD DATAFRAME ──
     hp_rows = []
@@ -4511,6 +4571,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
         'df_planet_categories': df_planet_categories,
+        'df_baavath_baavagam': df_baavath_baavagam,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
@@ -4759,6 +4820,9 @@ def build_export_json(cd):
     # ── 12b. Planet Categories ──
     data['planet_categories'] = cd['df_planet_categories'].to_dict(orient='records')
 
+    # ── 12c. Baavath Baavagam ──
+    data['baavath_baavagam'] = cd['df_baavath_baavagam'].to_dict(orient='records')
+
     # ── 13. Lagna Point Score Simulation ──
     data['lagna_simulation'] = cd['df_bonus'].to_dict(orient='records')
 
@@ -4840,6 +4904,9 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Categories (A / B / C)")
     st.dataframe(cd['df_planet_categories'], hide_index=True, use_container_width=True)
+
+    st.subheader("Baavath Baavagam")
+    st.dataframe(cd['df_baavath_baavagam'], hide_index=True, use_container_width=True)
 
     st.subheader("Lagna Point Score Simulation")
     st.dataframe(cd['df_bonus'], hide_index=True, use_container_width=True)
