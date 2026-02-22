@@ -12,7 +12,12 @@ from timezonefinder import TimezoneFinder
 import pytz
 import copy
 
-# ---- Swiss Ephemeris / Astropy fallback ----
+# ---- Swiss Ephemeris / Astropy ----
+# Astropy is always used for Rahu/Ketu (True Node via Meeus perturbation terms).
+# Swiss Ephemeris is used for all other planets when available; astropy is the fallback.
+from astropy.time import Time as _AstroTime
+from astropy.coordinates import get_body as _get_body, solar_system_ephemeris as _solar_system_ephemeris, GeocentricTrueEcliptic as _GeocentricTrueEcliptic
+
 USE_SWISSEPH = False
 try:
     import swisseph as swe
@@ -41,8 +46,26 @@ try:
 
     USE_SWISSEPH = True
 except ImportError:
-    from astropy.time import Time
-    from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
+    pass  # astropy already imported above; will be used for all planets
+
+def _compute_rahu_ketu_astropy(jd):
+    """Compute Rahu (True Node) and Ketu tropical longitudes using astropy
+    with Meeus perturbation corrections. Always used regardless of swisseph."""
+    d = jd - 2451545.0
+    T = d / 36525.0
+    omega_mean = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
+    Ls  = (280.4665  + 36000.7698    * T) % 360
+    D   = (297.85036 + 445267.111480 * T) % 360
+    Mp  = (134.96298 + 477198.867398 * T) % 360
+    omega_r = radians(omega_mean)
+    delta = (-1.4979 * sin(omega_r)
+             - 0.1500 * sin(radians(Ls))
+             - 0.1226 * sin(radians(D) * 2)
+             + 0.1013 * sin(2 * omega_r)
+             - 0.0344 * sin(radians(Mp)))
+    rahu_trop = (omega_mean + delta) % 360
+    ketu_trop = (rahu_trop + 180.0) % 360
+    return rahu_trop, ketu_trop
 
 # ---- Matplotlib defaults (crisp + thin) ----
 plt.rcParams.update({"figure.dpi": 300, "savefig.dpi": 300, "lines.linewidth": 0.28})
@@ -181,7 +204,8 @@ def _datetime_to_jd(dt):
         return AstroTime(dt).jd
 
 def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris."""
+    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris.
+    Rahu/Ketu are always computed via astropy (Meeus True Node)."""
     # Set Lahiri ayanamsa mode BEFORE any ayanamsa query
     swe.set_sid_mode(swe.SIDM_LAHIRI)
     jd = _datetime_to_jd(utc_dt)
@@ -198,11 +222,10 @@ def compute_positions_swisseph(utc_dt, lat, lon):
         result, _flag = swe.calc_ut(jd, pid)
         lon_trop[name] = result[0]  # tropical longitude
 
-    # Rahu = True Node (matches most modern Jyotish software)
-    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
-
-    lon_trop['rahu'] = result[0]
-    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
+    # Rahu/Ketu: always use astropy Meeus True Node (not swe.TRUE_NODE)
+    rahu_trop, ketu_trop = _compute_rahu_ketu_astropy(jd)
+    lon_trop['rahu'] = rahu_trop
+    lon_trop['ketu'] = ketu_trop
 
     # Ascendant
     cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
@@ -322,32 +345,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         lon_sid = {p: get_sidereal_lon(v, ayan) for p, v in lon_trop.items()}
         lagna_sid = get_sidereal_lon(asc_trop, ayan)
     else:
-        from astropy.time import Time
-        from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
-        t = Time(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
-        with solar_system_ephemeris.set('builtin'):
+        t = _AstroTime(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
+        with _solar_system_ephemeris.set('builtin'):
             lon_trop = {}
             for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
-                ecl = get_body(nm, t).transform_to(GeocentricTrueEcliptic()); lon_trop[nm] = ecl.lon.deg
-        d = jd - 2451545.0; T = d/36525.0
-        # Mean Node (IAU polynomial)
-        omega_mean = (125.04452 - 1934.136261*T + 0.0020708*T**2 + T**3/450000) % 360
-        # Convert Mean Node → True Node via 5 main perturbation terms (Meeus, Astronomical Algorithms)
-        # Fundamental arguments
-        Ls   = (280.4665  + 36000.7698    * T) % 360   # mean longitude of Sun
-        D    = (297.85036 + 445267.111480 * T) % 360   # mean elongation of Moon
-        Mp   = (134.96298 + 477198.867398 * T) % 360   # mean anomaly of Moon (M')
-        omega_r = radians(omega_mean)
-        Ls_r    = radians(Ls)
-        D_r     = radians(D)
-        Mp_r    = radians(Mp)
-        delta = (-1.4979 * sin(omega_r)
-                 - 0.1500 * sin(2 * Ls_r)
-                 - 0.1226 * sin(2 * D_r)
-                 + 0.1013 * sin(2 * omega_r)
-                 - 0.0344 * sin(Mp_r))
-        omega_true = (omega_mean + delta) % 360
-        lon_trop['rahu'] = omega_true; lon_trop['ketu'] = (omega_true + 180) % 360
+                ecl = _get_body(nm, t).transform_to(_GeocentricTrueEcliptic()); lon_trop[nm] = ecl.lon.deg
+        # Rahu/Ketu via astropy Meeus True Node
+        rahu_trop, ketu_trop = _compute_rahu_ketu_astropy(jd)
+        lon_trop['rahu'] = rahu_trop
+        lon_trop['ketu'] = ketu_trop
         lon_sid = {p: get_sidereal_lon(lon_trop[p], ayan) for p in lon_trop}
         lagna_sid = get_sidereal_lon(get_ascendant(jd, lat, lon), ayan)
     
