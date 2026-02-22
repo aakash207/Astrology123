@@ -302,8 +302,6 @@ def is_good_currency(c_key):
         return True
     if c_key == 'Jupiter Poison':
         return True
-    if c_key == 'Bonus':
-        return True
     if 'Good' in c_key:
         return True
     return False
@@ -870,6 +868,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']] -= take
                     navamsa_data[tgt['planet']]['nav_current_debt'] -= take
                     navamsa_data[tgt['planet']]['nav_debt'] -= take
+                    navamsa_data[tgt['planet']]['nav_inventory']['Bad Penalty'] += take
+                    navamsa_data[tgt['planet']]['nav_gained_currencies']['Bad Penalty'] += take
                     
                     is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
                     is_sun_or_moon = (debtor in ['Sun', 'Moon'])
@@ -885,6 +885,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
                         navamsa_data[debtor]['nav_current_debt'] -= take
                         navamsa_data[debtor]['nav_debt'] -= take
+                        navamsa_data[debtor]['nav_inventory']['Bad Penalty'] += take
+                        navamsa_data[debtor]['nav_gained_currencies']['Bad Penalty'] += take
                     else:
                         navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
                         navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
@@ -896,9 +898,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
                             navamsa_data[debtor]['nav_current_debt'] -= take
                             navamsa_data[debtor]['nav_debt'] -= take
+                            navamsa_data[debtor]['nav_inventory']['Bad Penalty'] += take
+                            navamsa_data[debtor]['nav_gained_currencies']['Bad Penalty'] += take
                         elif is_bad_currency: 
                             navamsa_data[debtor]['nav_current_debt'] -= take
                             navamsa_data[debtor]['nav_debt'] -= take
+                            navamsa_data[debtor]['nav_inventory']['Bad Penalty'] += take
+                            navamsa_data[debtor]['nav_gained_currencies']['Bad Penalty'] += take
                         else: 
                             navamsa_data[debtor]['nav_current_debt'] += take
                             navamsa_data[debtor]['nav_debt'] += take
@@ -1057,6 +1063,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if take > 0:
                     navamsa_phase2_data[tgt['planet']]['navp2_inventory'][tgt['key']] -= take
                     navamsa_phase2_data[tgt['planet']]['navp2_current_debt'] -= take
+                    navamsa_phase2_data[tgt['planet']]['navp2_inventory']['Bad Penalty'] += take
+                    navamsa_phase2_data[tgt['planet']]['navp2_gained_currencies']['Bad Penalty'] += take
                     navamsa_phase2_data[puller]['navp2_inventory'][tgt['key']] += take
                     navamsa_phase2_data[puller]['navp2_gained_currencies'][tgt['key']] += take
                     navamsa_phase2_data[puller]['navp2_current_debt'] += take
@@ -1132,7 +1140,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             'nav_house': navamsa_phase2_data[p]['nav_house'],
             'navp3_debt': navamsa_phase2_data[p]['corrected_debt_p2'],
             'navp3_gained_currencies': defaultdict(float),
-            'navp3_bonus_gained': 0.0,
+            'navp3_good_moon_gained': 0.0,
             'navp3_carried_over': defaultdict(float)
         }
         for k, v in navamsa_phase2_data[p]['navp2_inventory'].items():
@@ -1235,12 +1243,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 
                 if take > 0.001:
                     house_pot[house_num] -= take
-                    navamsa_phase3_data[malefic]['navp3_inventory']['Bonus'] += take
-                    navamsa_phase3_data[malefic]['navp3_inventory']['Bad Penalty'] += take
+                    navamsa_phase3_data[malefic]['navp3_inventory']['Good Bonus'] += take
                     navamsa_phase3_data[malefic]['navp3_current_debt'] += take
-                    navamsa_phase3_data[malefic]['navp3_bonus_gained'] += take
-                    navamsa_phase3_data[malefic]['navp3_gained_currencies']['Bonus'] += take
-                    navamsa_phase3_data[malefic]['navp3_gained_currencies']['Bad Penalty'] += take
+                    navamsa_phase3_data[malefic]['navp3_good_moon_gained'] += take
+                    navamsa_phase3_data[malefic]['navp3_gained_currencies']['Good Bonus'] += take
                     navamsa_phase3_data[malefic]['navp3_debt'] += take
                     navp3_something_happened = True
             
@@ -1265,12 +1271,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     
                     if take > 0.001:
                         house_pot[house_num] -= take
-                        navamsa_phase3_data[benefic]['navp3_inventory']['Bonus'] += take
-                        navamsa_phase3_data[benefic]['navp3_inventory']['Bad Penalty'] += take
+                        navamsa_phase3_data[benefic]['navp3_inventory']['Good Bonus'] += take
                         navamsa_phase3_data[benefic]['navp3_current_debt'] += take
-                        navamsa_phase3_data[benefic]['navp3_bonus_gained'] += take
-                        navamsa_phase3_data[benefic]['navp3_gained_currencies']['Bonus'] += take
-                        navamsa_phase3_data[benefic]['navp3_gained_currencies']['Bad Penalty'] += take
+                        navamsa_phase3_data[benefic]['navp3_good_moon_gained'] += take
+                        navamsa_phase3_data[benefic]['navp3_gained_currencies']['Good Bonus'] += take
                         navamsa_phase3_data[benefic]['navp3_debt'] += take
                         navp3_something_happened = True
         
@@ -1282,7 +1286,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         inv = navamsa_phase3_data[p]['navp3_inventory']
         carried = navamsa_phase3_data[p]['navp3_carried_over']
         gained = navamsa_phase3_data[p]['navp3_gained_currencies']
-        bonus_p3 = navamsa_phase3_data[p]['navp3_bonus_gained']
+        good_moon_p3 = navamsa_phase3_data[p]['navp3_good_moon_gained']
         
         carried_parts = []
         own_keys = [p, f"Good {p}", f"Bad {p}"]
@@ -1290,17 +1294,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         for k in carried.keys():
             current_val = inv.get(k, 0.0)
-            if k == 'Bonus':
-                carried_val = current_val - bonus_p3
-            elif k == 'Bad Penalty':
-                carried_val = current_val - bonus_p3
+            if k == 'Good Bonus':
+                carried_val = current_val - good_moon_p3
             else:
                 carried_val = current_val
             if carried_val > 0.001:
                 carried_parts.append(f"{k}[{carried_val:.2f}]")
         
         for k, v in inv.items():
-            if k not in carried.keys() and k not in ['Bonus', 'Bad Penalty'] and v > 0.001:
+            if k not in carried.keys() and k != 'Good Bonus' and v > 0.001:
                 carried_parts.append(f"{k}[{v:.2f}]")
         
         inventory_carried_str = ", ".join(carried_parts) if carried_parts else "-"
