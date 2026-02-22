@@ -181,37 +181,39 @@ def _datetime_to_jd(dt):
         return AstroTime(dt).jd
 
 def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris."""
-    # Set Lahiri ayanamsa mode BEFORE any ayanamsa query
+    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris.
+    Uses FLG_SIDEREAL so calc_ut returns Lahiri sidereal longitudes directly.
+    Uses MEAN_NODE for Rahu (standard Jyotish practice).
+    """
+    # Set Lahiri ayanamsa mode BEFORE any calculation
     swe.set_sid_mode(swe.SIDM_LAHIRI)
     jd = _datetime_to_jd(utc_dt)
 
-    # Planet IDs in swisseph
+    # Planet IDs – MEAN_NODE for Rahu (Jyotish standard)
     planet_ids = {
         'sun': swe.SUN, 'moon': swe.MOON, 'mercury': swe.MERCURY,
         'venus': swe.VENUS, 'mars': swe.MARS, 'jupiter': swe.JUPITER,
-        'saturn': swe.SATURN
+        'saturn': swe.SATURN, 'rahu': swe.MEAN_NODE
     }
 
-    lon_trop = {}
+    # FLG_SIDEREAL makes calc_ut return sidereal longitude directly
+    flags = swe.FLG_SIDEREAL | swe.FLG_SWIEPH
+
+    lon_sid = {}
     for name, pid in planet_ids.items():
-        result, _flag = swe.calc_ut(jd, pid)
-        lon_trop[name] = result[0]  # tropical longitude
+        result, _flag = swe.calc_ut(jd, pid, flags)
+        lon_sid[name] = result[0]  # already sidereal longitude
 
-    # Rahu = True Node (matches most modern Jyotish software)
-    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
+    # Ketu is 180° opposite to Rahu
+    lon_sid['ketu'] = (lon_sid['rahu'] + 180.0) % 360.0
 
-    lon_trop['rahu'] = result[0]
-    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
-
-    # Ascendant
+    # Ascendant (houses returns tropical, so convert to sidereal)
     cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
     asc_trop = asmc[0]
-
-    # Use swisseph Lahiri ayanamsa for accuracy
     ayan_lahiri = swe.get_ayanamsa_ut(jd)
+    asc_sid = (asc_trop - ayan_lahiri) % 360.0
 
-    return lon_trop, asc_trop, jd, ayan_lahiri
+    return lon_sid, asc_sid, jd, ayan_lahiri
 
 def get_sidereal_lon(tlon, ayan): return (tlon - ayan) % 360
 def get_sign(lon): return sign_names[int(lon/30)]
@@ -318,9 +320,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     utc_dt = local_dt - timedelta(hours=tz_offset)
 
     if USE_SWISSEPH:
-        lon_trop, asc_trop, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
-        lon_sid = {p: get_sidereal_lon(v, ayan) for p, v in lon_trop.items()}
-        lagna_sid = get_sidereal_lon(asc_trop, ayan)
+        lon_sid, lagna_sid, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
+        # lon_sid and lagna_sid are already sidereal (FLG_SIDEREAL used in calc)
     else:
         from astropy.time import Time
         from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
