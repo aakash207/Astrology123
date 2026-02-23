@@ -900,6 +900,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     navamsa_data[debtor][tracker_key] = pulled + take
                     nav_something_happened = True
                     
+                    # --- INFECTION PENALTY: Malefic-to-Malefic currency exchange ---
+                    # If both Debtor (Receiver) and Giver (Target) are Malefic,
+                    # inject the Debtor's Bad Currency into the Giver's inventory.
+                    _nav_tgt_name = tgt['planet']
+                    _nav_tgt_is_malefic = (_nav_tgt_name in malefic_planets or
+                                           (_nav_tgt_name == 'Moon' and navamsa_data['Moon'].get('nav_moon_bad_pct', 0) > 0))
+                    if debtor_is_malefic and _nav_tgt_is_malefic:
+                        _nav_infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                        navamsa_data[_nav_tgt_name]['nav_inventory'][_nav_infection_key] += take
+                        navamsa_data[_nav_tgt_name]['nav_gained_currencies'][_nav_infection_key] += take
+                        # Infection adds Bad Currency => Debt Increases
+                        navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
+                        navamsa_data[_nav_tgt_name]['nav_debt'] -= take
+                    
                     good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
         if not nav_something_happened: nav_loop_active = False
