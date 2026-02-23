@@ -3398,9 +3398,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         elif is_malefic and is_neecha:
             # Case D: Neecha Malefic – debt-based formula
             # Score = (((Capacity * 1.2) - |Remaining Debt|) / (Capacity * 1.2)) * 120
-            # If debt > 0 (fully paid / surplus), don't subtract it
+            # Deduct self bad currency from debt before computing score (not for Rahu/Ketu)
+            _d_adj_debt = p5_debt
+            if _d_adj_debt < 0 and self_bad > 0.001 and p not in ('Rahu', 'Ketu'):
+                _d_adj_debt = min(_d_adj_debt + self_bad, 0.0)
             denom_val = p_capacity * 1.2
-            abs_debt = abs(p5_debt) if p5_debt < 0 else 0.0
+            abs_debt = abs(_d_adj_debt) if _d_adj_debt < 0 else 0.0
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
             else:
@@ -3418,8 +3421,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             # Case F: Standard Malefic (Not Neecha) – debt-based formula
             # Score = ((Volume - |Remaining Debt|) / Volume) * 100
-            # If debt > 0 (fully paid / surplus), don't subtract it
-            abs_debt = abs(p5_debt) if p5_debt < 0 else 0.0
+            # Deduct self bad currency from debt before computing score (not for Rahu/Ketu)
+            _f_adj_debt = p5_debt
+            if _f_adj_debt < 0 and self_bad > 0.001 and p not in ('Rahu', 'Ketu'):
+                _f_adj_debt = min(_f_adj_debt + self_bad, 0.0)
+            abs_debt = abs(_f_adj_debt) if _f_adj_debt < 0 else 0.0
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
