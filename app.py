@@ -2809,6 +2809,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         # Part C: Logging & Disposal
         for clone in clones:
+            # Initial inventory (before aspects were shared)
+            init_parts = []
+            for k, v in clone['original_inventory'].items():
+                if v > 0.001:
+                    init_parts.append(f"{k}[{v:.2f}]")
+            init_inv_str = ", ".join(init_parts) if init_parts else "-"
+
             inv_parts = []
             for k, v in clone['inventory'].items():
                 if v > 0.001:
@@ -2824,6 +2831,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 clone['parent'],
                 clone['offset'],
                 f"{clone['L']:.2f}",
+                init_inv_str,
                 inv_str,
                 debt_str
             ])
@@ -2920,7 +2928,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
     
-    df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Position', 'Remaining Inventory', 'Final Debt'])
+    df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Position', 'Initial Inventory', 'Remaining Inventory', 'Final Debt'])
     
     # JUPITER POISON DIAGNOSTIC NOTES
     _jp_diag_rows = []
