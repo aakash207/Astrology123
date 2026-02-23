@@ -3605,16 +3605,38 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _p_updated = planet_data[p].get('updated_status', '-')
         if _p_status == 'Neecham':
             _p_fns = _nps_score_dict.get(p, 0.0)
+
+            # --- NEECHABHANGA RAJA YOGA ELIGIBILITY CHECK ---
+            # Condition 1: House lord of the planet's sign is Uchcham / Moolathirigonam / Aatchi
+            _nbry_sign = planet_sign_map.get(p, '')
+            _nbry_house_lord = get_sign_lord(_nbry_sign)
+            _nbry_lord_status = planet_status_map.get(_nbry_house_lord, '-')
+            _nbry_cond1 = _nbry_lord_status in ('Uchcham', 'Moolathirigonam', 'Aatchi')
+
+            # Condition 2: Any co-occupant in the same house has Uchcham / Moolathirigonam / Aatchi status
+            _nbry_house = planet_house_map.get(p, -1)
+            _nbry_cond2 = False
+            for _nbry_other in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+                if _nbry_other == p:
+                    continue
+                if planet_house_map.get(_nbry_other, -1) == _nbry_house:
+                    if planet_status_map.get(_nbry_other, '-') in ('Uchcham', 'Moolathirigonam', 'Aatchi'):
+                        _nbry_cond2 = True
+                        break
+
+            _nbry_eligible = _nbry_cond1 or _nbry_cond2
+            # --- END NEECHABHANGA RAJA YOGA ELIGIBILITY CHECK ---
+
             if _p_updated == 'Neechabhangam':
-                # Already Neechabhangam — promote to Raja Yoga if score > 115
-                if _p_fns > 115:
+                # Already Neechabhangam — promote to Raja Yoga if score > 110 AND eligible
+                if _p_fns > 110 and _nbry_eligible:
                     planet_data[p]['updated_status'] = 'Neechabhanga Raja Yoga'
                     for row in rows:
                         if row[0] == p:
                             row[11] = 'Neechabhanga Raja Yoga'
             elif _p_updated in ('-', '', None):
-                # No updated status yet — assign based on score
-                if _p_fns > 115:
+                # No updated status yet — assign based on score AND eligibility
+                if _p_fns > 110 and _nbry_eligible:
                     planet_data[p]['updated_status'] = 'Neechabhanga Raja Yoga'
                     for row in rows:
                         if row[0] == p:
