@@ -2337,6 +2337,29 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     _cl['original_inventory'][_ck] *= (1.0 - _pct)
 
     # ═══════════════════════════════════════════════════════════════════════
+    # NEGATIVE-STATUS MALEFIC CLONE DEBT VOLUME SCALING
+    # Debt was originally computed on a 120-scale (1.2 * capacity).
+    # For Neecham / Neechabhangam / Neechabhanga Raja Yoga Saturn & Mars,
+    # scale the clone debt down proportionally to its actual total volume.
+    # Formula:  debt = debt * (clone_total_volume / 120)
+    # ═══════════════════════════════════════════════════════════════════════
+    _neg_debt_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+    for _vsp in ('Saturn', 'Mars'):
+        _vsp_status = planet_data[_vsp].get('updated_status') or planet_data[_vsp].get('status', '')
+        if _vsp_status not in _neg_debt_statuses:
+            continue
+        _vsp_clones = all_planet_clones.get(_vsp, [])
+        for _vcl in _vsp_clones:
+            if _vcl['debt'] >= 0:
+                continue  # only scale negative (debtor) clones
+            # Total volume = sum of all currencies in the clone's current inventory
+            _vcl_total_vol = sum(v for v in _vcl['inventory'].values() if v > 0.001)
+            if _vcl_total_vol < 0.001:
+                continue
+            _vol_scale = _vcl_total_vol / 120.0
+            _vcl['debt'] = _vcl['debt'] * _vol_scale
+
+    # ═══════════════════════════════════════════════════════════════════════
     # PASS 2: CURRENCY EXCHANGE (sequential, in original PLANET_SEQUENCE order)
     # Jupiter Poison + Interaction Cycle + Logging, using the pre-created clones.
     # ═══════════════════════════════════════════════════════════════════════
