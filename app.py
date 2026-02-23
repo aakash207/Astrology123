@@ -2300,19 +2300,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         _pre_suchama[_sp] = _such_val
 
     # Apply suchama reduction to each clone's debt and bad currencies
+    # Suchama value is treated as a PERCENTAGE: e.g. suchama=30 → reduce 30% of debt & bad currencies
     for _sp, _sp_clones in all_planet_clones.items():
         _eff_such = min(_pre_suchama.get(_sp, 0.0), 100.0)   # cap at 100
         if _eff_such < 0.001:
             continue
+        _pct = _eff_such / 100.0                               # e.g. 30 → 0.30
         for _cl in _sp_clones:
             if _cl['debt'] >= 0:
                 continue   # only reduce negative (debtor) clones
 
-            _orig_debt = _cl['debt']                           # negative value
-            _reduction = min(_eff_such, abs(_orig_debt))       # don't overshoot 0
-            _pct = _reduction / abs(_orig_debt)                # e.g. 20/100 = 0.20
-
-            _cl['debt'] = _orig_debt + _reduction              # less negative
+            # Reduce debt by suchama percentage (debt is negative, so multiply by remaining fraction)
+            _cl['debt'] = _cl['debt'] * (1.0 - _pct)
 
             # Reduce every Bad currency by the same percentage
             for _ck in list(_cl['inventory'].keys()):
