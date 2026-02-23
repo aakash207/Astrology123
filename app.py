@@ -2131,7 +2131,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             current_planet in ('Saturn', 'Mars', 'Sun', 'Rahu', 'Ketu')
             or (current_planet == 'Moon' and phase5_data['Moon']['bad_inv'] > 0.001)
         )
-        _cp_status = planet_data[current_planet].get('updated_status') or planet_data[current_planet].get('status', '')
+        # Fix: '-' is truthy but means "no status" — fall back to raw status
+        _cp_updated_raw = planet_data[current_planet].get('updated_status', '-')
+        _cp_status = _cp_updated_raw if _cp_updated_raw not in ('-', '', None) else planet_data[current_planet].get('status', '')
         if _cp_is_malefic and _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
             scaling_factor = planet_data[current_planet]['sthana'] / 120.0
         else:
@@ -2345,7 +2347,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ═══════════════════════════════════════════════════════════════════════
     _neg_debt_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
     for _vsp in ('Saturn', 'Mars'):
-        _vsp_status = planet_data[_vsp].get('updated_status') or planet_data[_vsp].get('status', '')
+        # Fix: '-' is truthy but means "no status" — fall back to raw status
+        _vsp_updated_raw = planet_data[_vsp].get('updated_status', '-')
+        _vsp_status = _vsp_updated_raw if _vsp_updated_raw not in ('-', '', None) else planet_data[_vsp].get('status', '')
         if _vsp_status not in _neg_debt_statuses:
             continue
         _vsp_clones = all_planet_clones.get(_vsp, [])
