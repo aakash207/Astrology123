@@ -606,12 +606,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_data['Mars']['default_currency'] = f"Good Mars[{_mars_new_good:.2f}], Bad Mars[{_mars_new_bad:.2f}]"
         planet_data['Mars']['debt'] = f"{-_mars_new_bad:.2f}"
 
-    # Saturn in Taurus: switches from -100% malefic to -50 malefic and +50 benefic (Good Saturn)
+    # Saturn in Taurus: switches from -100% malefic to -75 malefic and +25 benefic (Good Saturn)
     if planet_data['Saturn']['sign'] == 'Taurus':
         _saturn_bad = planet_data['Saturn']['final_inventory'].get('Bad Saturn', 0.0)
-        # Split: 50% stays as Bad Saturn, 50% becomes Good Saturn (benefic)
-        new_bad_saturn = _saturn_bad * 0.50
-        new_good_saturn = _saturn_bad * 0.50
+        # Split: 75% stays as Bad Saturn, 25% becomes Good Saturn (benefic)
+        new_bad_saturn = _saturn_bad * 0.75
+        new_good_saturn = _saturn_bad * 0.25
         planet_data['Saturn']['final_inventory']['Bad Saturn'] = new_bad_saturn
         planet_data['Saturn']['final_inventory']['Good Saturn'] = new_good_saturn
         # Update debt: Good Saturn reduces the debt
@@ -1765,9 +1765,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if v > 0.001:
                 add_amount = v * 0.20
                 phase3_data[p]['p3_inventory'][k] += add_amount
+                # Good Bonus: mirror every good addition under a named Good Bonus entry
+                phase3_data[p]['p3_inventory']['Good Bonus'] += add_amount
         
         navp3_debt = navamsa_phase3_data[p]['navp3_debt']
-        phase3_data[p]['p3_current_debt'] += navp3_debt * 0.20
+        debt_change = navp3_debt * 0.20
+        phase3_data[p]['p3_current_debt'] += debt_change
+        # Bad Bonus: if the navamsa debt transfer is a penalty (negative), record it as Bad Bonus currency
+        if debt_change < -0.001:
+            phase3_data[p]['p3_inventory']['Bad Bonus'] += abs(debt_change)
     
     planets_in_house_11 = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
@@ -3377,18 +3383,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseC: (Net{net_score:.2f}/(Cap{p_capacity}*1.2))*120"
 
         elif is_malefic and is_neecha:
-            # Case D: Malefic, IS Negative Status
-            # Sun, Mars, Saturn use self_bad/2 (reduced self-bad for neecha/neechabhanga/neechabhanga raja yoga)
+            # Case D: Neecha Malefic – debt-based formula
+            # Score = (((Capacity * 1.2) - |Remaining Debt|) / (Capacity * 1.2)) * 120
             denom_val = p_capacity * 1.2
+            abs_debt = abs(p5_debt)
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
-            elif p in {'Sun', 'Mars', 'Saturn'}:
-                sb_used = self_bad / 2.0
-                final_ns = ((net_score + sb_used) / denom_val) * 120
-                formula_type = f"CaseD: ((Net{net_score:.2f}+SB/2({sb_used:.2f}))/(Cap{p_capacity}*1.2))*120"
             else:
-                final_ns = ((net_score + self_bad) / denom_val) * 120
-                formula_type = f"CaseD: ((Net{net_score:.2f}+SB{self_bad:.2f})/(Cap{p_capacity}*1.2))*120"
+                final_ns = ((denom_val - abs_debt) / denom_val) * 120
+            formula_type = f"CaseD: ((Cap*1.2({denom_val:.2f}) - |Debt|{abs_debt:.2f}) / Cap*1.2({denom_val:.2f})) * 120 = {final_ns:.2f}"
 
         elif not is_malefic and not is_neecha:
             # Case E: Benefic, NOT Negative Status
@@ -3399,16 +3402,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
 
         else:
-            # Case F: Malefic, NOT Negative Status
+            # Case F: Standard Malefic (Not Neecha) – debt-based formula
+            # Score = ((Volume - |Remaining Debt|) / Volume) * 100
+            abs_debt = abs(p5_debt)
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                if p == 'Ketu':
-                    final_ns = (net_score / p_volume) * 100
-                    formula_type = f"CaseF: (Net{net_score:.2f}/Vol{p_volume:.2f})*100 [Ketu: SB excluded]"
-                else:
-                    final_ns = ((net_score + self_bad) / p_volume) * 100
-                    formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
+                final_ns = ((p_volume - abs_debt) / p_volume) * 100
+            formula_type = f"CaseF: ((Vol{p_volume:.2f} - |Debt|{abs_debt:.2f}) / Vol{p_volume:.2f}) * 100 = {final_ns:.2f}"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
