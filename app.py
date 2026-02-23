@@ -181,39 +181,37 @@ def _datetime_to_jd(dt):
         return AstroTime(dt).jd
 
 def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris.
-    Uses FLG_SIDEREAL so calc_ut returns Lahiri sidereal longitudes directly.
-    Uses MEAN_NODE for Rahu (standard Jyotish practice).
-    """
-    # Set Lahiri ayanamsa mode BEFORE any calculation
+    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris."""
+    # Set Lahiri ayanamsa mode BEFORE any ayanamsa query
     swe.set_sid_mode(swe.SIDM_LAHIRI)
     jd = _datetime_to_jd(utc_dt)
 
-    # Planet IDs – MEAN_NODE for Rahu (Jyotish standard)
+    # Planet IDs in swisseph
     planet_ids = {
         'sun': swe.SUN, 'moon': swe.MOON, 'mercury': swe.MERCURY,
         'venus': swe.VENUS, 'mars': swe.MARS, 'jupiter': swe.JUPITER,
-        'saturn': swe.SATURN, 'rahu': swe.MEAN_NODE
+        'saturn': swe.SATURN
     }
 
-    # FLG_SIDEREAL makes calc_ut return sidereal longitude directly
-    flags = swe.FLG_SIDEREAL | swe.FLG_SWIEPH
-
-    lon_sid = {}
+    lon_trop = {}
     for name, pid in planet_ids.items():
-        result, _flag = swe.calc_ut(jd, pid, flags)
-        lon_sid[name] = result[0]  # already sidereal longitude
+        result, _flag = swe.calc_ut(jd, pid)
+        lon_trop[name] = result[0]  # tropical longitude
 
-    # Ketu is 180° opposite to Rahu
-    lon_sid['ketu'] = (lon_sid['rahu'] + 180.0) % 360.0
+    # Rahu = True Node (matches most modern Jyotish software)
+    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
 
-    # Ascendant (houses returns tropical, so convert to sidereal)
+    lon_trop['rahu'] = result[0]
+    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
+
+    # Ascendant
     cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
     asc_trop = asmc[0]
-    ayan_lahiri = swe.get_ayanamsa_ut(jd)
-    asc_sid = (asc_trop - ayan_lahiri) % 360.0
 
-    return lon_sid, asc_sid, jd, ayan_lahiri
+    # Use swisseph Lahiri ayanamsa for accuracy
+    ayan_lahiri = swe.get_ayanamsa_ut(jd)
+
+    return lon_trop, asc_trop, jd, ayan_lahiri
 
 def get_sidereal_lon(tlon, ayan): return (tlon - ayan) % 360
 def get_sign(lon): return sign_names[int(lon/30)]
@@ -320,8 +318,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     utc_dt = local_dt - timedelta(hours=tz_offset)
 
     if USE_SWISSEPH:
-        lon_sid, lagna_sid, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
-        # lon_sid and lagna_sid are already sidereal (FLG_SIDEREAL used in calc)
+        lon_trop, asc_trop, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
+        lon_sid = {p: get_sidereal_lon(v, ayan) for p, v in lon_trop.items()}
+        lagna_sid = get_sidereal_lon(asc_trop, ayan)
     else:
         from astropy.time import Time
         from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
@@ -868,8 +867,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']] -= take
                     navamsa_data[tgt['planet']]['nav_current_debt'] -= take
                     navamsa_data[tgt['planet']]['nav_debt'] -= take
-                    navamsa_data[tgt['planet']]['nav_inventory']['Bad Penalty'] += take
-                    navamsa_data[tgt['planet']]['nav_gained_currencies']['Bad Penalty'] += take
                     
                     is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
                     is_sun_or_moon = (debtor in ['Sun', 'Moon'])
@@ -885,8 +882,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
                         navamsa_data[debtor]['nav_current_debt'] -= take
                         navamsa_data[debtor]['nav_debt'] -= take
-                        navamsa_data[debtor]['nav_inventory']['Bad Penalty'] += take
-                        navamsa_data[debtor]['nav_gained_currencies']['Bad Penalty'] += take
                     else:
                         navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
                         navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
@@ -898,13 +893,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
                             navamsa_data[debtor]['nav_current_debt'] -= take
                             navamsa_data[debtor]['nav_debt'] -= take
-                            navamsa_data[debtor]['nav_inventory']['Bad Penalty'] += take
-                            navamsa_data[debtor]['nav_gained_currencies']['Bad Penalty'] += take
                         elif is_bad_currency: 
                             navamsa_data[debtor]['nav_current_debt'] -= take
                             navamsa_data[debtor]['nav_debt'] -= take
-                            navamsa_data[debtor]['nav_inventory']['Bad Penalty'] += take
-                            navamsa_data[debtor]['nav_gained_currencies']['Bad Penalty'] += take
                         else: 
                             navamsa_data[debtor]['nav_current_debt'] += take
                             navamsa_data[debtor]['nav_debt'] += take
@@ -978,7 +969,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         navamsa_phase2_data['Ketu']['navp2_carried_over']['Good Ketu'] = navamsa_phase2_data['Ketu']['navp2_carried_over'].get('Good Ketu', 0.0) + nav_bad_ketu_remaining
         navamsa_phase2_data['Ketu']['navp2_inventory']['Bad Ketu'] = 0.0
         navamsa_phase2_data['Ketu']['navp2_carried_over']['Bad Ketu'] = 0.0
-        navamsa_phase2_data['Ketu']['navp2_current_debt'] += nav_bad_ketu_remaining
     
     ketu_good_currency = navamsa_phase2_data['Ketu']['navp2_inventory'].get('Good Ketu', 0.0)
     if ketu_good_currency > 0 and not ketu_has_sun_moon:
@@ -1025,7 +1015,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 target_house = navamsa_phase2_data[target]['nav_house']
                 if target_house != puller_house: continue
                 
-                if puller == 'Ketu' and target not in ['Sun', 'Moon']: continue
+                if puller == 'Ketu' and target == 'Moon': continue
                 if puller == 'Moon' and target == 'Ketu': continue
                 
                 target_debt_pct = nav_benefic_debt_pct[target]
@@ -1063,8 +1053,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if take > 0:
                     navamsa_phase2_data[tgt['planet']]['navp2_inventory'][tgt['key']] -= take
                     navamsa_phase2_data[tgt['planet']]['navp2_current_debt'] -= take
-                    navamsa_phase2_data[tgt['planet']]['navp2_inventory']['Bad Penalty'] += take
-                    navamsa_phase2_data[tgt['planet']]['navp2_gained_currencies']['Bad Penalty'] += take
                     navamsa_phase2_data[puller]['navp2_inventory'][tgt['key']] += take
                     navamsa_phase2_data[puller]['navp2_gained_currencies'][tgt['key']] += take
                     navamsa_phase2_data[puller]['navp2_current_debt'] += take
@@ -1243,10 +1231,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 
                 if take > 0.001:
                     house_pot[house_num] -= take
-                    navamsa_phase3_data[malefic]['navp3_inventory']['Good Bonus'] += take
+                    navamsa_phase3_data[malefic]['navp3_inventory']['Good Moon'] += take
                     navamsa_phase3_data[malefic]['navp3_current_debt'] += take
                     navamsa_phase3_data[malefic]['navp3_good_moon_gained'] += take
-                    navamsa_phase3_data[malefic]['navp3_gained_currencies']['Good Bonus'] += take
+                    navamsa_phase3_data[malefic]['navp3_gained_currencies']['Good Moon'] += take
                     navamsa_phase3_data[malefic]['navp3_debt'] += take
                     navp3_something_happened = True
             
@@ -1271,10 +1259,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                     
                     if take > 0.001:
                         house_pot[house_num] -= take
-                        navamsa_phase3_data[benefic]['navp3_inventory']['Good Bonus'] += take
+                        navamsa_phase3_data[benefic]['navp3_inventory']['Good Moon'] += take
                         navamsa_phase3_data[benefic]['navp3_current_debt'] += take
                         navamsa_phase3_data[benefic]['navp3_good_moon_gained'] += take
-                        navamsa_phase3_data[benefic]['navp3_gained_currencies']['Good Bonus'] += take
+                        navamsa_phase3_data[benefic]['navp3_gained_currencies']['Good Moon'] += take
                         navamsa_phase3_data[benefic]['navp3_debt'] += take
                         navp3_something_happened = True
         
@@ -1294,7 +1282,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         
         for k in carried.keys():
             current_val = inv.get(k, 0.0)
-            if k == 'Good Bonus':
+            if k == 'Good Moon':
                 carried_val = current_val - good_moon_p3
             else:
                 carried_val = current_val
@@ -1302,7 +1290,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 carried_parts.append(f"{k}[{carried_val:.2f}]")
         
         for k, v in inv.items():
-            if k not in carried.keys() and k != 'Good Bonus' and v > 0.001:
+            if k not in carried.keys() and k != 'Good Moon' and v > 0.001:
                 carried_parts.append(f"{k}[{v:.2f}]")
         
         inventory_carried_str = ", ".join(carried_parts) if carried_parts else "-"
@@ -3360,13 +3348,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         else:
             # Case F: Malefic, NOT Negative Status
-            # Formula: [(Total Good - Total Debt) / Volume] x 100
-            _abs_debt = abs(p5_debt)
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((total_good - _abs_debt) / p_volume) * 100
-                formula_type = f"CaseF: ((TG{total_good:.2f}-Debt{_abs_debt:.2f})/Vol{p_volume:.2f})*100"
+                if p == 'Ketu':
+                    final_ns = (net_score / p_volume) * 100
+                    formula_type = f"CaseF: (Net{net_score:.2f}/Vol{p_volume:.2f})*100 [Ketu: SB excluded]"
+                else:
+                    final_ns = ((net_score + self_bad) / p_volume) * 100
+                    formula_type = f"CaseF: ((Net{net_score:.2f}+SB{self_bad:.2f})/Vol{p_volume:.2f})*100"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
@@ -3868,12 +3858,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     # ---- BAAVATH BAAVAGAM TABLE ----
     # For dual-lord planets, determine primary vs secondary house lordship
     # based on relative distance hierarchy from each ruled house to placement.
+    # Rank 1: Residing/Aspecting (1, 7)
+    # Rank 2: Kendra (4, 10)
+    # Rank 3: Kona (5, 9)
+    # Rank 4: Wealth/Gain (2, 11)
+    # Rank 5: Hidden (3, 6, 8, 12)
     _bb_level = {
-        1: (1, 'Kendra'), 7: (1, 'Kendra'), 10: (1, 'Kendra'),
-        4: (1, 'Kendra'),
-        5: (2, 'Kona'), 9: (2, 'Kona'),
-        2: (3, 'Wealth/Gain'), 11: (3, 'Wealth/Gain'),
-        3: (4, 'Hidden'), 6: (4, 'Hidden'), 8: (4, 'Hidden'), 12: (4, 'Hidden'),
+        1: (1, 'Residing/Aspecting'), 7: (1, 'Residing/Aspecting'),
+        4: (2, 'Kendra'), 10: (2, 'Kendra'),
+        5: (3, 'Kona'), 9: (3, 'Kona'),
+        2: (4, 'Wealth/Gain'), 11: (4, 'Wealth/Gain'),
+        3: (5, 'Hidden'), 6: (5, 'Hidden'), 8: (5, 'Hidden'), 12: (5, 'Hidden'),
     }
     _bb_lagna_idx = sign_names.index(get_sign(lagna_sid))
     _bb_rows = []
@@ -3895,12 +3890,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             continue
 
         h_a, h_b = ruled_houses[0], ruled_houses[1]
+        sign_a, sign_b = ruled_signs[0], ruled_signs[1]
         # Distance = inclusive count from ruled house to planet placement
         dist_a = ((p_house - h_a) % 12) + 1
         dist_b = ((p_house - h_b) % 12) + 1
 
-        level_a, name_a = _bb_level.get(dist_a, (5, 'Other'))
-        level_b, name_b = _bb_level.get(dist_b, (5, 'Other'))
+        level_a, name_a = _bb_level.get(dist_a, (6, 'Other'))
+        level_b, name_b = _bb_level.get(dist_b, (6, 'Other'))
 
         note_a = f'H{h_a}→H{p_house}: {dist_a}th (L{level_a} {name_a})'
         note_b = f'H{h_b}→H{p_house}: {dist_b}th (L{level_b} {name_b})'
@@ -3912,8 +3908,28 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             primary, secondary = h_b, h_a
             result = f'{note_b} > {note_a} → Primary H{h_b}'
         else:
-            primary, secondary = h_a, h_b
-            result = f'{note_a} = {note_b} → Equal Influence'
+            # Same rank → tiebreaker: Uchcham/Moolathirigonam house is primary,
+            # Aatchi house is secondary
+            _bb_dignity = status_data.get(_bb_p, {})
+            _bb_uchcham_sign = _bb_dignity.get('Uchcham')
+            _bb_moola_sign = _bb_dignity.get('Moolathirigonam')
+            _bb_aatchi_sign = _bb_dignity.get('Aatchi')
+
+            # Check which ruled sign is Uchcham/Moolathirigonam vs Aatchi
+            a_is_higher = (sign_a == _bb_uchcham_sign or sign_a == _bb_moola_sign)
+            b_is_higher = (sign_b == _bb_uchcham_sign or sign_b == _bb_moola_sign)
+
+            if a_is_higher and not b_is_higher:
+                primary, secondary = h_a, h_b
+                tie_reason = f'{sign_a} is Uchcham/Moolathirigonam'
+            elif b_is_higher and not a_is_higher:
+                primary, secondary = h_b, h_a
+                tie_reason = f'{sign_b} is Uchcham/Moolathirigonam'
+            else:
+                # Fallback: keep original order
+                primary, secondary = h_a, h_b
+                tie_reason = 'default order'
+            result = f'{note_a} = {note_b} → Tiebreak ({tie_reason}) → Primary H{primary}'
 
         _bb_rows.append([_bb_p, primary, secondary, result])
 
