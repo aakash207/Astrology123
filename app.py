@@ -4537,18 +4537,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                   f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
                   f"H9({_la_h9_score:.2f}*10%)={_bv_h9:.2f}")
 
+    def _la_fmt(score, notes):
+        """Cap score at 100 for display; append raw value to notes if exceeded."""
+        if score > 100.0:
+            return f"100.00", notes + f" | raw: {score:.2f}"
+        return f"{score:.2f}", notes
+
     lagna_analysis_rows = [
-        ["Moon's Light",       f"{_la_moon_score:.2f}", _la_moon_notes],
-        ['Lagna Lord Score',   f"{_la_ll_score:.2f}",   _la_ll_notes],
-        ['Lagna Lord Strength',f"{_la_ll_str_score:.2f}", _la_ll_str_notes],
-        ['Lagna Lord Suchama', f"{_la_ll_suchama_score:.2f}", _la_ll_suchama_notes],
-        ['1st House Points',   f"{_la_h1_score:.2f}",   _la_h1_notes],
-        ['Lagna Point',        f"{_la_lagna_pt_score:.2f}", _la_lagna_pt_notes],
-        ['Navamsa Lagna Score',f"{_la_nav_score:.2f}",  _la_nav_notes],
-        ['Sun Score',          f"{_la_sun_score:.2f}",  _la_sun_notes],
-        ['9th House Points',   f"{_la_h9_score:.2f}",   _la_h9_notes],
-        ['AG Bonus',           f"{_ag_total:.2f}",      _ag_notes],
-        ['Bhuvi Bonus',        f"{_bv_total:.2f}",      _bv_notes],
+        ["Moon's Light",        *_la_fmt(_la_moon_score,       _la_moon_notes)],
+        ['Lagna Lord Score',    *_la_fmt(_la_ll_score,         _la_ll_notes)],
+        ['Lagna Lord Strength', *_la_fmt(_la_ll_str_score,     _la_ll_str_notes)],
+        ['Lagna Lord Suchama',  *_la_fmt(_la_ll_suchama_score, _la_ll_suchama_notes)],
+        ['1st House Points',    *_la_fmt(_la_h1_score,         _la_h1_notes)],
+        ['Lagna Point',         *_la_fmt(_la_lagna_pt_score,   _la_lagna_pt_notes)],
+        ['Navamsa Lagna Score', *_la_fmt(_la_nav_score,        _la_nav_notes)],
+        ['Sun Score',           *_la_fmt(_la_sun_score,        _la_sun_notes)],
+        ['9th House Points',    *_la_fmt(_la_h9_score,         _la_h9_notes)],
+        ['AG Bonus',            *_la_fmt(_ag_total,            _ag_notes)],
+        ['Bhuvi Bonus',         *_la_fmt(_bv_total,            _bv_notes)],
     ]
     df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
     # ====== END LAGNA ANALYSIS TABLE ======
