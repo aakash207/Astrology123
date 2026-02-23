@@ -2159,6 +2159,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 if clone_value > 0.001:
                     clone_inventory['Good Saturn'] = clone_value
                 
+                # Bad currencies: carry proportionally from parent snapshot
+                for k, v in parent_inv.items():
+                    if 'Bad' in k and v > 0.001:
+                        bad_clone_val = v * aspect_pct * scaling_factor
+                        if bad_clone_val > 0.001:
+                            clone_inventory[k] = bad_clone_val
+                
                 # Neecha/Neechabhangam Saturn: debt = net(Good - Bad) from parent snapshot
                 if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
                     _sat_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
@@ -2180,6 +2187,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 clone_value = aspect_pct * good_sum * scaling_factor
                 if clone_value > 0.001:
                     clone_inventory['Good Mars'] = clone_value
+                
+                # Bad currencies: carry proportionally from parent snapshot
+                for k, v in parent_inv.items():
+                    if 'Bad' in k and v > 0.001:
+                        bad_clone_val = v * aspect_pct * scaling_factor
+                        if bad_clone_val > 0.001:
+                            clone_inventory[k] = bad_clone_val
                 
                 # Neecha/Neechabhangam Mars: debt = net(Good - Bad) from parent snapshot
                 if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
@@ -2232,6 +2246,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 'original_inventory': original_inventory,
                 'wasted_inventory': defaultdict(float),
                 'debt': clone_debt,
+                'initial_debt': clone_debt,
                 'type': clone_type
             }
             clones.append(clone)
@@ -2826,11 +2841,17 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             else:
                 debt_str = f"{clone['debt']:.2f}"
             
+            if abs(clone['initial_debt']) < 0.01:
+                init_debt_str = "0.00"
+            else:
+                init_debt_str = f"{clone['initial_debt']:.2f}"
+            
             leftover_aspects.append([
                 clone['parent'],
                 clone['offset'],
                 f"{clone['L']:.2f}",
                 init_inv_str,
+                init_debt_str,
                 inv_str,
                 debt_str
             ])
@@ -2927,7 +2948,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     
     df_phase5 = pd.DataFrame(phase5_rows, columns=['Planet', 'Currency [Phase 5]', 'Debt [Phase 5]', 'Net Currency Score'])
     
-    df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Position', 'Initial Inventory', 'Remaining Inventory', 'Final Debt'])
+    df_leftover_aspects = pd.DataFrame(leftover_aspects, columns=['Source Planet', 'Aspect Angle', 'Position', 'Initial Inventory', 'Initial Debt', 'Remaining Inventory', 'Final Debt'])
     
     # JUPITER POISON DIAGNOSTIC NOTES
     _jp_diag_rows = []
