@@ -181,37 +181,36 @@ def _datetime_to_jd(dt):
         return AstroTime(dt).jd
 
 def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute tropical planet longitudes + ascendant using Swiss Ephemeris."""
-    # Set Lahiri ayanamsa mode BEFORE any ayanamsa query
+    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris (Lahiri Ayanamsa)."""
+    # Set Lahiri ayanamsa mode BEFORE any calculation
     swe.set_sid_mode(swe.SIDM_LAHIRI)
     jd = _datetime_to_jd(utc_dt)
 
-    # Planet IDs in swisseph
+    # Planet IDs in swisseph – using MEAN_NODE for Rahu (Jyotish standard)
     planet_ids = {
         'sun': swe.SUN, 'moon': swe.MOON, 'mercury': swe.MERCURY,
         'venus': swe.VENUS, 'mars': swe.MARS, 'jupiter': swe.JUPITER,
-        'saturn': swe.SATURN
+        'saturn': swe.SATURN, 'rahu': swe.MEAN_NODE
     }
 
-    lon_trop = {}
+    # Use sidereal flag so positions are directly sidereal (Lahiri)
+    flags = swe.FLG_SIDEREAL | swe.FLG_SWIEPH
+
+    lon_sid = {}
     for name, pid in planet_ids.items():
-        result, _flag = swe.calc_ut(jd, pid)
-        lon_trop[name] = result[0]  # tropical longitude
+        result, _flag = swe.calc_ut(jd, pid, flags)
+        lon_sid[name] = result[0]  # sidereal longitude
 
-    # Rahu = True Node (matches most modern Jyotish software)
-    result, _flag = swe.calc_ut(jd, swe.TRUE_NODE)
+    # Ketu = 180° opposite Rahu
+    lon_sid['ketu'] = (lon_sid['rahu'] + 180.0) % 360.0
 
-    lon_trop['rahu'] = result[0]
-    lon_trop['ketu'] = (result[0] + 180.0) % 360.0
-
-    # Ascendant
+    # Ascendant – compute tropical then subtract Lahiri ayanamsa
     cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
     asc_trop = asmc[0]
-
-    # Use swisseph Lahiri ayanamsa for accuracy
     ayan_lahiri = swe.get_ayanamsa_ut(jd)
+    asc_sid = (asc_trop - ayan_lahiri) % 360
 
-    return lon_trop, asc_trop, jd, ayan_lahiri
+    return lon_sid, asc_sid, jd
 
 def get_sidereal_lon(tlon, ayan): return (tlon - ayan) % 360
 def get_sign(lon): return sign_names[int(lon/30)]
@@ -318,9 +317,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     utc_dt = local_dt - timedelta(hours=tz_offset)
 
     if USE_SWISSEPH:
-        lon_trop, asc_trop, jd, ayan = compute_positions_swisseph(utc_dt, lat, lon)
-        lon_sid = {p: get_sidereal_lon(v, ayan) for p, v in lon_trop.items()}
-        lagna_sid = get_sidereal_lon(asc_trop, ayan)
+        lon_sid, lagna_sid, jd = compute_positions_swisseph(utc_dt, lat, lon)
     else:
         from astropy.time import Time
         from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
@@ -3768,6 +3765,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         # If the planet itself is Neecha, do not award HLord bonus (ucham/moola/aatchi)
         if _is_negative and _hl_adj > 0:
+            _hl_adj = 0.0
+
+        # If the planet IS the lord of the sign it occupies (own-sign / Aatchi),
+        # do not award the HLord bonus — a planet cannot benefit from its own status.
+        if _ps_lord == _ps_p and _hl_adj > 0:
             _hl_adj = 0.0
 
         if _hp_is_malefic(_ps_p):
