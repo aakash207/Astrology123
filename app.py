@@ -4502,40 +4502,51 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_h9_notes = f"House 9 total HP = {_la_h9_raw:.2f}"
 
     # 9. AG Bonus: weighted sum (LLStr includes Suchama)
-    _ag_ll_str_combined = _la_ll_str_score + _la_ll_suchama_score
-    _ag_moon   = _la_moon_score * 25.0 / 100.0
-    _ag_ll     = _la_ll_score * 12.5 / 100.0
+    # Use capped (≤100) values for all inputs
+    _c_moon_score      = min(_la_moon_score,        100.0)
+    _c_ll_score        = min(_la_ll_score,           100.0)
+    _c_ll_str_score    = min(_la_ll_str_score,       100.0)
+    _c_ll_suchama_score= min(_la_ll_suchama_score,   100.0)
+    _c_h1_score        = min(_la_h1_score,           100.0)
+    _c_lagna_pt_score  = min(_la_lagna_pt_score,     100.0)
+    _c_nav_score       = min(_la_nav_score,          100.0)
+    _c_sun_score       = min(_la_sun_score,          100.0)
+    _c_h9_score        = min(_la_h9_score,           100.0)
+
+    _ag_ll_str_combined = _c_ll_str_score + _c_ll_suchama_score
+    _ag_moon   = _c_moon_score * 25.0 / 100.0
+    _ag_ll     = _c_ll_score * 12.5 / 100.0
     _ag_ll_str = _ag_ll_str_combined * 12.5 / 100.0
-    _ag_h1     = _la_h1_score * 40.0 / 100.0
-    _ag_lp     = _la_lagna_pt_score * 10.0 / 100.0
-    _ag_nav    = _la_nav_score * 10.0 / 100.0
+    _ag_h1     = _c_h1_score * 40.0 / 100.0
+    _ag_lp     = _c_lagna_pt_score * 10.0 / 100.0
+    _ag_nav    = _c_nav_score * 10.0 / 100.0
     _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp + _ag_nav
-    _ag_notes  = (f"Moon({_la_moon_score:.2f}*25%)={_ag_moon:.2f} + "
-                  f"LL({_la_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
-                  f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*12.5%)={_ag_ll_str:.2f} + "
-                  f"H1({_la_h1_score:.2f}*40%)={_ag_h1:.2f} + "
-                  f"LP({_la_lagna_pt_score:.2f}*10%)={_ag_lp:.2f} + "
-                  f"NavLagna({_la_nav_score:.2f}*10%)={_ag_nav:.2f}")
+    _ag_notes  = (f"Moon({_c_moon_score:.2f}*25%)={_ag_moon:.2f} + "
+                  f"LL({_c_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
+                  f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*12.5%)={_ag_ll_str:.2f} + "
+                  f"H1({_c_h1_score:.2f}*40%)={_ag_h1:.2f} + "
+                  f"LP({_c_lagna_pt_score:.2f}*10%)={_ag_lp:.2f} + "
+                  f"NavLagna({_c_nav_score:.2f}*10%)={_ag_nav:.2f}")
 
     # 10. Bhuvi Bonus: weighted sum (LLStr includes Suchama)
-    _bv_ll_str_combined = _la_ll_str_score + _la_ll_suchama_score
-    _bv_moon   = _la_moon_score * 20.0 / 100.0
-    _bv_ll     = _la_ll_score * 10.0 / 100.0
+    _bv_ll_str_combined = _c_ll_str_score + _c_ll_suchama_score
+    _bv_moon   = _c_moon_score * 20.0 / 100.0
+    _bv_ll     = _c_ll_score * 10.0 / 100.0
     _bv_ll_str = _bv_ll_str_combined * 10.0 / 100.0
-    _bv_h1     = _la_h1_score * 30.0 / 100.0
-    _bv_lp     = _la_lagna_pt_score * 5.0 / 100.0
-    _bv_nav    = _la_nav_score * 10.0 / 100.0
-    _bv_sun    = _la_sun_score * 10.0 / 100.0
-    _bv_h9     = _la_h9_score * 10.0 / 100.0
+    _bv_h1     = _c_h1_score * 30.0 / 100.0
+    _bv_lp     = _c_lagna_pt_score * 5.0 / 100.0
+    _bv_nav    = _c_nav_score * 10.0 / 100.0
+    _bv_sun    = _c_sun_score * 10.0 / 100.0
+    _bv_h9     = _c_h9_score * 10.0 / 100.0
     _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_nav + _bv_sun + _bv_h9
-    _bv_notes  = (f"Moon({_la_moon_score:.2f}*20%)={_bv_moon:.2f} + "
-                  f"LL({_la_ll_score:.2f}*10%)={_bv_ll:.2f} + "
-                  f"LLStr+Suchama({_la_ll_str_score:.2f}+{_la_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
-                  f"H1({_la_h1_score:.2f}*30%)={_bv_h1:.2f} + "
-                  f"LP({_la_lagna_pt_score:.2f}*5%)={_bv_lp:.2f} + "
-                  f"NavLagna({_la_nav_score:.2f}*10%)={_bv_nav:.2f} + "
-                  f"Sun({_la_sun_score:.2f}*10%)={_bv_sun:.2f} + "
-                  f"H9({_la_h9_score:.2f}*10%)={_bv_h9:.2f}")
+    _bv_notes  = (f"Moon({_c_moon_score:.2f}*20%)={_bv_moon:.2f} + "
+                  f"LL({_c_ll_score:.2f}*10%)={_bv_ll:.2f} + "
+                  f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
+                  f"H1({_c_h1_score:.2f}*30%)={_bv_h1:.2f} + "
+                  f"LP({_c_lagna_pt_score:.2f}*5%)={_bv_lp:.2f} + "
+                  f"NavLagna({_c_nav_score:.2f}*10%)={_bv_nav:.2f} + "
+                  f"Sun({_c_sun_score:.2f}*10%)={_bv_sun:.2f} + "
+                  f"H9({_c_h9_score:.2f}*10%)={_bv_h9:.2f}")
 
     def _la_fmt(score, notes):
         """Cap score at 100 for display; append raw value to notes if exceeded."""
