@@ -3232,24 +3232,26 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         target_sign = get_sign(target_lon)
 
         if _hp_is_malefic(parent):
-            if clone['debt'] < -0.001:
+            # Mars aspecting Leo: exclude only Self Bad (Bad Mars);
+            # score Other Bad currencies directly instead of using debt.
+            # Self Good + Gained Good (all in Good Mars) handled by own_key section below.
+            if parent == 'Mars' and target_sign == 'Leo':
+                _mars_other_bad = 0.0
+                for k, v in clone['inventory'].items():
+                    if 'Bad' in k and k != 'Bad Mars' and v > 0.001:
+                        _mars_other_bad += v
+                if _mars_other_bad > 0.001:
+                    aspect_score[target_sign] -= _mars_other_bad
+                    aspect_sources[target_sign].append(f"{parent}(Other Bad [Leo, excl SelfBad])")
+            elif clone['debt'] < -0.001:
                 if parent == lagna_lord and is_malefic_lagna_lord and target_sign == lagna_sign_hp:
                     penalty = abs(clone['debt']) / 2.0
                     aspect_score[target_sign] -= penalty
                     aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2 [Lagna])")
                 else:
-                    # Mars aspecting Leo: exclude self-bad (Bad Mars) from debt penalty;
-                    # only carry grabbed/other debts into the aspect score.
-                    if parent == 'Mars' and target_sign == 'Leo':
-                        _mars_selfbad = clone['inventory'].get('Bad Mars', 0.0)
-                        penalty = max(abs(clone['debt']) - _mars_selfbad, 0.0)
-                        if penalty > 0.001:
-                            aspect_score[target_sign] -= penalty
-                            aspect_sources[target_sign].append(f"{parent}(Malefic Debt excl. SelfBad [Leo])")
-                    else:
-                        penalty = abs(clone['debt'])
-                        aspect_score[target_sign] -= penalty
-                        aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
+                    penalty = abs(clone['debt'])
+                    aspect_score[target_sign] -= penalty
+                    aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
             own_key = _own_good_key.get(parent)
             if own_key:
                 own_val = clone['inventory'].get(own_key, 0.0)
