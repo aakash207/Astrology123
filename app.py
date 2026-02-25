@@ -116,7 +116,7 @@ base_malefics = ['Saturn', 'Mars', 'Sun', 'Rahu']
 malefic_planets = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
 
 # MODIFICATION 3: Malefic Hierarchy for Navamsa Phase 1
-navamsa_malefic_hierarchy = {'Rahu': 1, 'Saturn': 2, 'Sun': 3, 'Mars': 4, 'Ketu': 5}
+navamsa_malefic_hierarchy = {'Rahu': 1, 'Sun': 2, 'Saturn': 3, 'Mars': 4, 'Ketu': 5}
 
 mix_dict = {0:100,1:100,2:100,3:95,4:90,5:85,6:80,7:75,8:70,9:65,10:60,11:55,12:50,13:45,14:40,15:35,16:30,17:25,18:20,19:15,20:10,21:5,22:0}
 
@@ -879,6 +879,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
                         navamsa_data[debtor]['nav_current_debt'] -= take
                         navamsa_data[debtor]['nav_debt'] -= take
+                    elif debtor == 'Sun' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                        # Sun converts Good Saturn to Bad Saturn and adds debt
+                        navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
+                        navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
+                        navamsa_data[debtor]['nav_current_debt'] -= take
+                        navamsa_data[debtor]['nav_debt'] -= take
                     else:
                         navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
                         navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
@@ -1546,6 +1552,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                         planet_data[debtor]['current_debt'] += take
                     elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
                         # Rahu converts Good Saturn to Bad Saturn and adds debt
+                        planet_data[debtor]['final_inventory']['Bad Saturn'] += take
+                        planet_data[debtor]['current_debt'] -= take
+                    elif debtor == 'Sun' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                        # Sun converts Good Saturn to Bad Saturn and adds debt
                         planet_data[debtor]['final_inventory']['Bad Saturn'] += take
                         planet_data[debtor]['current_debt'] -= take
                     else:
