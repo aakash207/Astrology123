@@ -4587,13 +4587,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             _la_moon_score = 0.0
         _la_moon_notes = f"Waxing Moon [(Good {_la_moon_good:.2f} - Bad {_la_moon_bad:.2f}) / (Good {_la_moon_good:.2f} + |Debt| {_la_moon_abs_debt:.2f})] x100 = {_la_moon_score:.2f}"
     else:
-        # Waning: [(Total Good - |Debt|) / (Total Good + |Debt|)] x 100
+        # Waning: [(Good - Debt + SelfBad) / (Good + Debt)] x 100
+        _la_moon_selfbad = _la_moon_inv.get('Bad Moon', 0.0)
         _la_moon_total = _la_moon_good + _la_moon_abs_debt
         if _la_moon_total > 0.001:
-            _la_moon_score = ((_la_moon_good - _la_moon_abs_debt) / _la_moon_total) * 100.0
+            _la_moon_score = ((_la_moon_good - _la_moon_abs_debt + _la_moon_selfbad) / _la_moon_total) * 100.0
         else:
             _la_moon_score = 0.0
-        _la_moon_notes = f"Waning Moon [(Good {_la_moon_good:.2f} - Debt {_la_moon_abs_debt:.2f}) / (Good {_la_moon_good:.2f} + Debt {_la_moon_abs_debt:.2f})] x100 = {_la_moon_score:.2f}"
+        _la_moon_notes = f"Waning Moon [(Good {_la_moon_good:.2f} - Debt {_la_moon_abs_debt:.2f} + SelfBad {_la_moon_selfbad:.2f}) / (Good {_la_moon_good:.2f} + Debt {_la_moon_abs_debt:.2f})] x100 = {_la_moon_score:.2f}"
 
     # 2. Lagna Lord Maraivu Adj Score from NPS
     _la_ll_adj = _nps_score_dict.get(_la_lagna_lord + '_adjusted', 0.0)
