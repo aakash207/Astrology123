@@ -869,9 +869,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                             del planet_best_currency[p_name]
                             continue
                         
-                        if not tgt['is_good'] and good_available:
-                            continue
-                        
                         avail = navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']]
                         if avail <= 0:
                             # This currency is exhausted, find next best from this planet
@@ -955,9 +952,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                 # Infection adds Bad Currency => Debt Increases
                                 navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
                                 navamsa_data[_nav_tgt_name]['nav_debt'] -= take
-                            
-                            # Update good_available after each transaction
-                            good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
                     
                     if not round_happened:
                         break
@@ -1597,14 +1591,23 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             if planet_data[debtor]['current_debt'] >= -0.001: continue
             
             debtor_is_malefic = debtor in malefic_planets
+            debtor_malefic_rank = navamsa_malefic_hierarchy.get(debtor, 99)
             
             potential_targets = []
             for t_name in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
                 if t_name == debtor: continue
-                d_idx = debtor_rank.index(debtor) if debtor in debtor_rank else 99
-                t_idx = debtor_rank.index(t_name) if t_name in debtor_rank else 99
-                if d_idx > t_idx: continue 
                 if debtor == 'Ketu' and t_name not in ['Sun', 'Moon']: continue
+                
+                # Malefic hierarchy check: lower hierarchy malefic cannot take from higher hierarchy malefic
+                target_is_malefic = t_name in malefic_planets
+                if debtor_is_malefic and target_is_malefic:
+                    target_malefic_rank = navamsa_malefic_hierarchy.get(t_name, 99)
+                    if debtor_malefic_rank >= target_malefic_rank:
+                        continue
+                else:
+                    d_idx = debtor_rank.index(debtor) if debtor in debtor_rank else 99
+                    t_idx = debtor_rank.index(t_name) if t_name in debtor_rank else 99
+                    if d_idx > t_idx: continue
                 
                 inv = planet_data[t_name]['final_inventory']
                 for key, val in inv.items():
