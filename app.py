@@ -651,8 +651,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         planet_cap = p.capitalize()
         navamsa_house_planets[nav_house].append(planet_cap)
         
-        # Use 100% sthanabala for Navamsa (full capacity as volume)
-        nav_volume = capacity_dict.get(planet_cap, 0)
+        # Use the actual volume from birth chart (sthanabala-adjusted) instead of 100% capacity
+        nav_volume = planet_data[planet_cap]['volume']
         
         if planet_cap == 'Moon':
             if paksha == 'Shukla':
