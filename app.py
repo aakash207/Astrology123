@@ -843,84 +843,201 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             
             good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
             
-            for tgt in potential_targets:
-                if navamsa_data[debtor]['nav_current_debt'] >= -0.001: break
+            # MALEFIC DISTRIBUTION LOGIC: Take 1 unit from each planet's best currency in round-robin
+            if debtor_is_malefic:
+                # Group targets by planet and keep only the best currency from each
+                planet_best_currency = {}
+                for tgt in potential_targets:
+                    p_name = tgt['planet']
+                    if p_name not in planet_best_currency:
+                        planet_best_currency[p_name] = tgt
+                    # Already sorted by (is_good, score), so first occurrence is best
                 
-                if debtor_is_malefic and not tgt['is_good'] and good_available:
-                    continue
-                
-                avail = navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']]
-                if avail <= 0: continue
-                
-                tracker_key = f"nav_pulled_from_{tgt['planet']}"
-                pulled = navamsa_data[debtor].get(tracker_key, 0.0)
-                cap_space = tgt['max_pull'] - pulled
-                if cap_space <= 0: continue
-                
-                needed = abs(navamsa_data[debtor]['nav_current_debt'])
-                take = min(1.0, avail, cap_space)
-                
-                if take > 0:
-                    navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']] -= take
-                    navamsa_data[tgt['planet']]['nav_current_debt'] -= take
-                    navamsa_data[tgt['planet']]['nav_debt'] -= take
+                # Round-robin: take 1 unit from each planet until debt is cleared
+                while navamsa_data[debtor]['nav_current_debt'] < -0.001:
+                    round_happened = False
                     
-                    is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
-                    is_sun_or_moon = (debtor in ['Sun', 'Moon'])
+                    for p_name, tgt in list(planet_best_currency.items()):
+                        if navamsa_data[debtor]['nav_current_debt'] >= -0.001:
+                            break
+                        
+                        # Never pull your own bad currency from someone else
+                        _nav_own_bad_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                        if tgt['key'] == _nav_own_bad_key:
+                            del planet_best_currency[p_name]
+                            continue
+                        
+                        if not tgt['is_good'] and good_available:
+                            continue
+                        
+                        avail = navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']]
+                        if avail <= 0:
+                            # This currency is exhausted, find next best from this planet
+                            next_best = None
+                            for t in potential_targets:
+                                if t['planet'] == p_name and t['key'] != tgt['key']:
+                                    if navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0:
+                                        next_best = t
+                                        break
+                            if next_best:
+                                planet_best_currency[p_name] = next_best
+                                continue
+                            else:
+                                del planet_best_currency[p_name]
+                                continue
+                        
+                        tracker_key = f"nav_pulled_from_{tgt['planet']}"
+                        pulled = navamsa_data[debtor].get(tracker_key, 0.0)
+                        cap_space = tgt['max_pull'] - pulled
+                        if cap_space <= 0:
+                            del planet_best_currency[p_name]
+                            continue
+                        
+                        take = min(1.0, avail, cap_space)
+                        
+                        if take > 0:
+                            navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']] -= take
+                            navamsa_data[tgt['planet']]['nav_current_debt'] -= take
+                            navamsa_data[tgt['planet']]['nav_debt'] -= take
+                            
+                            is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
+                            is_sun_or_moon = (debtor in ['Sun', 'Moon'])
+                            
+                            if is_ketu_currency and not is_sun_or_moon:
+                                navamsa_data[debtor]['nav_inventory']['Good Ketu'] += take
+                                navamsa_data[debtor]['nav_gained_currencies']['Good Ketu'] += take
+                                navamsa_data[debtor]['nav_current_debt'] += take
+                                navamsa_data[debtor]['nav_debt'] += take
+                            elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                                # Rahu converts Good Saturn to Bad Saturn and adds debt
+                                navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
+                                navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
+                                navamsa_data[debtor]['nav_current_debt'] -= take
+                                navamsa_data[debtor]['nav_debt'] -= take
+                            elif debtor == 'Sun' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                                # Sun converts Good Saturn to Bad Saturn and adds debt
+                                navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
+                                navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
+                                navamsa_data[debtor]['nav_current_debt'] -= take
+                                navamsa_data[debtor]['nav_debt'] -= take
+                            else:
+                                navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
+                                navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
+                                
+                                is_bad_currency = 'Bad' in tgt['key'] or tgt['key'] in ['Amavasya', 'Bad Saturn', 'Bad Rahu']
+                                if tgt['planet'] in ['Saturn', 'Rahu'] and 'Bad' in tgt['key']: is_bad_currency = True
+                                if tgt['planet'] == 'Moon' and 'Bad' in tgt['key']: is_bad_currency = True
+                                
+                                if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
+                                    navamsa_data[debtor]['nav_current_debt'] -= take
+                                    navamsa_data[debtor]['nav_debt'] -= take
+                                elif is_bad_currency: 
+                                    navamsa_data[debtor]['nav_current_debt'] -= take
+                                    navamsa_data[debtor]['nav_debt'] -= take
+                                else: 
+                                    navamsa_data[debtor]['nav_current_debt'] += take
+                                    navamsa_data[debtor]['nav_debt'] += take
+                            
+                            navamsa_data[debtor][tracker_key] = pulled + take
+                            nav_something_happened = True
+                            round_happened = True
+                            
+                            # --- INFECTION PENALTY: Malefic-to-Malefic currency exchange ---
+                            _nav_tgt_name = tgt['planet']
+                            _nav_tgt_is_malefic = (_nav_tgt_name in malefic_planets or
+                                                   (_nav_tgt_name == 'Moon' and navamsa_data['Moon'].get('nav_moon_bad_pct', 0) > 0))
+                            if debtor_is_malefic and _nav_tgt_is_malefic:
+                                _nav_infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                                navamsa_data[_nav_tgt_name]['nav_inventory'][_nav_infection_key] += take
+                                navamsa_data[_nav_tgt_name]['nav_gained_currencies'][_nav_infection_key] += take
+                                # Infection adds Bad Currency => Debt Increases
+                                navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
+                                navamsa_data[_nav_tgt_name]['nav_debt'] -= take
+                            
+                            # Update good_available after each transaction
+                            good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
                     
-                    if is_ketu_currency and not is_sun_or_moon:
-                        navamsa_data[debtor]['nav_inventory']['Good Ketu'] += take
-                        navamsa_data[debtor]['nav_gained_currencies']['Good Ketu'] += take
-                        navamsa_data[debtor]['nav_current_debt'] += take
-                        navamsa_data[debtor]['nav_debt'] += take
-                    elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
-                        # Rahu converts Good Saturn to Bad Saturn and adds debt
-                        navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
-                        navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
-                        navamsa_data[debtor]['nav_current_debt'] -= take
-                        navamsa_data[debtor]['nav_debt'] -= take
-                    elif debtor == 'Sun' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
-                        # Sun converts Good Saturn to Bad Saturn and adds debt
-                        navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
-                        navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
-                        navamsa_data[debtor]['nav_current_debt'] -= take
-                        navamsa_data[debtor]['nav_debt'] -= take
-                    else:
-                        navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
-                        navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
+                    if not round_happened:
+                        break
+            
+            # NON-MALEFIC LOGIC: Take as much as possible from each target sequentially
+            else:
+                for tgt in potential_targets:
+                    if navamsa_data[debtor]['nav_current_debt'] >= -0.001: break
+                    
+                    # Never pull your own bad currency from someone else
+                    _nav_own_bad_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                    if tgt['key'] == _nav_own_bad_key:
+                        continue
+                    
+                    avail = navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']]
+                    if avail <= 0: continue
+                    
+                    tracker_key = f"nav_pulled_from_{tgt['planet']}"
+                    pulled = navamsa_data[debtor].get(tracker_key, 0.0)
+                    cap_space = tgt['max_pull'] - pulled
+                    if cap_space <= 0: continue
+                    
+                    needed = abs(navamsa_data[debtor]['nav_current_debt'])
+                    take = min(1.0, avail, cap_space)
+                    
+                    if take > 0:
+                        navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']] -= take
+                        navamsa_data[tgt['planet']]['nav_current_debt'] -= take
+                        navamsa_data[tgt['planet']]['nav_debt'] -= take
                         
-                        is_bad_currency = 'Bad' in tgt['key'] or tgt['key'] in ['Amavasya', 'Bad Saturn', 'Bad Rahu']
-                        if tgt['planet'] in ['Saturn', 'Rahu'] and 'Bad' in tgt['key']: is_bad_currency = True
-                        if tgt['planet'] == 'Moon' and 'Bad' in tgt['key']: is_bad_currency = True
+                        is_ketu_currency = (tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu')
+                        is_sun_or_moon = (debtor in ['Sun', 'Moon'])
                         
-                        if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
-                            navamsa_data[debtor]['nav_current_debt'] -= take
-                            navamsa_data[debtor]['nav_debt'] -= take
-                        elif is_bad_currency: 
-                            navamsa_data[debtor]['nav_current_debt'] -= take
-                            navamsa_data[debtor]['nav_debt'] -= take
-                        else: 
+                        if is_ketu_currency and not is_sun_or_moon:
+                            navamsa_data[debtor]['nav_inventory']['Good Ketu'] += take
+                            navamsa_data[debtor]['nav_gained_currencies']['Good Ketu'] += take
                             navamsa_data[debtor]['nav_current_debt'] += take
                             navamsa_data[debtor]['nav_debt'] += take
-                    
-                    navamsa_data[debtor][tracker_key] = pulled + take
-                    nav_something_happened = True
-                    
-                    # --- INFECTION PENALTY: Malefic-to-Malefic currency exchange ---
-                    # If both Debtor (Receiver) and Giver (Target) are Malefic,
-                    # inject the Debtor's Bad Currency into the Giver's inventory.
-                    _nav_tgt_name = tgt['planet']
-                    _nav_tgt_is_malefic = (_nav_tgt_name in malefic_planets or
-                                           (_nav_tgt_name == 'Moon' and navamsa_data['Moon'].get('nav_moon_bad_pct', 0) > 0))
-                    if debtor_is_malefic and _nav_tgt_is_malefic:
-                        _nav_infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
-                        navamsa_data[_nav_tgt_name]['nav_inventory'][_nav_infection_key] += take
-                        navamsa_data[_nav_tgt_name]['nav_gained_currencies'][_nav_infection_key] += take
-                        # Infection adds Bad Currency => Debt Increases
-                        navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
-                        navamsa_data[_nav_tgt_name]['nav_debt'] -= take
-                    
-                    good_available = any(t['is_good'] and navamsa_data[t['planet']]['nav_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
+                        elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                            # Rahu converts Good Saturn to Bad Saturn and adds debt
+                            navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
+                            navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
+                            navamsa_data[debtor]['nav_current_debt'] -= take
+                            navamsa_data[debtor]['nav_debt'] -= take
+                        elif debtor == 'Sun' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                            # Sun converts Good Saturn to Bad Saturn and adds debt
+                            navamsa_data[debtor]['nav_inventory']['Bad Saturn'] += take
+                            navamsa_data[debtor]['nav_gained_currencies']['Bad Saturn'] += take
+                            navamsa_data[debtor]['nav_current_debt'] -= take
+                            navamsa_data[debtor]['nav_debt'] -= take
+                        else:
+                            navamsa_data[debtor]['nav_inventory'][tgt['key']] += take
+                            navamsa_data[debtor]['nav_gained_currencies'][tgt['key']] += take
+                            
+                            is_bad_currency = 'Bad' in tgt['key'] or tgt['key'] in ['Amavasya', 'Bad Saturn', 'Bad Rahu']
+                            if tgt['planet'] in ['Saturn', 'Rahu'] and 'Bad' in tgt['key']: is_bad_currency = True
+                            if tgt['planet'] == 'Moon' and 'Bad' in tgt['key']: is_bad_currency = True
+                            
+                            if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
+                                navamsa_data[debtor]['nav_current_debt'] -= take
+                                navamsa_data[debtor]['nav_debt'] -= take
+                            elif is_bad_currency: 
+                                navamsa_data[debtor]['nav_current_debt'] -= take
+                                navamsa_data[debtor]['nav_debt'] -= take
+                            else: 
+                                navamsa_data[debtor]['nav_current_debt'] += take
+                                navamsa_data[debtor]['nav_debt'] += take
+                        
+                        navamsa_data[debtor][tracker_key] = pulled + take
+                        nav_something_happened = True
+                        
+                        # --- INFECTION PENALTY: Malefic-to-Malefic currency exchange ---
+                        _nav_tgt_name = tgt['planet']
+                        _nav_tgt_is_malefic = (_nav_tgt_name in malefic_planets or
+                                               (_nav_tgt_name == 'Moon' and navamsa_data['Moon'].get('nav_moon_bad_pct', 0) > 0))
+                        if debtor_is_malefic and _nav_tgt_is_malefic:
+                            _nav_infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                            navamsa_data[_nav_tgt_name]['nav_inventory'][_nav_infection_key] += take
+                            navamsa_data[_nav_tgt_name]['nav_gained_currencies'][_nav_infection_key] += take
+                            # Infection adds Bad Currency => Debt Increases
+                            navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
+                            navamsa_data[_nav_tgt_name]['nav_debt'] -= take
 
         if not nav_something_happened: nav_loop_active = False
     
