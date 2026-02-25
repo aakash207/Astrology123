@@ -4566,40 +4566,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     _la_lagna_sign = get_sign(lagna_sid)
     _la_lagna_lord = get_sign_lord(_la_lagna_sign)
 
-    # 1. Moon's Light
-    _la_moon_inv = phase5_data['Moon']['p5_inventory']
-    _la_moon_good = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and is_good_currency(k))
-    _la_moon_bad = sum(v for k, v in _la_moon_inv.items() if v > 0.001 and 'Bad' in k)
-    # Jupiter Poison: treat as bad for Moon's Light
-    _la_moon_jp_poison = _la_moon_inv.get('Jupiter Poison', 0.0)
-    if _la_moon_jp_poison > 0.001:
-        _la_moon_good -= _la_moon_jp_poison
-        _la_moon_bad += _la_moon_jp_poison
-    _la_moon_debt = phase5_data['Moon']['p5_current_debt']
-    _la_moon_abs_debt = abs(_la_moon_debt) if _la_moon_debt < -0.001 else 0.0
+    # 1. Moon's Light — use final normalized score from NPS
+    _la_moon_score = _nps_score_dict.get('Moon', 0.0)
     _la_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
-    if _la_moon_is_waxing:
-        # Waxing: [(Total Good - Total Bad) / (Total Good + |Debt|)] x 100
-        _la_moon_denom = _la_moon_good + _la_moon_abs_debt
-        if abs(_la_moon_denom) > 0.001:
-            _la_moon_score = ((_la_moon_good - _la_moon_bad) / _la_moon_denom) * 100.0
-        else:
-            _la_moon_score = 0.0
-        _la_moon_notes = f"Waxing Moon [(Good {_la_moon_good:.2f} - Bad {_la_moon_bad:.2f}) / (Good {_la_moon_good:.2f} + |Debt| {_la_moon_abs_debt:.2f})] x100 = {_la_moon_score:.2f}"
-    else:
-        # Waning: [(Good - Debt + SelfBad) / (Good + Debt)] x 100
-        _la_moon_selfbad = _la_moon_inv.get('Bad Moon', 0.0)
-        _la_moon_total = _la_moon_good + _la_moon_abs_debt
-        if _la_moon_total > 0.001:
-            _la_moon_score = ((_la_moon_good - _la_moon_abs_debt + _la_moon_selfbad) / _la_moon_total) * 100.0
-        else:
-            _la_moon_score = 0.0
-        _la_moon_notes = f"Waning Moon [(Good {_la_moon_good:.2f} - Debt {_la_moon_abs_debt:.2f} + SelfBad {_la_moon_selfbad:.2f}) / (Good {_la_moon_good:.2f} + Debt {_la_moon_abs_debt:.2f})] x100 = {_la_moon_score:.2f}"
+    _la_moon_phase_label = 'Waxing' if _la_moon_is_waxing else 'Waning'
+    _la_moon_notes = f"{_la_moon_phase_label} Moon — Final Normalized Score = {_la_moon_score:.2f}"
 
-    # 2. Lagna Lord Maraivu Adj Score from NPS
-    _la_ll_adj = _nps_score_dict.get(_la_lagna_lord + '_adjusted', 0.0)
+    # 2. Lagna Lord Final Normalized Score from NPS
+    _la_ll_adj = _nps_score_dict.get(_la_lagna_lord, 0.0)
     _la_ll_score = _la_ll_adj
-    _la_ll_notes = f"{_la_lagna_lord} maraivu adj NPS = {_la_ll_adj:.2f}"
+    _la_ll_notes = f"{_la_lagna_lord} final normalized NPS = {_la_ll_adj:.2f}"
 
     # 3. Lagna Lord Strength (maraivu adj from Planet Strengths)
     _la_ll_str_raw = _planet_maraivu_adj_strengths.get(_la_lagna_lord, 0.0)
