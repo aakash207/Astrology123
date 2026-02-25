@@ -823,6 +823,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 inv = navamsa_data[t_name]['nav_inventory']
                 for key, val in inv.items():
                     if key == 'Good Rahu': continue
+                    # Skip foreign bad currencies (infection markers from other planets)
+                    if 'Bad' in key and key != f"Bad {t_name}": continue
                     if val > 0.001:
                         max_pull = navamsa_data[t_name]['nav_volume'] * 1.0
                         tracker_key = f"nav_pulled_from_{t_name}"
@@ -1607,6 +1609,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 inv = planet_data[t_name]['final_inventory']
                 for key, val in inv.items():
                     if key == 'Good Rahu': continue
+                    # Skip foreign bad currencies (infection markers from other planets)
+                    if 'Bad' in key and key != f"Bad {t_name}": continue
                     if val > 0.001:
                         L1 = planet_data[debtor]['L']
                         L2 = planet_data[t_name]['L']
