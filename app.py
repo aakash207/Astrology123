@@ -477,6 +477,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         updated_status = '-'
         is_neechabhangam = False
         is_healthy_neecham_moon = False
+        neechabhangam_good_add = 0.0
+        neechabhangam_bad_add = 0.0
         
         if status == 'Neecham':
             if planet_cap == 'Moon' and paksha == 'Shukla' and bad_val == 0:
