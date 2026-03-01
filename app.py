@@ -332,22 +332,28 @@ def compute_positions_swisseph(utc_dt, lat, lon):
         'saturn': swe.SATURN, 'rahu': swe.MEAN_NODE
     }
 
-    # Use sidereal flag so positions are directly sidereal (Lahiri)
+    # Use sidereal flag; try Swiss Eph files first, fall back to Moshier if missing
     flags = swe.FLG_SIDEREAL | swe.FLG_SWIEPH
+    flags_fallback = swe.FLG_SIDEREAL | swe.FLG_MOSEPH
 
     lon_sid = {}
     for name, pid in planet_ids.items():
-        result, _flag = swe.calc_ut(jd, pid, flags)
+        try:
+            result, _flag = swe.calc_ut(jd, pid, flags)
+        except Exception:
+            # Ephemeris file missing for this date range – use built-in Moshier
+            result, _flag = swe.calc_ut(jd, pid, flags_fallback)
         lon_sid[name] = result[0]  # sidereal longitude
 
     # Ketu = 180° opposite Rahu
     lon_sid['ketu'] = (lon_sid['rahu'] + 180.0) % 360.0
 
-    # Ascendant – compute tropical then subtract Lahiri ayanamsa
-    cusps, asmc = swe.houses(jd, lat, lon, b'P')  # Placidus
-    asc_trop = asmc[0]
-    ayan_lahiri = swe.get_ayanamsa_ut(jd)
-    asc_sid = (asc_trop - ayan_lahiri) % 360
+    # Ascendant – Whole Sign houses with sidereal flag (standard Vedic)
+    try:
+        cusps, ascmc = swe.houses_ex(jd, lat, lon, b'W', flags)
+    except Exception:
+        cusps, ascmc = swe.houses_ex(jd, lat, lon, b'W', flags_fallback)
+    asc_sid = ascmc[0]  # already sidereal with FLG_SIDEREAL
 
     return lon_sid, asc_sid, jd
 
@@ -5085,6 +5091,9 @@ name = st.text_input("Name", placeholder="Enter full name")
 is_bc = st.checkbox("BC / BCE Date?", help="Enable this for dates before 1 AD (e.g. 3000 BC). Uses Swiss Ephemeris for ancient date support.")
 
 if is_bc:
+    if not USE_SWISSEPH:
+        st.error("⚠️ Swiss Ephemeris (swisseph) is required for BC/BCE date support. Install it with: `pip install pyswisseph`")
+        st.stop()
     st.caption("Enter the BC year as a positive number (e.g. 3102 for 3102 BC). Month & Day as usual.")
     bc_cols = st.columns(4)
     with bc_cols[0]:
