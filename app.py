@@ -3569,13 +3569,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             else:
                 _f_i = 0.0
             _f_other_bad = max(total_bad - self_bad, 0.0)
-            _f_numer = total_good - _f_other_bad + _f_i
+            # For Rahu: never add i. For Ketu: don't add i if Ketu is alone malefic.
+            _f_skip_i = (p == 'Rahu') or (p == 'Ketu' and locals().get('_ketu_is_alone', False))
+            _f_numer = total_good - _f_other_bad + (0.0 if _f_skip_i else _f_i)
             _f_denom = p_volume + _f_other_bad
             if abs(_f_denom) < 0.001:
                 final_ns = 0.0
             else:
                 final_ns = (_f_numer / _f_denom) * 100
-            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i:.2f}) / (Vol {p_volume:.2f} + OtherBad {_f_other_bad:.2f})] x100 = {final_ns:.2f}"
+            _f_i_used = 0.0 if _f_skip_i else _f_i
+            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i_used:.2f}) / (Vol {p_volume:.2f} + OtherBad {_f_other_bad:.2f})] x100 = {final_ns:.2f}"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
