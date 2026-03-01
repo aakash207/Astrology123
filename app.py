@@ -3506,7 +3506,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # --- Determine case and calculate ---
         if p == 'Moon' and _nps_moon_is_waxing and not is_neecha:
             # Case A: Waxing Moon, NOT Negative Status
-            abs_debt = abs(p5_debt)
+            abs_debt = abs(p5_debt) if p5_debt < 0 else 0.0
             denom_val = total_good + abs_debt + total_bad
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
@@ -3516,7 +3516,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
             # Case B: Waxing Moon, IS Negative Status
-            swapped_debt = -1 * p5_debt
+            swapped_debt = -1 * p5_debt if p5_debt < 0 else 0.0
             denom_val = p_capacity * 1.2
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
@@ -3557,18 +3557,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
 
         else:
-            # Case F: Standard Malefic (Not Neecha) – debt-based formula
-            # Score = ((Volume - |Remaining Debt|) / Volume) * 100
-            # Deduct self bad currency from debt before computing score (not for Rahu/Ketu)
-            _f_adj_debt = p5_debt
-            if _f_adj_debt < 0 and self_bad > 0.001 and p not in ('Rahu', 'Ketu'):
-                _f_adj_debt = min(_f_adj_debt + self_bad, 0.0)
-            abs_debt = abs(_f_adj_debt) if _f_adj_debt < 0 else 0.0
-            if abs(p_volume) < 0.001:
+            # Case F: Standard Malefic (Not Neecha)
+            # New formula: [(TotalGood - TotalBad + i) / (TotalVolume + OtherBad)] x 100
+            # i = min(self_bad, |debt|) when debt < 0, else 0
+            # OtherBad = total_bad - self_bad
+            if p5_debt < 0:
+                if abs(p5_debt) >= self_bad:
+                    _f_i = self_bad
+                else:
+                    _f_i = abs(p5_debt)
+            else:
+                _f_i = 0.0
+            _f_other_bad = max(total_bad - self_bad, 0.0)
+            _f_numer = total_good - total_bad + _f_i
+            _f_denom = p_volume + _f_other_bad
+            if abs(_f_denom) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((p_volume - abs_debt) / p_volume) * 100
-            formula_type = f"CaseF: ((Vol{p_volume:.2f} - |Debt|{abs_debt:.2f}) / Vol{p_volume:.2f}) * 100 = {final_ns:.2f}"
+                final_ns = (_f_numer / _f_denom) * 100
+            formula_type = f"CaseF: [(Good {total_good:.2f} - Bad {total_bad:.2f} + i {_f_i:.2f}) / (Vol {p_volume:.2f} + OtherBad {_f_other_bad:.2f})] x100 = {final_ns:.2f}"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
@@ -3787,7 +3794,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Others: Currency / volume * 100
         _cur_pct_parts = []
         if p == 'Moon' and _nps_moon_is_waxing:
-            _cur_denom = total_good + total_bad + abs(p5_debt)
+            _cur_denom = total_good + total_bad + (abs(p5_debt) if p5_debt < 0 else 0.0)
             _cur_denom = _cur_denom if _cur_denom > 0.001 else 1.0
         else:
             _cur_denom = p_volume if p_volume > 0.001 else 1.0
