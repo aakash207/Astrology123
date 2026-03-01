@@ -144,143 +144,6 @@ planet_ruled_signs = {
     'Saturn': ['Capricorn', 'Aquarius']
 }
 
-class JDDate:
-    """Date representation using Julian Day numbers — supports BC/BCE dates seamlessly.
-    Drop-in replacement for datetime where the codebase uses + timedelta, -, <, >, strftime, .year."""
-    __slots__ = ('jd',)
-
-    def __init__(self, jd):
-        self.jd = float(jd)
-
-    # ── constructors ──
-    @classmethod
-    def from_components(cls, year, month, day, hour=0, minute=0, second=0):
-        """Build from calendar components. Year 0 = 1 BC, -1 = 2 BC, etc. (astronomical)."""
-        h = hour + minute / 60.0 + second / 3600.0
-        if USE_SWISSEPH:
-            if (year > 1582) or (year == 1582 and month > 10) or (year == 1582 and month == 10 and day >= 15):
-                cal = swe.GREG_CAL
-            else:
-                cal = swe.JUL_CAL
-            return cls(swe.julday(year, month, day, h, cal))
-        else:
-            # Moshier / Astropy fallback — limited to AD dates
-            from astropy.time import Time as AstroTime
-            dt = datetime(max(1, year), month, day, hour, minute, second)
-            return cls(AstroTime(dt).jd)
-
-    @classmethod
-    def from_datetime(cls, dt):
-        """Convert a stdlib datetime to JDDate."""
-        return cls.from_components(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
-
-    # ── calendar decomposition ──
-    def to_calendar(self):
-        """Return (year, month, day, hour_decimal). Year may be ≤ 0 for BC dates."""
-        if USE_SWISSEPH:
-            return swe.revjul(self.jd)          # returns (y, m, d, h_dec)
-        else:
-            from astropy.time import Time as AstroTime
-            t = AstroTime(self.jd, format='jd')
-            dt = t.datetime
-            return dt.year, dt.month, dt.day, dt.hour + dt.minute / 60.0 + dt.second / 3600.0
-
-    @property
-    def year(self):
-        return int(self.to_calendar()[0])
-
-    @property
-    def month(self):
-        return int(self.to_calendar()[1])
-
-    @property
-    def day(self):
-        return int(self.to_calendar()[2])
-
-    @property
-    def hour(self):
-        return int(self.to_calendar()[3])
-
-    @property
-    def minute(self):
-        h_dec = self.to_calendar()[3]
-        return int((h_dec - int(h_dec)) * 60)
-
-    @property
-    def second(self):
-        h_dec = self.to_calendar()[3]
-        m_dec = (h_dec - int(h_dec)) * 60
-        return int((m_dec - int(m_dec)) * 60)
-
-    # ── arithmetic ──
-    def __add__(self, other):
-        if isinstance(other, timedelta):
-            return JDDate(self.jd + other.total_seconds() / 86400.0)
-        return NotImplemented
-
-    def __radd__(self, other):
-        return self.__add__(other)
-
-    def __sub__(self, other):
-        if isinstance(other, JDDate):
-            return timedelta(days=self.jd - other.jd)
-        if isinstance(other, timedelta):
-            return JDDate(self.jd - other.total_seconds() / 86400.0)
-        return NotImplemented
-
-    # ── comparison ──
-    def __lt__(self, other):
-        if isinstance(other, JDDate):
-            return self.jd < other.jd
-        return NotImplemented
-
-    def __le__(self, other):
-        if isinstance(other, JDDate):
-            return self.jd <= other.jd
-        return NotImplemented
-
-    def __gt__(self, other):
-        if isinstance(other, JDDate):
-            return self.jd > other.jd
-        return NotImplemented
-
-    def __ge__(self, other):
-        if isinstance(other, JDDate):
-            return self.jd >= other.jd
-        return NotImplemented
-
-    def __eq__(self, other):
-        if isinstance(other, JDDate):
-            return self.jd == other.jd
-        return NotImplemented
-
-    def __hash__(self):
-        return hash(self.jd)
-
-    # ── formatting ──
-    def strftime(self, fmt='%Y-%m-%d %H:%M:%S'):
-        y, m, d, h_dec = self.to_calendar()
-        year_int = int(y); month_int = int(m); day_int = int(d)
-        hours = int(h_dec); minutes = int((h_dec - hours) * 60)
-        seconds = int(((h_dec - hours) * 60 - minutes) * 60)
-        if year_int <= 0:
-            bc_year = 1 - year_int       # astronomical 0 → 1 BC, -1 → 2 BC …
-            year_str = f"{bc_year} BC"
-        else:
-            year_str = str(year_int)
-        result = fmt
-        result = result.replace('%Y', year_str)
-        result = result.replace('%m', f"{month_int:02d}")
-        result = result.replace('%d', f"{day_int:02d}")
-        result = result.replace('%H', f"{hours:02d}")
-        result = result.replace('%M', f"{minutes:02d}")
-        result = result.replace('%S', f"{seconds:02d}")
-        return result
-
-    def __repr__(self):
-        return f"JDDate(jd={self.jd:.6f}, cal={self.strftime()})"
-
-
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
     return (base + (year - 2000) * rate) % 360
@@ -302,13 +165,18 @@ def get_ascendant(jd, lat, lon):
     cos_asc = -(sin(lstr)*cos(oer) + tan(radians(lat))*sin(oer))
     return degrees(atan2(sin_asc, cos_asc)) % 360
 
-def _datetime_to_jd(dt):
-    """Convert a datetime or JDDate to Julian Day, handling Julian/Gregorian calendar switch."""
-    if isinstance(dt, JDDate):
-        return dt.jd
-    if USE_SWISSEPH:
+def _datetime_to_jd(dt=None, year=None, month=None, day=None, hour=0.0):
+    """Convert a datetime (or explicit y/m/d/h) to Julian Day.
+    
+    For BC dates pass year/month/day/hour directly (year <= 0 in astronomical numbering:
+    1 BC = 0, 2 BC = -1, etc.).
+    """
+    if dt is not None:
         y, m, d = dt.year, dt.month, dt.day
         h = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+    else:
+        y, m, d, h = year, month, day, hour
+    if USE_SWISSEPH:
         # Gregorian calendar from Oct 15 1582 onwards, Julian before
         if (y > 1582) or (y == 1582 and m > 10) or (y == 1582 and m == 10 and d >= 15):
             cal = swe.GREG_CAL
@@ -316,14 +184,29 @@ def _datetime_to_jd(dt):
             cal = swe.JUL_CAL
         return swe.julday(y, m, d, h, cal)
     else:
-        from astropy.time import Time as AstroTime
-        return AstroTime(dt).jd
+        if dt is not None:
+            from astropy.time import Time as AstroTime
+            return AstroTime(dt).jd
+        else:
+            # For BC dates without a datetime, compute JD manually (Julian calendar)
+            # Meeus algorithm
+            yy, mm = (y, m) if m > 2 else (y - 1, m + 12)
+            A = int(yy / 100)
+            B = 2 - A + int(A / 4) if (y > 1582 or (y == 1582 and m > 10) or (y == 1582 and m == 10 and d >= 15)) else 0
+            return int(365.25 * (yy + 4716)) + int(30.6001 * (mm + 1)) + d + h / 24.0 + B - 1524.5
 
-def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris (Lahiri Ayanamsa)."""
+def compute_positions_swisseph(utc_dt, lat, lon, bc_year=None, bc_month=None, bc_day=None, bc_hour=0.0):
+    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris (Lahiri Ayanamsa).
+    
+    For BC dates, pass bc_year/bc_month/bc_day/bc_hour (astronomical year numbering)
+    and utc_dt=None.
+    """
     # Set Lahiri ayanamsa mode BEFORE any calculation
     swe.set_sid_mode(swe.SIDM_LAHIRI)
-    jd = _datetime_to_jd(utc_dt)
+    if utc_dt is not None:
+        jd = _datetime_to_jd(utc_dt)
+    else:
+        jd = _datetime_to_jd(year=bc_year, month=bc_month, day=bc_day, hour=bc_hour)
 
     # Planet IDs in swisseph – using MEAN_NODE for Rahu (Jyotish standard)
     planet_ids = {
@@ -332,28 +215,36 @@ def compute_positions_swisseph(utc_dt, lat, lon):
         'saturn': swe.SATURN, 'rahu': swe.MEAN_NODE
     }
 
-    # Use sidereal flag; try Swiss Eph files first, fall back to Moshier if missing
-    flags = swe.FLG_SIDEREAL | swe.FLG_SWIEPH
-    flags_fallback = swe.FLG_SIDEREAL | swe.FLG_MOSEPH
+    # Use sidereal flag; try Swiss Ephemeris files first, fall back to Moshier
+    # for dates outside the available ephemeris file range (e.g. BC dates).
+    flags_swieph = swe.FLG_SIDEREAL | swe.FLG_SWIEPH
+    flags_moseph = swe.FLG_SIDEREAL | swe.FLG_MOSEPH
 
     lon_sid = {}
+    use_moseph = False
     for name, pid in planet_ids.items():
         try:
-            result, _flag = swe.calc_ut(jd, pid, flags)
+            result, _flag = swe.calc_ut(jd, pid, flags_swieph if not use_moseph else flags_moseph)
         except Exception:
-            # Ephemeris file missing for this date range – use built-in Moshier
-            result, _flag = swe.calc_ut(jd, pid, flags_fallback)
+            # Swiss Ephemeris file missing for this date range — fall back to Moshier
+            use_moseph = True
+            result, _flag = swe.calc_ut(jd, pid, flags_moseph)
         lon_sid[name] = result[0]  # sidereal longitude
 
     # Ketu = 180° opposite Rahu
     lon_sid['ketu'] = (lon_sid['rahu'] + 180.0) % 360.0
 
-    # Ascendant – Whole Sign houses with sidereal flag (standard Vedic)
+    # Ascendant — use houses_ex with whole-sign houses + sidereal flag
+    # This gives the sidereal ascendant directly (more accurate for Vedic astrology)
+    flags_houses = flags_moseph if use_moseph else flags_swieph
     try:
-        cusps, ascmc = swe.houses_ex(jd, lat, lon, b'W', flags)
+        cusps, asmc = swe.houses_ex(jd, lat, lon, b'W', flags_houses)
+        asc_sid = asmc[0]
     except Exception:
-        cusps, ascmc = swe.houses_ex(jd, lat, lon, b'W', flags_fallback)
-    asc_sid = ascmc[0]  # already sidereal with FLG_SIDEREAL
+        # Fallback: tropical houses then subtract ayanamsa manually
+        cusps, asmc = swe.houses(jd, lat, lon, b'W')
+        ayan_lahiri = swe.get_ayanamsa_ut(jd)
+        asc_sid = (asmc[0] - ayan_lahiri) % 360
 
     return lon_sid, asc_sid, jd
 
@@ -451,30 +342,62 @@ def is_good_currency(c_key):
 def is_sun_or_moon_currency(c_key):
     return 'Sun' in c_key or 'Moon' in c_key
 
-def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_year=None):
-    """Compute chart. For BC dates pass bc_year (astronomical year: 1 BC=0, 2 BC=-1 …)
-    and date_obj should still carry month/day (use any dummy year in that date_obj)."""
+def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_year=None, bc_month=None, bc_day=None):
+    """Compute full chart. For BC dates, pass bc_year (astronomical: 1 BC=0, 2 BC=-1),
+    bc_month, bc_day and set date_obj=None."""
     try:
         hour, minute = map(int, time_str.split(':'))
         if not (0<=hour<=23 and 0<=minute<=59): raise ValueError
     except:
         raise ValueError("Time must be in HH:MM format (24-hour)")
 
-    if bc_year is not None:
-        # BC mode: bypass Python datetime, build JDDate directly
-        local_jd = JDDate.from_components(bc_year, date_obj.month, date_obj.day, hour, minute)
-        utc_dt = local_jd - timedelta(hours=tz_offset)
+    is_bc_mode = (bc_year is not None)
+
+    if is_bc_mode:
+        # BC date — compute UTC hour directly (cannot use datetime for year <= 0)
+        local_hour_frac = hour + minute / 60.0
+        utc_hour_frac = local_hour_frac - tz_offset
+        utc_year, utc_month, utc_day = bc_year, bc_month, bc_day
+        # Handle day roll-over
+        if utc_hour_frac < 0:
+            utc_hour_frac += 24.0
+            utc_day -= 1
+            if utc_day < 1:
+                utc_month -= 1
+                if utc_month < 1:
+                    utc_month = 12
+                    utc_year -= 1
+                utc_day = [31,28,31,30,31,30,31,31,30,31,30,31][utc_month - 1]
+        elif utc_hour_frac >= 24.0:
+            utc_hour_frac -= 24.0
+            utc_day += 1
+            max_d = [31,28,31,30,31,30,31,31,30,31,30,31][utc_month - 1]
+            if utc_day > max_d:
+                utc_day = 1
+                utc_month += 1
+                if utc_month > 12:
+                    utc_month = 1
+                    utc_year += 1
+        utc_dt = None  # placeholder — cannot represent BC in datetime
     else:
         local_dt = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
-        utc_dt_native = local_dt - timedelta(hours=tz_offset)
-        utc_dt = JDDate.from_datetime(utc_dt_native)
+        utc_dt = local_dt - timedelta(hours=tz_offset)
 
     if USE_SWISSEPH:
-        lon_sid, lagna_sid, jd = compute_positions_swisseph(utc_dt, lat, lon)
+        if is_bc_mode:
+            lon_sid, lagna_sid, jd = compute_positions_swisseph(
+                None, lat, lon,
+                bc_year=utc_year, bc_month=utc_month, bc_day=utc_day, bc_hour=utc_hour_frac)
+        else:
+            lon_sid, lagna_sid, jd = compute_positions_swisseph(utc_dt, lat, lon)
     else:
-        from astropy.time import Time
-        from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
-        jd = utc_dt.jd; t = Time(jd, format='jd'); ayan = get_lahiri_ayanamsa(utc_dt.year)
+        if is_bc_mode:
+            jd = _datetime_to_jd(year=utc_year, month=utc_month, day=utc_day, hour=utc_hour_frac)
+            ayan = get_lahiri_ayanamsa(utc_year)
+        else:
+            from astropy.time import Time
+            from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
+            t = Time(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
         with solar_system_ephemeris.set('builtin'):
             lon_trop = {}
             for nm in ['sun','moon','mercury','venus','mars','jupiter','saturn']:
@@ -4448,9 +4371,52 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_y
     moon_lon = lon_sid['moon']
     idx, bal = generate_vimshottari_dasa(moon_lon)
     full_first = years[idx]; passed = full_first - bal
-    dasa_start = utc_dt - timedelta(days=passed*365.25)
-    dasa = generate_periods(dasa_start, idx, 120, 'dasa', max_depth)
-    dasa_filtered = filter_from_birth(dasa, utc_dt)
+
+    if is_bc_mode:
+        # For BC dates, compute a reference datetime for dasa periods.
+        # We use Julian Day arithmetic and convert to datetime where possible.
+        birth_jd = jd
+        dasa_start_jd = birth_jd - passed * 365.25
+        # Try to convert JD dates into datetime for dasa display
+        # swe.revjul returns (year, month, day, hour_fraction)
+        if USE_SWISSEPH:
+            ds_y, ds_m, ds_d, ds_h = swe.revjul(dasa_start_jd, swe.JUL_CAL if dasa_start_jd < 2299161 else swe.GREG_CAL)
+        else:
+            ds_y, ds_m, ds_d, ds_h = int(bc_year - passed), bc_month, bc_day, 0.0
+        # If dasa start falls in a year representable by Python datetime (>= 1 CE), use it
+        if ds_y >= 1:
+            dasa_start = datetime(int(ds_y), int(ds_m), int(ds_d), int(ds_h), int((ds_h % 1) * 60))
+            # Build a proxy utc_dt for filter_from_birth
+            if USE_SWISSEPH:
+                b_y, b_m, b_d, b_h = swe.revjul(birth_jd, swe.JUL_CAL if birth_jd < 2299161 else swe.GREG_CAL)
+            else:
+                b_y, b_m, b_d, b_h = utc_year, utc_month, utc_day, utc_hour_frac
+            if b_y >= 1:
+                utc_dt_proxy = datetime(int(b_y), int(b_m), int(b_d), int(b_h), int((b_h % 1) * 60))
+            else:
+                utc_dt_proxy = datetime(1, 1, 1)  # clamp
+            dasa = generate_periods(dasa_start, idx, 120, 'dasa', max_depth)
+            dasa_filtered = filter_from_birth(dasa, utc_dt_proxy)
+        else:
+            # Dasa start is also in BC — shift everything forward so periods are relative
+            # Use epoch offset: shift both dates so dasa_start becomes year 1
+            shift_years = abs(ds_y) + 2  # ensure we land in positive territory
+            shifted_start = datetime(int(ds_y + shift_years), int(ds_m), int(ds_d), int(ds_h), int((ds_h % 1) * 60))
+            if USE_SWISSEPH:
+                b_y, b_m, b_d, b_h = swe.revjul(birth_jd, swe.JUL_CAL if birth_jd < 2299161 else swe.GREG_CAL)
+            else:
+                b_y, b_m, b_d, b_h = utc_year, utc_month, utc_day, utc_hour_frac
+            shifted_birth = datetime(int(b_y + shift_years), int(b_m), int(b_d), int(b_h), int((b_h % 1) * 60))
+            dasa = generate_periods(shifted_start, idx, 120, 'dasa', max_depth)
+            dasa_filtered = filter_from_birth(dasa, shifted_birth)
+            # Shift dates back in the results — store shift so display can adjust
+            _bc_year_shift = shift_years
+        # Store original astronomical year for display purposes
+        utc_dt = None  # remains None for BC
+    else:
+        dasa_start = utc_dt - timedelta(days=passed*365.25)
+        dasa = generate_periods(dasa_start, idx, 120, 'dasa', max_depth)
+        dasa_filtered = filter_from_birth(dasa, utc_dt)
 
     depth_map = {1:'Dasa only',2:'Dasa + Bhukti',3:'Dasa + Bhukti + Anthara',
                  4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',
@@ -5088,30 +5054,26 @@ def collect_periods_at_depth(periods, target_depth, cur_depth=1, acc=None):
 st.subheader("Birth Details")
 name = st.text_input("Name", placeholder="Enter full name")
 
-is_bc = st.checkbox("BC / BCE Date?", help="Enable this for dates before 1 AD (e.g. 3000 BC). Uses Swiss Ephemeris for ancient date support.")
+# Era selection for BC/AD dates
+era = st.radio("Era", ["AD (CE)", "BC (BCE)"], horizontal=True, index=0)
+is_bc_era = (era == "BC (BCE)")
 
-if is_bc:
-    if not USE_SWISSEPH:
-        st.error("⚠️ Swiss Ephemeris (swisseph) is required for BC/BCE date support. Install it with: `pip install pyswisseph`")
-        st.stop()
-    st.caption("Enter the BC year as a positive number (e.g. 3102 for 3102 BC). Month & Day as usual.")
+if is_bc_era:
+    # BC dates — Streamlit date_input cannot handle year <= 0, so use number inputs
     bc_cols = st.columns(4)
     with bc_cols[0]:
-        bc_year_input = st.number_input("Year (BC)", min_value=1, max_value=13000, value=3102, step=1,
-                                        help="Positive number. 1 = 1 BC, 3102 = 3102 BC, etc.")
+        bc_year_input = st.number_input("Year (BC)", min_value=1, max_value=13000, value=3000, step=1,
+                                        help="Enter the BC year (e.g. 3000 for 3000 BC)")
     with bc_cols[1]:
-        bc_month = st.number_input("Month", min_value=1, max_value=12, value=1, step=1)
+        bc_month_input = st.number_input("Month", min_value=1, max_value=12, value=1, step=1)
     with bc_cols[2]:
-        bc_day = st.number_input("Day", min_value=1, max_value=31, value=1, step=1)
+        bc_day_input = st.number_input("Day", min_value=1, max_value=31, value=1, step=1)
     with bc_cols[3]:
-        birth_time = st.text_input("Birth Time (HH:MM)", placeholder="14:30", key="bc_birth_time")
-    # Convert user-facing BC year → astronomical year: 1 BC = 0, 2 BC = -1, …
-    astro_year = 1 - bc_year_input
-    # Dummy date_obj to carry month/day (year is irrelevant, astro_year is used)
-    from datetime import date as _date_cls
-    birth_date = _date_cls(2000, bc_month, bc_day)
+        birth_time = st.text_input("Birth Time (HH:MM 24-hr)", placeholder="14:30", key="bc_time")
+    # Convert BC year to astronomical year numbering: 1 BC = 0, 2 BC = -1, ...
+    astro_year = -(bc_year_input - 1)  # 1 BC -> 0, 2 BC -> -1, 3000 BC -> -2999
+    birth_date = None  # not used in BC mode
 else:
-    astro_year = None  # signals AD mode
     c1, c2 = st.columns(2)
     with c1:
         birth_date = st.date_input("Birth Date", value=datetime.now().date(),
@@ -5157,23 +5119,19 @@ def _compute_tz_offset(lat_val, lon_val, date_obj):
     except:
         return 5.5, "Asia/Kolkata"
 
-if is_bc:
-    # For BC dates, modern timezone databases don't apply.
-    # Estimate offset from longitude: every 15° of longitude ≈ 1 hour.
-    _bc_est_offset = round(lon / 15.0 * 2) / 2   # round to nearest 0.5 h
-    auto_tz_offset = _bc_est_offset
-    auto_tz_name = f"LMT (est. from longitude)"
-    st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → **{auto_tz_name}** (UTC {'+' if auto_tz_offset >= 0 else ''}{auto_tz_offset:g}h)")
-    st.caption("Modern timezone databases don't cover BC dates. The offset is estimated from longitude (Local Mean Time). You can override it below.")
+if is_bc_era:
+    # For BC dates, timezone auto-detection is meaningless — default to manual entry
+    st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → BC era selected — enter timezone offset manually.")
+    tz_offset = st.number_input("Timezone offset at birth (hrs from UTC)", value=5.5, step=0.5,
+                                help="e.g. 5.5 for India (IST), 0.0 for UTC")
 else:
     auto_tz_offset, auto_tz_name = _compute_tz_offset(lat, lon, birth_date)
     st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → Timezone: **{auto_tz_name}** (UTC {'+' if auto_tz_offset >= 0 else ''}{auto_tz_offset:g}h)")
-
-override_tz = st.checkbox("Override auto-detected timezone?")
-if override_tz:
-    tz_offset = st.number_input("Timezone offset at birth (hrs)", value=auto_tz_offset, step=0.5)
-else:
-    tz_offset = auto_tz_offset
+    override_tz = st.checkbox("Override auto-detected timezone?")
+    if override_tz:
+        tz_offset = st.number_input("Timezone offset at birth (hrs)", value=auto_tz_offset, step=0.5)
+    else:
+        tz_offset = auto_tz_offset
 
 max_depth_options = {1:'Dasa only',2:'Dasa + Bhukti',3:'Dasa + Bhukti + Anthara',4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
 selected_depth_str = st.selectbox("Generate up to (depth)", list(max_depth_options.values()), index=3)
@@ -5184,7 +5142,13 @@ if st.button("Generate Chart", use_container_width=True):
     else:
         try:
             with st.spinner("Calculating chart..."):
-                st.session_state.chart_data = compute_chart(name, birth_date, birth_time, lat, lon, tz_offset, max_depth, bc_year=astro_year)
+                if is_bc_era:
+                    st.session_state.chart_data = compute_chart(
+                        name, None, birth_time, lat, lon, tz_offset, max_depth,
+                        bc_year=astro_year, bc_month=bc_month_input, bc_day=bc_day_input)
+                else:
+                    st.session_state.chart_data = compute_chart(
+                        name, birth_date, birth_time, lat, lon, tz_offset, max_depth)
             st.rerun()
         except Exception as e: st.error(f"Error: {e}")
 
@@ -5419,8 +5383,7 @@ if st.session_state.chart_data:
                 if cur_locs:
                     cur = cur_locs[0]; tz = tz_for_latlon(cur.latitude, cur.longitude)
                     now_local = datetime.now(tz); now_utc_naive = now_local.astimezone(pytz.UTC).replace(tzinfo=None)
-                    now_jd = JDDate.from_datetime(now_utc_naive)
-                    active_path = find_active_path_to_depth(dp, now_jd, _DEPTH_NAME_TO_INT[depth_choice])
+                    active_path = find_active_path_to_depth(dp, now_utc_naive, _DEPTH_NAME_TO_INT[depth_choice])
                     flat_at_depth = collect_periods_at_depth(dp, _DEPTH_NAME_TO_INT[depth_choice])
                     
                     st.success(f"Time zone: {tz.zone} | Local now: {now_local.strftime('%Y-%m-%d %H:%M')}")
@@ -5428,14 +5391,12 @@ if st.session_state.chart_data:
                         tbl = []
                         idx_found = -1
                         for i, (lord, s, e) in enumerate(flat_at_depth):
-                            if s <= now_jd < e:
+                            if s <= now_utc_naive < e:
                                 idx_found = i
                                 break
                         if idx_found != -1:
-                            tz_offset_sec = now_local.utcoffset().total_seconds()
-                            tz_td = timedelta(seconds=tz_offset_sec)
                             for l,st_t,en_t in flat_at_depth[idx_found : idx_found+6]:
-                                tbl.append({"Lord": l, "Start (local)": (st_t + tz_td).strftime('%Y-%m-%d %H:%M'), "End (local)": (en_t + tz_td).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
+                                tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
                         st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
             except Exception as e: st.error(f"Error: {e}")
 
