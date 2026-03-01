@@ -3577,7 +3577,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             else:
                 final_ns = (_f_numer / _f_denom) * 100
             _f_i_used = 0.0 if _f_skip_i else _f_i
-            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i_used:.2f}) / (Vol {p_volume:.2f} + OtherBad {_f_other_bad:.2f})] x100 = {final_ns:.2f}"
+            if _f_skip_i:
+                _f_i_note = f"i=0 (skipped for {p})"
+            elif _f_other_good >= self_bad:
+                _f_i_note = f"i=0 (OtherGood {_f_other_good:.2f} >= SelfBad {self_bad:.2f})"
+            else:
+                _f_i_note = f"i={_f_i:.2f} (SelfBad {self_bad:.2f} - OtherGood {_f_other_good:.2f})"
+            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i_used:.2f}) / (Vol {p_volume:.2f} + OtherBad {_f_other_bad:.2f})] x100 = {final_ns:.2f} | {_f_i_note}"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
