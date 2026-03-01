@@ -3558,47 +3558,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         else:
             # Case F: Standard Malefic (Not Neecha)
-            # Formula: [(Good - OtherBad + i) / Volume] x 100
-            # SelfBad is not penalised. OtherBad subtracted only in numerator.
-            # i: if other_good >= self_bad then i=0; else i = self_bad - other_good
-            # OtherBad = total_bad - self_bad
-            _f_self_good = inv.get(f'Good {p}', 0.0)
-            _f_other_good = max(total_good - _f_self_good, 0.0)
-            if _f_other_good >= self_bad:
-                _f_i = 0.0
-            else:
-                _f_i = self_bad - _f_other_good
+            # Formula: [(max(TotalGood - SelfBad, 0) - OtherBad) / Volume] x 100
+            # Self Bad is ignored (stripped from good). Other Bad is penalized.
             _f_other_bad = max(total_bad - self_bad, 0.0)
-            # For Rahu: never add i. For Ketu: don't add i if Ketu is alone malefic.
-            _f_skip_i = (p == 'Rahu') or (p == 'Ketu' and locals().get('_ketu_is_alone', False))
-            _f_i_used = 0.0 if _f_skip_i else _f_i
-            # j: if OtherBad > 0 and (TotalGood - SelfBad) > 0, add j
-            # P = TotalGood - SelfBad; Q = P - OtherBad
-            # if Q >= 0: j = OtherBad; else j = P
-            _f_j = 0.0
-            _f_j_note = "j=0 (no OtherBad or Good-SelfBad<=0)"
-            if _f_other_bad > 0.001 and (total_good - self_bad) > 0.001:
-                _f_P = total_good - self_bad
-                _f_Q = _f_P - _f_other_bad
-                if _f_Q >= 0:
-                    _f_j = _f_other_bad
-                    _f_j_note = f"P={_f_P:.2f}(Good{total_good:.2f}-SelfBad{self_bad:.2f}), Q={_f_Q:.2f}(P-OB)>=0, j=OtherBad={_f_j:.2f}"
-                else:
-                    _f_j = _f_P
-                    _f_j_note = f"P={_f_P:.2f}(Good{total_good:.2f}-SelfBad{self_bad:.2f}), Q={_f_Q:.2f}(P-OB)<0, j=P={_f_j:.2f}"
-            _f_numer = total_good - _f_other_bad + _f_i_used + _f_j
-            _f_denom = p_volume + (_f_other_bad if _f_other_bad > 0.001 else 0.0)
+            _f_effective_good = max(total_good - self_bad, 0.0)
+            _f_net = _f_effective_good - _f_other_bad
+            _f_denom = p_volume
             if abs(_f_denom) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = (_f_numer / _f_denom) * 100
-            if _f_skip_i:
-                _f_i_note = f"i=0 (skipped for {p})"
-            elif _f_other_good >= self_bad:
-                _f_i_note = f"i=0 (OtherGood {_f_other_good:.2f} >= SelfBad {self_bad:.2f})"
-            else:
-                _f_i_note = f"i={_f_i:.2f} (SelfBad {self_bad:.2f} - OtherGood {_f_other_good:.2f})"
-            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i_used:.2f} + j {_f_j:.2f}) / (Vol {p_volume:.2f} + OtherBad {_f_other_bad:.2f})] x100 = {final_ns:.2f} | {_f_i_note} | {_f_j_note}"
+                final_ns = (_f_net / _f_denom) * 100
+            formula_type = (f"CaseF: [(TotalGood {total_good:.2f} - SelfBad {self_bad:.2f} - OtherBad {_f_other_bad:.2f}) / Vol {p_volume:.2f}] x100 "
+                           f"= [({_f_effective_good:.2f} - {_f_other_bad:.2f}) / {_f_denom:.2f}] x100 = {final_ns:.2f}")
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
