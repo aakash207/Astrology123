@@ -3559,15 +3559,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         else:
             # Case F: Standard Malefic (Not Neecha)
             # New formula: [(TotalGood - TotalBad + i) / (TotalVolume + OtherBad)] x 100
-            # i = min(self_bad, |debt|) when debt < 0, else 0
+            # i = self_bad always
             # OtherBad = total_bad - self_bad
-            if p5_debt < 0:
-                if abs(p5_debt) >= self_bad:
-                    _f_i = self_bad
-                else:
-                    _f_i = abs(p5_debt)
-            else:
-                _f_i = 0.0
+            _f_i = self_bad
             _f_other_bad = max(total_bad - self_bad, 0.0)
             # For Rahu: never add i. For Ketu: don't add i if Ketu is alone malefic.
             _f_skip_i = (p == 'Rahu') or (p == 'Ketu' and locals().get('_ketu_is_alone', False))
