@@ -3506,7 +3506,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # --- Determine case and calculate ---
         if p == 'Moon' and _nps_moon_is_waxing and not is_neecha:
             # Case A: Waxing Moon, NOT Negative Status
-            abs_debt = abs(p5_debt) if p5_debt < 0 else 0.0
+            abs_debt = abs(p5_debt)
             denom_val = total_good + abs_debt + total_bad
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
@@ -3516,7 +3516,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
             # Case B: Waxing Moon, IS Negative Status
-            swapped_debt = -1 * p5_debt if p5_debt < 0 else 0.0
+            swapped_debt = -1 * p5_debt
             denom_val = p_capacity * 1.2
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
@@ -3557,35 +3557,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
 
         else:
-            # Case F: Standard Malefic (Not Neecha) — Debt-based formula
-            # Step 1: Debt correction — ignore debt caused by self bad
-            #   For Rahu/Ketu: no correction, use raw debt
-            #   If debt >= 0 (positive/surplus): treat as 0
-            #   If |debt| <= self_bad: corrected_debt = 0
-            #   If |debt| > self_bad: corrected_debt = debt + self_bad (still negative)
-            if p in ('Rahu', 'Ketu'):
-                # No debt correction for Rahu/Ketu — use raw debt
-                _f_corrected_debt = p5_debt
-                _f_debt_note = f"No correction ({p}), debt={p5_debt:.2f}"
-            elif p5_debt > 0:
-                # Positive debt = bonus (no self-bad correction needed)
-                _f_corrected_debt = p5_debt
-                _f_debt_note = f"Debt {p5_debt:.2f} > 0, bonus"
-            elif abs(p5_debt) <= self_bad:
-                _f_corrected_debt = 0.0
-                _f_debt_note = f"|Debt| {abs(p5_debt):.2f} <= SelfBad {self_bad:.2f}, corrected=0"
-            else:
-                _f_corrected_debt = p5_debt + self_bad  # still negative
-                _f_debt_note = f"|Debt| {abs(p5_debt):.2f} > SelfBad {self_bad:.2f}, corrected={_f_corrected_debt:.2f}"
-            # Step 2: Score = ((Volume + corrected_debt) / Volume) x 100
-            # corrected_debt is negative when real debt, positive when bonus
-            _f_denom = p_volume
-            if abs(_f_denom) < 0.001:
+            # Case F: Standard Malefic (Not Neecha) – debt-based formula
+            # Score = ((Volume - |Remaining Debt|) / Volume) * 100
+            # Deduct self bad currency from debt before computing score (not for Rahu/Ketu)
+            _f_adj_debt = p5_debt
+            if _f_adj_debt < 0 and self_bad > 0.001 and p not in ('Rahu', 'Ketu'):
+                _f_adj_debt = min(_f_adj_debt + self_bad, 0.0)
+            abs_debt = abs(_f_adj_debt) if _f_adj_debt < 0 else 0.0
+            if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((_f_denom + _f_corrected_debt) / _f_denom) * 100
-            formula_type = (f"CaseF: ((Vol {p_volume:.2f} + CorrDebt {_f_corrected_debt:.2f}) / Vol {p_volume:.2f}) x100 = {final_ns:.2f} "
-                           f"| Debt={p5_debt:.2f}, SelfBad={self_bad:.2f} | {_f_debt_note}")
+                final_ns = ((p_volume - abs_debt) / p_volume) * 100
+            formula_type = f"CaseF: ((Vol{p_volume:.2f} - |Debt|{abs_debt:.2f}) / Vol{p_volume:.2f}) * 100 = {final_ns:.2f}"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
@@ -3804,7 +3787,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # Others: Currency / volume * 100
         _cur_pct_parts = []
         if p == 'Moon' and _nps_moon_is_waxing:
-            _cur_denom = total_good + total_bad + (abs(p5_debt) if p5_debt < 0 else 0.0)
+            _cur_denom = total_good + total_bad + abs(p5_debt)
             _cur_denom = _cur_denom if _cur_denom > 0.001 else 1.0
         else:
             _cur_denom = p_volume if p_volume > 0.001 else 1.0
