@@ -3572,7 +3572,21 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             # For Rahu: never add i. For Ketu: don't add i if Ketu is alone malefic.
             _f_skip_i = (p == 'Rahu') or (p == 'Ketu' and locals().get('_ketu_is_alone', False))
             _f_i_used = 0.0 if _f_skip_i else _f_i
-            _f_numer = total_good - _f_other_bad + _f_i_used
+            # j: if OtherBad > 0 and (TotalGood - SelfBad) > 0, add j
+            # P = TotalGood - SelfBad; Q = P - OtherBad
+            # if Q >= 0: j = OtherBad; else j = P
+            _f_j = 0.0
+            _f_j_note = "j=0 (no OtherBad or Good-SelfBad<=0)"
+            if _f_other_bad > 0.001 and (total_good - self_bad) > 0.001:
+                _f_P = total_good - self_bad
+                _f_Q = _f_P - _f_other_bad
+                if _f_Q >= 0:
+                    _f_j = _f_other_bad
+                    _f_j_note = f"j={_f_j:.2f} (Q={_f_Q:.2f}>=0, j=OtherBad)"
+                else:
+                    _f_j = _f_P
+                    _f_j_note = f"j={_f_j:.2f} (Q={_f_Q:.2f}<0, j=P={_f_P:.2f})"
+            _f_numer = total_good - _f_other_bad + _f_i_used + _f_j
             _f_denom = p_volume
             if abs(_f_denom) < 0.001:
                 final_ns = 0.0
@@ -3584,7 +3598,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                 _f_i_note = f"i=0 (OtherGood {_f_other_good:.2f} >= SelfBad {self_bad:.2f})"
             else:
                 _f_i_note = f"i={_f_i:.2f} (SelfBad {self_bad:.2f} - OtherGood {_f_other_good:.2f})"
-            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i_used:.2f}) / Vol {p_volume:.2f}] x100 = {final_ns:.2f} | {_f_i_note}"
+            formula_type = f"CaseF: [(Good {total_good:.2f} - OtherBad {_f_other_bad:.2f} + i {_f_i_used:.2f} + j {_f_j:.2f}) / Vol {p_volume:.2f}] x100 = {final_ns:.2f} | {_f_i_note} | {_f_j_note}"
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
