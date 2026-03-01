@@ -3536,18 +3536,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
 
         elif is_malefic and is_neecha:
             # Case D: Neecha Malefic – debt-based formula
-            # Score = (((Capacity * 1.2) - |Remaining Debt|) / (Capacity * 1.2)) * 120
-            # Deduct self bad currency from debt before computing score (not for Rahu/Ketu)
-            _d_adj_debt = p5_debt
-            if _d_adj_debt < 0 and self_bad > 0.001 and p not in ('Rahu', 'Ketu'):
-                _d_adj_debt = min(_d_adj_debt + self_bad, 0.0)
+            # Score = (((Capacity * 1.2) + Debt) / (Capacity * 1.2)) * 120
+            # Use raw p5_debt directly (no self_bad adjustment)
             denom_val = p_capacity * 1.2
-            abs_debt = abs(_d_adj_debt) if _d_adj_debt < 0 else 0.0
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((denom_val - abs_debt) / denom_val) * 120
-            formula_type = f"CaseD: ((Cap*1.2({denom_val:.2f}) - |Debt|{abs_debt:.2f}) / Cap*1.2({denom_val:.2f})) * 120 = {final_ns:.2f}"
+                final_ns = ((denom_val + p5_debt) / denom_val) * 120
+            _debt_sign = '+' if p5_debt >= 0 else '-'
+            formula_type = f"CaseD: ((Cap*1.2({denom_val:.2f}) {_debt_sign} Debt{abs(p5_debt):.2f}) / Cap*1.2({denom_val:.2f})) * 120 = {final_ns:.2f}"
 
         elif not is_malefic and not is_neecha:
             # Case E: Benefic, NOT Negative Status
