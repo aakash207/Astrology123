@@ -3557,19 +3557,29 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
 
         else:
-            # Case F: Standard Malefic (Not Neecha)
-            # Formula: [(max(TotalGood - SelfBad, 0) - OtherBad) / Volume] x 100
-            # Self Bad is ignored (stripped from good). Other Bad is penalized.
-            _f_other_bad = max(total_bad - self_bad, 0.0)
-            _f_effective_good = max(total_good - self_bad, 0.0)
-            _f_net = _f_effective_good - _f_other_bad
+            # Case F: Standard Malefic (Not Neecha) — Debt-based formula
+            # Step 1: Debt correction — ignore debt caused by self bad
+            #   If debt >= 0 (positive/surplus): treat as 0
+            #   If |debt| <= self_bad: corrected_debt = 0
+            #   If |debt| > self_bad: corrected_debt = debt + self_bad (still negative)
+            if p5_debt >= 0:
+                _f_corrected_debt = 0.0
+                _f_debt_note = f"Debt {p5_debt:.2f} >= 0, corrected=0"
+            elif abs(p5_debt) <= self_bad:
+                _f_corrected_debt = 0.0
+                _f_debt_note = f"|Debt| {abs(p5_debt):.2f} <= SelfBad {self_bad:.2f}, corrected=0"
+            else:
+                _f_corrected_debt = p5_debt + self_bad  # still negative
+                _f_debt_note = f"|Debt| {abs(p5_debt):.2f} > SelfBad {self_bad:.2f}, corrected={_f_corrected_debt:.2f}"
+            # Step 2: Score = ((Volume - |corrected_debt|) / Volume) x 100
+            _f_abs_cd = abs(_f_corrected_debt)
             _f_denom = p_volume
             if abs(_f_denom) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = (_f_net / _f_denom) * 100
-            formula_type = (f"CaseF: [(TotalGood {total_good:.2f} - SelfBad {self_bad:.2f} - OtherBad {_f_other_bad:.2f}) / Vol {p_volume:.2f}] x100 "
-                           f"= [({_f_effective_good:.2f} - {_f_other_bad:.2f}) / {_f_denom:.2f}] x100 = {final_ns:.2f}")
+                final_ns = ((_f_denom - _f_abs_cd) / _f_denom) * 100
+            formula_type = (f"CaseF: ((Vol {p_volume:.2f} - |CorrDebt| {_f_abs_cd:.2f}) / Vol {p_volume:.2f}) x100 = {final_ns:.2f} "
+                           f"| Debt={p5_debt:.2f}, SelfBad={self_bad:.2f} | {_f_debt_note}")
 
         # KHS Calculation (Capped at 20) for NPS
         _khs_ruled = planet_ruled_signs.get(p, [])
