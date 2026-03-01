@@ -173,16 +173,29 @@ def _datetime_to_jd(dt=None, year=None, month=None, day=None, hour=0.0):
     """
     if dt is not None:
         y, m, d = dt.year, dt.month, dt.day
-        h = dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+        h_int = dt.hour
+        m_int = dt.minute
+        s_float = float(dt.second)
     else:
-        y, m, d, h = year, month, day, hour
+        y, m, d = year, month, day
+        h_int = int(hour)
+        m_int = int((hour - h_int) * 60)
+        s_float = ((hour - h_int) * 60 - m_int) * 60.0
     if USE_SWISSEPH:
         # Gregorian calendar from Oct 15 1582 onwards, Julian before
         if (y > 1582) or (y == 1582 and m > 10) or (y == 1582 and m == 10 and d >= 15):
-            cal = swe.GREG_CAL
+            cal_flag = 1  # Gregorian for utc_to_jd
         else:
-            cal = swe.JUL_CAL
-        return swe.julday(y, m, d, h, cal)
+            cal_flag = 0  # Julian for utc_to_jd
+        try:
+            # swe.utc_to_jd is more precise than swe.julday
+            jd_et, jd_ut = swe.utc_to_jd(y, m, d, h_int, m_int, s_float, cal_flag)
+            return jd_ut
+        except Exception:
+            # Fallback to julday for dates utc_to_jd can't handle
+            h = h_int + m_int / 60.0 + s_float / 3600.0
+            cal = swe.GREG_CAL if cal_flag == 1 else swe.JUL_CAL
+            return swe.julday(y, m, d, h, cal)
     else:
         if dt is not None:
             from astropy.time import Time as AstroTime
@@ -193,6 +206,7 @@ def _datetime_to_jd(dt=None, year=None, month=None, day=None, hour=0.0):
             yy, mm = (y, m) if m > 2 else (y - 1, m + 12)
             A = int(yy / 100)
             B = 2 - A + int(A / 4) if (y > 1582 or (y == 1582 and m > 10) or (y == 1582 and m == 10 and d >= 15)) else 0
+            h = h_int + m_int / 60.0 + s_float / 3600.0
             return int(365.25 * (yy + 4716)) + int(30.6001 * (mm + 1)) + d + h / 24.0 + B - 1524.5
 
 def compute_positions_swisseph(utc_dt, lat, lon, bc_year=None, bc_month=None, bc_day=None, bc_hour=0.0):
@@ -4375,6 +4389,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_y
     if is_bc_mode:
         # For BC dates, compute a reference datetime for dasa periods.
         # We use Julian Day arithmetic and convert to datetime where possible.
+        _bc_year_shift = 0  # default: no shift needed
         birth_jd = jd
         dasa_start_jd = birth_jd - passed * 365.25
         # Try to convert JD dates into datetime for dasa display
@@ -4956,6 +4971,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_y
         'nav_lagna_sign': get_sign(nav_lagna), 'moon_rasi': get_sign(moon_lon),
         'moon_nakshatra': get_nakshatra_details(moon_lon)[0], 'moon_pada': get_nakshatra_details(moon_lon)[1],
         'selected_depth': depth_map[max_depth], 'utc_dt': utc_dt, 'max_depth': max_depth,
+        'is_bc_mode': is_bc_mode,
+        'bc_year_shift': _bc_year_shift if is_bc_mode else 0,
+        'bc_display_year': bc_year if is_bc_mode else None,
+        'bc_display_month': bc_month if is_bc_mode else None,
+        'bc_display_day': bc_day if is_bc_mode else None,
         'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav,
         'chart_house_wise': _ca_house_wise,
         'chart_planet_wise': _ca_planet_wise,
