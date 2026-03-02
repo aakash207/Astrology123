@@ -5093,10 +5093,22 @@ def _compute_tz_offset(lat_val, lon_val, date_obj):
         return 5.5, "Asia/Kolkata"
 
 if bc_era:
-    # For BC dates: no automatic timezone detection; user enters offset manually
-    st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} — Timezone auto-detection not available for BC dates.")
-    tz_offset = st.number_input("UTC offset at birth (hrs, e.g. 5.5 for India)", value=5.5, step=0.5, key="tz_bc")
-    auto_tz_name = "Manual"
+    # For BC dates: detect timezone from lat/lon using today as a reference date (DST irrelevant for ancient dates)
+    try:
+        _bc_tz = tz_for_latlon(lat, lon)
+        _bc_ref = datetime.now(_bc_tz)
+        _bc_offset = _bc_ref.utcoffset().total_seconds() / 3600.0
+        _bc_tz_name = _bc_tz.zone
+    except Exception:
+        _bc_offset = 5.5
+        _bc_tz_name = "Asia/Kolkata"
+    st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → Timezone: **{_bc_tz_name}** (UTC {'+' if _bc_offset >= 0 else ''}{_bc_offset:g}h)")
+    override_tz_bc = st.checkbox("Override timezone?", key="override_tz_bc")
+    if override_tz_bc:
+        tz_offset = st.number_input("UTC offset at birth (hrs)", value=_bc_offset, step=0.5, key="tz_bc")
+    else:
+        tz_offset = _bc_offset
+    auto_tz_name = _bc_tz_name
 else:
     auto_tz_offset, auto_tz_name = _compute_tz_offset(lat, lon, birth_date)
     st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → Timezone: **{auto_tz_name}** (UTC {'+' if auto_tz_offset >= 0 else ''}{auto_tz_offset:g}h)")
