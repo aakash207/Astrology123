@@ -21,7 +21,8 @@ try:
 
     _EPHE_DIR = _os.path.join(_os.path.expanduser('~'), '.swisseph_ephe')
     _EPHE_BASE_URL = 'https://raw.githubusercontent.com/aloistr/swisseph/master/ephe/'
-    _EPHE_FILES = ['sepl_18.se1', 'semo_18.se1', 'seas_18.se1']
+    _EPHE_FILES = ['sepl_18.se1', 'semo_18.se1', 'seas_18.se1',
+                    'sepl_06.se1', 'semo_06.se1', 'seas_06.se1']  # _06 files cover 600 BC – 2400 AD
 
     if not _os.path.isdir(_EPHE_DIR):
         _os.makedirs(_EPHE_DIR, exist_ok=True)
@@ -165,6 +166,13 @@ def get_ascendant(jd, lat, lon):
     cos_asc = -(sin(lstr)*cos(oer) + tan(radians(lat))*sin(oer))
     return degrees(atan2(sin_asc, cos_asc)) % 360
 
+def degree_to_dms(deg):
+    """Convert decimal degrees to (degrees, minutes, seconds) tuple."""
+    d = int(deg)
+    m = int((deg - d) * 60)
+    s = int(((deg - d) * 60 - m) * 60)
+    return d, m, s
+
 def _datetime_to_jd(dt):
     """Convert a datetime to Julian Day, handling Julian/Gregorian calendar switch."""
     if USE_SWISSEPH:
@@ -180,11 +188,22 @@ def _datetime_to_jd(dt):
         from astropy.time import Time as AstroTime
         return AstroTime(dt).jd
 
-def compute_positions_swisseph(utc_dt, lat, lon):
-    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris (Lahiri Ayanamsa)."""
+def _compute_jd_utc(year, month, day, ut_hour):
+    """Compute Julian Day using swe.utc_to_jd (supports BC dates with negative/zero years).
+    Astronomical year: 1 BC = 0, 2 BC = -1, 500 BC = -499."""
+    hour_int = int(ut_hour)
+    min_int = int((ut_hour % 1) * 60)
+    return swe.utc_to_jd(year, month, day, hour_int, min_int, 0, 1)[1]
+
+def compute_positions_swisseph(utc_dt, lat, lon, year=None, month=None, day=None, ut_hour=None):
+    """Compute sidereal planet longitudes + ascendant using Swiss Ephemeris (Lahiri Ayanamsa).
+    For BC dates, pass year/month/day/ut_hour directly (utc_dt can be None)."""
     # Set Lahiri ayanamsa mode BEFORE any calculation
     swe.set_sid_mode(swe.SIDM_LAHIRI)
-    jd = _datetime_to_jd(utc_dt)
+    if year is not None:
+        jd = _compute_jd_utc(year, month, day, ut_hour)
+    else:
+        jd = _datetime_to_jd(utc_dt)
 
     # Planet IDs in swisseph – using MEAN_NODE for Rahu (Jyotish standard)
     planet_ids = {
@@ -306,20 +325,45 @@ def is_good_currency(c_key):
 def is_sun_or_moon_currency(c_key):
     return 'Sun' in c_key or 'Moon' in c_key
 
-def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
+def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_mode=False, bc_year=None, bc_month=None, bc_day=None):
     try:
         hour, minute = map(int, time_str.split(':'))
         if not (0<=hour<=23 and 0<=minute<=59): raise ValueError
     except:
         raise ValueError("Time must be in HH:MM format (24-hour)")
     
-    local_dt = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
-    utc_dt = local_dt - timedelta(hours=tz_offset)
+    # Determine astronomical year and compute UT hour
+    ut_hour_raw = hour + minute / 60.0 - tz_offset  # convert local time to UT
 
-    if USE_SWISSEPH:
-        lon_sid, lagna_sid, jd = compute_positions_swisseph(utc_dt, lat, lon)
+    if bc_mode and bc_year is not None:
+        # BC mode: use raw year/month/day, no datetime objects
+        astro_year = bc_year  # already astronomical year (0 = 1 BC, -1 = 2 BC, etc.)
+        astro_month = bc_month
+        astro_day = bc_day
+        # Handle day rollover from timezone conversion
+        if ut_hour_raw >= 24:
+            ut_hour_raw -= 24
+            astro_day += 1
+        elif ut_hour_raw < 0:
+            ut_hour_raw += 24
+            astro_day -= 1
+        utc_dt = None  # no datetime object for BC dates
+        lon_sid, lagna_sid, jd = compute_positions_swisseph(None, lat, lon,
+                                                             year=astro_year, month=astro_month,
+                                                             day=astro_day, ut_hour=ut_hour_raw)
     else:
-        from astropy.time import Time
+        astro_year = date_obj.year
+        astro_month = date_obj.month
+        astro_day = date_obj.day
+        local_dt = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
+        utc_dt = local_dt - timedelta(hours=tz_offset)
+
+        if USE_SWISSEPH:
+            lon_sid, lagna_sid, jd = compute_positions_swisseph(None, lat, lon,
+                                                                 year=utc_dt.year, month=utc_dt.month,
+                                                                 day=utc_dt.day, ut_hour=utc_dt.hour + utc_dt.minute / 60.0)
+        else:
+            from astropy.time import Time
         from astropy.coordinates import get_body, solar_system_ephemeris, GeocentricTrueEcliptic
         t = Time(utc_dt); jd = t.jd; ayan = get_lahiri_ayanamsa(utc_dt.year)
         with solar_system_ephemeris.set('builtin'):
@@ -4256,6 +4300,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
                                              'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
                                              'Volume', 'Default Currencies', 'Debt'])
 
+    # ---- NAVAMSA (D9) POSITIONS TABLE (using reference formula) ----
+    nav_pos_rows = []
+    # Ascendant
+    asc_d = lagna_sid % 360
+    nav_deg_asc = ((asc_d % 30) * 9) + ((int(asc_d // 30)) % 9) * 30
+    nav_deg_asc = nav_deg_asc % 360
+    nav_sign_asc = get_sign(nav_deg_asc)
+    nd_d, nd_m, nd_s = degree_to_dms(nav_deg_asc % 30)
+    nav_pos_rows.append(['Asc', nav_sign_asc, f"{nd_d}° {nd_m:02d}' {nd_s:02d}\"", f"{nav_deg_asc:.2f}"])
+    # Planets
+    for p in ['sun','moon','mars','mercury','jupiter','venus','saturn','rahu','ketu']:
+        L = lon_sid[p]
+        nav_deg_p = ((L % 30) * 9) + ((int(L // 30)) % 9) * 30
+        nav_deg_p = nav_deg_p % 360
+        nav_sign_p = get_sign(nav_deg_p)
+        nd_d, nd_m, nd_s = degree_to_dms(nav_deg_p % 30)
+        nav_pos_rows.append([p.capitalize(), nav_sign_p, f"{nd_d}° {nd_m:02d}' {nd_s:02d}\"", f"{nav_deg_p:.2f}"])
+    df_navamsa_positions = pd.DataFrame(nav_pos_rows, columns=['Planet', 'Navamsa Sign', 'Deg in Sign', 'Navamsa °'])
+
     df_rasi = pd.DataFrame([[f"House {h}", get_sign((lagna_sid+(h-1)*30)%360), 
                              ', '.join(sorted(house_planets_rasi[h])) if house_planets_rasi[h] else 'Empty'] 
                             for h in range(1,13)], columns=['House','Sign','Planets'])
@@ -4293,9 +4356,37 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
     moon_lon = lon_sid['moon']
     idx, bal = generate_vimshottari_dasa(moon_lon)
     full_first = years[idx]; passed = full_first - bal
-    dasa_start = utc_dt - timedelta(days=passed*365.25)
-    dasa = generate_periods(dasa_start, idx, 120, 'dasa', max_depth)
-    dasa_filtered = filter_from_birth(dasa, utc_dt)
+
+    if bc_mode and utc_dt is None:
+        # BC dates: use year-based Dasha (no datetime objects)
+        # Match reference code logic exactly
+        dasa_lords_seq = [6,5,1,2,7,0,4,3,8]  # Ketu, Ven, Sun, Moon, Mars, Rahu, Jup, Sat, Mer
+        dasa_names_seq = ['Ketu','Venus','Sun','Moon','Mars','Rahu','Jupiter','Saturn','Mercury']
+        dasa_years_seq = [7,20,6,10,7,18,16,19,17]
+
+        nak = int(moon_lon / 13.333333333333334) % 27
+        dasa_lord_idx = dasa_lords_seq[nak % 9]
+        passed_in_nak = moon_lon % 13.333333333333334
+        balance_frac = 1 - (passed_in_nak / 13.333333333333334)
+        balance_years_bc = balance_frac * dasa_years_seq[dasa_lord_idx]
+
+        current_year = astro_year + balance_years_bc
+        start_lord_seq_idx = dasa_lords_seq.index(dasa_lord_idx)
+
+        # Build dasa_filtered as list of (lord_name, start_year, end_year, []) tuples for display
+        dasa_filtered_bc = []
+        for i in range(9):
+            seq_idx = (start_lord_seq_idx + i) % 9
+            dur = dasa_years_seq[seq_idx]
+            end_year = current_year + dur
+            dasa_filtered_bc.append((dasa_names_seq[seq_idx], current_year, end_year, []))
+            current_year = end_year
+
+        dasa_filtered = dasa_filtered_bc
+    else:
+        dasa_start = utc_dt - timedelta(days=passed*365.25)
+        dasa = generate_periods(dasa_start, idx, 120, 'dasa', max_depth)
+        dasa_filtered = filter_from_birth(dasa, utc_dt)
 
     depth_map = {1:'Dasa only',2:'Dasa + Bhukti',3:'Dasa + Bhukti + Anthara',
                  4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',
@@ -4830,11 +4921,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         'df_planet_categories': df_planet_categories,
         'df_baavath_baavagam': df_baavath_baavagam,
         'df_rasi': df_rasi, 'df_nav': df_nav,
+        'df_navamsa_positions': df_navamsa_positions,
         'df_house_status': df_house_status, 'dasa_periods_filtered': dasa_filtered,
         'lagna_sid': lagna_sid, 'nav_lagna': nav_lagna, 'lagna_sign': lagna_sign,
         'nav_lagna_sign': get_sign(nav_lagna), 'moon_rasi': get_sign(moon_lon),
         'moon_nakshatra': get_nakshatra_details(moon_lon)[0], 'moon_pada': get_nakshatra_details(moon_lon)[1],
         'selected_depth': depth_map[max_depth], 'utc_dt': utc_dt, 'max_depth': max_depth,
+        'bc_mode': bc_mode, 'astro_year': astro_year,
         'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav,
         'chart_house_wise': _ca_house_wise,
         'chart_planet_wise': _ca_planet_wise,
@@ -4932,12 +5025,34 @@ def collect_periods_at_depth(periods, target_depth, cur_depth=1, acc=None):
 
 st.subheader("Birth Details")
 name = st.text_input("Name", placeholder="Enter full name")
-c1, c2 = st.columns(2)
-with c1:
-    birth_date = st.date_input("Birth Date", value=datetime.now().date(),
-                               min_value=datetime(1,1,1).date(), max_value=datetime(2200,12,31).date())
-with c2:
-    birth_time = st.text_input("Birth Time (HH:MM in 24-hour format)", placeholder="14:30")
+
+# --- Era toggle for BC support ---
+bc_era = st.checkbox("BC era (dates before 1 AD)", value=False,
+                     help="Check for dates before 1 AD. Astronomical year: 1 BC = 0, 2 BC = -1, 500 BC = -499")
+
+if bc_era:
+    # BC mode: manual year/month/day inputs (no st.date_input — it can't do negative years)
+    c1, c2 = st.columns(2)
+    with c1:
+        bc_year_input = st.number_input("Year (positive number, e.g. 500 for 500 BC)", min_value=1, max_value=10000, value=500, step=1)
+    with c2:
+        birth_time = st.text_input("Birth Time (HH:MM in 24-hour format)", placeholder="14:30", key="bt_bc")
+    c3, c4 = st.columns(2)
+    with c3:
+        bc_month = st.number_input("Month", min_value=1, max_value=12, value=1, step=1)
+    with c4:
+        bc_day = st.number_input("Day", min_value=1, max_value=31, value=1, step=1)
+    # Convert to astronomical year: 1 BC = 0, 2 BC = -1, N BC = -(N-1)
+    astro_year_ui = -(bc_year_input - 1)
+    st.caption(f"Astronomical year: **{astro_year_ui}** (= {bc_year_input} BC)")
+    birth_date = None  # no date_obj in BC mode
+else:
+    c1, c2 = st.columns(2)
+    with c1:
+        birth_date = st.date_input("Birth Date", value=datetime.now().date(),
+                                   min_value=datetime(1,1,1).date(), max_value=datetime(2200,12,31).date())
+    with c2:
+        birth_time = st.text_input("Birth Time (HH:MM in 24-hour format)", placeholder="14:30", key="bt_ad")
 
 use_custom_coords = st.checkbox("Custom birth latitude and longitude?")
 if use_custom_coords:
@@ -4977,26 +5092,40 @@ def _compute_tz_offset(lat_val, lon_val, date_obj):
     except:
         return 5.5, "Asia/Kolkata"
 
-auto_tz_offset, auto_tz_name = _compute_tz_offset(lat, lon, birth_date)
-
-st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → Timezone: **{auto_tz_name}** (UTC {'+' if auto_tz_offset >= 0 else ''}{auto_tz_offset:g}h)")
-
-override_tz = st.checkbox("Override auto-detected timezone?")
-if override_tz:
-    tz_offset = st.number_input("Timezone offset at birth (hrs)", value=auto_tz_offset, step=0.5)
+if bc_era:
+    # For BC dates: no automatic timezone detection; user enters offset manually
+    st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} — Timezone auto-detection not available for BC dates.")
+    tz_offset = st.number_input("UTC offset at birth (hrs, e.g. 5.5 for India)", value=5.5, step=0.5, key="tz_bc")
+    auto_tz_name = "Manual"
 else:
-    tz_offset = auto_tz_offset
+    auto_tz_offset, auto_tz_name = _compute_tz_offset(lat, lon, birth_date)
+    st.info(f"📍 Lat: {lat:.4f}, Lon: {lon:.4f} → Timezone: **{auto_tz_name}** (UTC {'+' if auto_tz_offset >= 0 else ''}{auto_tz_offset:g}h)")
+    override_tz = st.checkbox("Override auto-detected timezone?")
+    if override_tz:
+        tz_offset = st.number_input("Timezone offset at birth (hrs)", value=auto_tz_offset, step=0.5)
+    else:
+        tz_offset = auto_tz_offset
 
 max_depth_options = {1:'Dasa only',2:'Dasa + Bhukti',3:'Dasa + Bhukti + Anthara',4:'Dasa + Bhukti + Anthara + Sukshma',5:'Dasa + Bhukti + Anthara + Sukshma + Prana',6:'Dasa + Bhukti + Anthara + Sukshma + Prana + Sub-Prana'}
-selected_depth_str = st.selectbox("Generate up to (depth)", list(max_depth_options.values()), index=3)
-max_depth = [k for k,v in max_depth_options.items() if v == selected_depth_str][0]
+if bc_era:
+    selected_depth_str = st.selectbox("Generate up to (depth)", ['Dasa only'], index=0,
+                                      help="Only Mahadasha level available for BC dates")
+    max_depth = 1
+else:
+    selected_depth_str = st.selectbox("Generate up to (depth)", list(max_depth_options.values()), index=3)
+    max_depth = [k for k,v in max_depth_options.items() if v == selected_depth_str][0]
 
 if st.button("Generate Chart", use_container_width=True):
     if not name or not birth_time: st.error("Please enter Name and Birth Time.")
     else:
         try:
             with st.spinner("Calculating chart..."):
-                st.session_state.chart_data = compute_chart(name, birth_date, birth_time, lat, lon, tz_offset, max_depth)
+                if bc_era:
+                    st.session_state.chart_data = compute_chart(name, None, birth_time, lat, lon, tz_offset, max_depth,
+                                                                 bc_mode=True, bc_year=astro_year_ui,
+                                                                 bc_month=bc_month, bc_day=bc_day)
+                else:
+                    st.session_state.chart_data = compute_chart(name, birth_date, birth_time, lat, lon, tz_offset, max_depth)
             st.rerun()
         except Exception as e: st.error(f"Error: {e}")
 
@@ -5035,7 +5164,7 @@ def build_export_json(cd):
         'moon_nakshatra': cd['moon_nakshatra'],
         'moon_pada': cd['moon_pada'],
         'dasa_depth': cd['selected_depth'],
-        'utc_datetime': cd['utc_dt'].strftime('%Y-%m-%d %H:%M:%S')
+        'utc_datetime': cd['utc_dt'].strftime('%Y-%m-%d %H:%M:%S') if cd['utc_dt'] else f"Astro year {cd.get('astro_year', '?')}"
     }
 
     # ── 2. Planetary Positions ──
@@ -5046,6 +5175,10 @@ def build_export_json(cd):
 
     # ── 4. Navamsa Chart (D9) ──
     data['navamsa_chart'] = cd['df_nav'].to_dict(orient='records')
+
+    # ── 4b. Navamsa (D9) Positions ──
+    if 'df_navamsa_positions' in cd:
+        data['navamsa_positions'] = cd['df_navamsa_positions'].to_dict(orient='records')
 
     # ── 5. House Analysis ──
     data['house_analysis'] = cd['df_house_status'].to_dict(orient='records')
@@ -5087,7 +5220,20 @@ def build_export_json(cd):
     data['lagna_analysis'] = cd['df_lagna_analysis'].to_dict(orient='records')
 
     # ── 15. Vimshottari Dasa (Full Hierarchy: Dasa → Bhukti → Anthara ...) ──
-    data['vimshottari_dasa'] = _serialize_dasa_periods(cd['dasa_periods_filtered'])
+    if cd.get('bc_mode'):
+        # BC mode: dasa_periods_filtered contains (lord, start_year, end_year, []) tuples
+        bc_dasa_list = []
+        for lord, start_yr, end_yr, _ in cd['dasa_periods_filtered']:
+            bc_dasa_list.append({
+                'level': 'Dasa',
+                'planet': lord,
+                'start_year': int(start_yr),
+                'end_year': int(end_yr),
+                'duration': f"{int(end_yr - start_yr)} years"
+            })
+        data['vimshottari_dasa'] = bc_dasa_list
+    else:
+        data['vimshottari_dasa'] = _serialize_dasa_periods(cd['dasa_periods_filtered'])
 
     return data
 
@@ -5097,11 +5243,20 @@ def show_png(fig):
 
 if st.session_state.chart_data:
     cd = st.session_state.chart_data
+    _is_bc = cd.get('bc_mode', False)
+    _astro_yr = cd.get('astro_year', 1)
+    if _astro_yr <= 0:
+        _display_year = f"{abs(_astro_yr) + 1} BC"
+    elif _astro_yr == 0:
+        _display_year = "1 BC"
+    else:
+        _display_year = f"{_astro_yr} AD"
     st.markdown("---")
     st.markdown(f"""
     <div class="summary-box">
         <h3>Chart Summary</h3>
         <div class="summary-item"><strong>Name:</strong> {cd['name']}</div>
+        <div class="summary-item"><strong>Year:</strong> {_display_year}</div>
         <div class="summary-item"><strong>Lagna:</strong> {cd['lagna_sign']} ({cd['lagna_sid']:.2f}deg)</div>
         <div class="summary-item"><strong>Rasi (Moon Sign):</strong> {cd['moon_rasi']}</div>
         <div class="summary-item"><strong>Nakshatra:</strong> {cd['moon_nakshatra']} (Pada {cd['moon_pada']})</div>
@@ -5110,6 +5265,9 @@ if st.session_state.chart_data:
 
     st.subheader("Planetary Positions")
     st.dataframe(cd['df_planets'], hide_index=True, use_container_width=True)
+
+    st.subheader("Navamsa (D9) Positions")
+    st.dataframe(cd['df_navamsa_positions'], hide_index=True, use_container_width=True)
 
     st.subheader("House Bonus Points (Reserve)")
     st.dataframe(cd['df_house_reserves'], hide_index=True, use_container_width=True)
@@ -5185,11 +5343,21 @@ if st.session_state.chart_data:
     st.dataframe(cd['df_house_status'], hide_index=True, use_container_width=True)
 
     st.subheader(f"Vimshottari Dasa ({cd['selected_depth']})")
-    dasa_rows = [{'Planet': lord, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'dasa')} for lord, s, e, _ in cd['dasa_periods_filtered']]
-    st.dataframe(pd.DataFrame(dasa_rows), hide_index=True, use_container_width=True)
+    if _is_bc:
+        # BC mode: dasa_periods_filtered has (lord, start_year, end_year, []) tuples
+        def _bc_year_label(yr):
+            if yr <= 0: return f"{abs(int(yr)) + 1} BC"
+            elif yr == 0: return "1 BC"
+            else: return f"{int(yr)} AD"
+        dasa_rows = [{'Dasha': lord, 'Start ~ Year': _bc_year_label(s), 'End ~ Year': _bc_year_label(e),
+                      'Duration': f"{int(e - s)} years"} for lord, s, e, _ in cd['dasa_periods_filtered']]
+        st.dataframe(pd.DataFrame(dasa_rows), hide_index=True, use_container_width=True)
+    else:
+        dasa_rows = [{'Planet': lord, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'dasa')} for lord, s, e, _ in cd['dasa_periods_filtered']]
+        st.dataframe(pd.DataFrame(dasa_rows), hide_index=True, use_container_width=True)
 
     dp = cd['dasa_periods_filtered']
-    if cd['max_depth'] >= 2:
+    if cd['max_depth'] >= 2 and not _is_bc:
         with st.expander("View Sub-periods (Bhukti / Anthara / Sukshma)", expanded=False):
             # --- Bhukti level ---
             d_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in dp]
@@ -5220,33 +5388,34 @@ if st.session_state.chart_data:
                         st.markdown("**Sukshma (Sub-sub-sub-periods)**")
                         st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d %H:%M'), 'End': e.strftime('%Y-%m-%d %H:%M'), 'Duration': duration_str(e-s,'sukshma')} for l,s,e,_ in sukshmas]), hide_index=True, use_container_width=True)
 
-    st.subheader("Current City - Live Micro-Periods")
-    current_city_query = st.text_input("Enter your CURRENT city", placeholder="e.g., Chennai", key="current_city_input")
-    depth_choice = st.selectbox("Depth to inspect", ["Sukshma", "Prana", "Sub-Prana"])
+    if not _is_bc:
+        st.subheader("Current City - Live Micro-Periods")
+        current_city_query = st.text_input("Enter your CURRENT city", placeholder="e.g., Chennai", key="current_city_input")
+        depth_choice = st.selectbox("Depth to inspect", ["Sukshma", "Prana", "Sub-Prana"])
     
-    if st.button("Show current micro-periods", use_container_width=True):
-        if current_city_query:
-            try:
-                cur_locs = geocode(current_city_query, exactly_one=False, limit=1)
-                if cur_locs:
-                    cur = cur_locs[0]; tz = tz_for_latlon(cur.latitude, cur.longitude)
-                    now_local = datetime.now(tz); now_utc_naive = now_local.astimezone(pytz.UTC).replace(tzinfo=None)
-                    active_path = find_active_path_to_depth(dp, now_utc_naive, _DEPTH_NAME_TO_INT[depth_choice])
-                    flat_at_depth = collect_periods_at_depth(dp, _DEPTH_NAME_TO_INT[depth_choice])
+        if st.button("Show current micro-periods", use_container_width=True):
+            if current_city_query:
+                try:
+                    cur_locs = geocode(current_city_query, exactly_one=False, limit=1)
+                    if cur_locs:
+                        cur = cur_locs[0]; tz = tz_for_latlon(cur.latitude, cur.longitude)
+                        now_local = datetime.now(tz); now_utc_naive = now_local.astimezone(pytz.UTC).replace(tzinfo=None)
+                        active_path = find_active_path_to_depth(dp, now_utc_naive, _DEPTH_NAME_TO_INT[depth_choice])
+                        flat_at_depth = collect_periods_at_depth(dp, _DEPTH_NAME_TO_INT[depth_choice])
                     
-                    st.success(f"Time zone: {tz.zone} | Local now: {now_local.strftime('%Y-%m-%d %H:%M')}")
-                    if active_path:
-                        tbl = []
-                        idx_found = -1
-                        for i, (lord, s, e) in enumerate(flat_at_depth):
-                            if s <= now_utc_naive < e:
-                                idx_found = i
-                                break
-                        if idx_found != -1:
-                            for l,st_t,en_t in flat_at_depth[idx_found : idx_found+6]:
-                                tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
-                        st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
-            except Exception as e: st.error(f"Error: {e}")
+                        st.success(f"Time zone: {tz.zone} | Local now: {now_local.strftime('%Y-%m-%d %H:%M')}")
+                        if active_path:
+                            tbl = []
+                            idx_found = -1
+                            for i, (lord, s, e) in enumerate(flat_at_depth):
+                                if s <= now_utc_naive < e:
+                                    idx_found = i
+                                    break
+                            if idx_found != -1:
+                                for l,st_t,en_t in flat_at_depth[idx_found : idx_found+6]:
+                                    tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
+                            st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
+                except Exception as e: st.error(f"Error: {e}")
 
     # ═══════════════════════════════════════════════════════════════════════
     # CHART ANALYSIS — House-wise, Planet-wise & Bhava Chalit Perspectives
