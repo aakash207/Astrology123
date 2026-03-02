@@ -3506,14 +3506,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
         # --- Determine case and calculate ---
         if p == 'Moon' and _nps_moon_is_waxing and not is_neecha:
             # Case A: Waxing Moon, NOT Negative Status
-            # Only include |Debt| in denominator when debt is negative (actual debt)
-            abs_debt = abs(p5_debt) if p5_debt < 0 else 0.0
+            # debt < 0: add |debt| to denom; debt > 0: subtract debt from denom
+            abs_debt = abs(p5_debt) if p5_debt < 0 else (-p5_debt if p5_debt > 0 else 0.0)
             denom_val = total_good + abs_debt + total_bad
             if abs(denom_val) < 0.001:
                 final_ns = 0.0
             else:
                 final_ns = ((total_good - total_bad) / denom_val) * 100
-            formula_type = f"CaseA: Waxing Moon [(Good {total_good:.2f} - Bad {total_bad:.2f}) / (Good {total_good:.2f} + |Debt| {abs_debt:.2f} + Bad {total_bad:.2f})] x100 = {final_ns:.2f}"
+            formula_type = f"CaseA: Waxing Moon [(Good {total_good:.2f} - Bad {total_bad:.2f}) / (Good {total_good:.2f} + DebtAdj {abs_debt:.2f} + Bad {total_bad:.2f})] x100 = {final_ns:.2f}"
 
         elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
             # Case B: Waxing Moon, IS Negative Status
@@ -3547,12 +3547,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth):
             formula_type = f"CaseD: ((Cap*1.2({denom_val:.2f}) {_debt_sign} Debt{abs(p5_debt):.2f}) / Cap*1.2({denom_val:.2f})) * 120 = {final_ns:.2f}"
 
         elif not is_malefic and not is_neecha:
-            # Case E: Benefic, NOT Negative Status
+            # Case E: Benefic, NOT Negative Status – debt-based formula
+            # Use raw p5_debt directly (no self_bad adjustment)
             if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = (net_score / p_volume) * 100
-            formula_type = f"CaseE: (Net{net_score:.2f}/Vol{p_volume:.2f})*100"
+                final_ns = ((p_volume + p5_debt) / p_volume) * 100
+            _debt_sign = '+' if p5_debt >= 0 else '-'
+            formula_type = f"CaseE: ((Vol{p_volume:.2f} {_debt_sign} Debt{abs(p5_debt):.2f}) / Vol{p_volume:.2f}) * 100 = {final_ns:.2f}"
 
         else:
             # Case F: Standard Malefic (Not Neecha) – debt-based formula
