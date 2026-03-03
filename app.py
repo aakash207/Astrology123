@@ -760,6 +760,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         
         navamsa_data[planet_cap] = {
             'nav_house': nav_house,
+            'nav_lon': nav_lon,
             'nav_volume': nav_volume,
             'nav_default_currency': nav_default_currency_str,
             'nav_good_val': nav_good_val,
@@ -872,7 +873,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     # Skip foreign bad currencies (infection markers from other planets)
                     if 'Bad' in key and key != f"Bad {t_name}": continue
                     if val > 0.001:
-                        max_pull = navamsa_data[t_name]['nav_volume'] * 1.0
+                        # Degree-gap cap: limit pull capacity based on Navamsa longitude proximity
+                        nav_L1 = navamsa_data[debtor]['nav_lon']
+                        nav_L2 = navamsa_data[t_name]['nav_lon']
+                        nav_diff = abs(nav_L1 - nav_L2)
+                        if nav_diff > 180: nav_diff = 360 - nav_diff
+                        nav_gap = int(nav_diff)
+                        if nav_gap > 22: continue
+                        nav_cap_pct = mix_dict.get(nav_gap, 0)
+                        max_pull = navamsa_data[t_name]['nav_volume'] * (nav_cap_pct / 100.0)
                         tracker_key = f"nav_pulled_from_{t_name}"
                         pulled = navamsa_data[debtor].get(tracker_key, 0.0)
                         
@@ -1122,6 +1131,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             'navp2_current_debt': navamsa_data[p]['nav_current_debt'],
             'nav_volume': navamsa_data[p]['nav_volume'],
             'nav_house': navamsa_data[p]['nav_house'],
+            'nav_lon': navamsa_data[p]['nav_lon'],
             'navp2_gained_currencies': defaultdict(float),
             'navp2_carried_over': defaultdict(float),
             'navp1_gained_currencies': defaultdict(float)
@@ -1202,7 +1212,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     if key == 'Good Rahu': continue
                     if 'Bad' in key: continue
                     if val > 0.001:
-                        max_pull = navamsa_phase2_data[target]['nav_volume'] * 1.0
+                        # Degree-gap cap: limit pull capacity based on Navamsa longitude proximity
+                        nav_L1 = navamsa_phase2_data[puller]['nav_lon']
+                        nav_L2 = navamsa_phase2_data[target]['nav_lon']
+                        nav_diff = abs(nav_L1 - nav_L2)
+                        if nav_diff > 180: nav_diff = 360 - nav_diff
+                        nav_gap = int(nav_diff)
+                        if nav_gap > 22: continue
+                        nav_cap_pct = mix_dict.get(nav_gap, 0)
+                        max_pull = navamsa_phase2_data[target]['nav_volume'] * (nav_cap_pct / 100.0)
                         tracker_key = f"navp2_pulled_from_{target}"
                         pulled = navamsa_phase2_data[puller].get(tracker_key, 0.0)
                         
