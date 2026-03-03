@@ -504,6 +504,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             else:
                 good_pct = krishna_good[tithi_idx]
                 bad_pct = krishna_bad[tithi_idx]
+            # Amavasya override: combust zone 12° on both sides of conjunction = 100% bad
+            moon_sun_sep = (moon_lon - sun_lon) % 360
+            if moon_sun_sep >= 348 or moon_sun_sep < 12:
+                good_pct = 0
+                bad_pct = 100
             moon_good_pct = good_pct
             moon_bad_pct = bad_pct
         else:
@@ -707,6 +712,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             else:
                 good_pct = krishna_good[tithi_idx]
                 bad_pct = krishna_bad[tithi_idx]
+            # Amavasya override: combust zone 12° on both sides of conjunction = 100% bad
+            moon_sun_sep = (moon_lon - sun_lon) % 360
+            if moon_sun_sep >= 348 or moon_sun_sep < 12:
+                good_pct = 0
+                bad_pct = 100
             nav_moon_good_pct = good_pct
             nav_moon_bad_pct = bad_pct
         else:
