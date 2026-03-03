@@ -2957,6 +2957,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                         if phase5_data[malefic]['p5_current_debt'] >= -0.001:
                             continue
                         
+                        # Ketu restriction: Ketu can only pull from Sun/Moon clones
+                        if malefic == 'Ketu' and clone['parent'] not in ['Sun', 'Moon']:
+                            continue
+                        
                         malefic_L = phase5_data[malefic]['L']
                         diff = abs(malefic_L - clone_L)
                         if diff > 180: diff = 360 - diff
