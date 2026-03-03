@@ -5252,8 +5252,8 @@ def _serialize_dasa_periods(periods, level_names=None, depth=0):
         entry = {
             'level': current_level,
             'planet': lord,
-            'start': start.strftime('%Y-%m-%d %H:%M'),
-            'end': end.strftime('%Y-%m-%d %H:%M'),
+            'start': start.strftime('%d/%m/%Y %H:%M'),
+            'end': end.strftime('%d/%m/%Y %H:%M'),
             'duration': duration_str(end - start, current_level.lower())
         }
         if subs:
@@ -5277,7 +5277,7 @@ def build_export_json(cd):
         'moon_nakshatra': cd['moon_nakshatra'],
         'moon_pada': cd['moon_pada'],
         'dasa_depth': cd['selected_depth'],
-        'utc_datetime': cd['utc_dt'].strftime('%Y-%m-%d %H:%M:%S') if cd['utc_dt'] else f"Astro year {cd.get('astro_year', '?')}"
+        'utc_datetime': cd['utc_dt'].strftime('%d/%m/%Y %H:%M:%S') if cd['utc_dt'] else f"Astro year {cd.get('astro_year', '?')}"
     }
 
     # ── 2. Planetary Positions ──
@@ -5461,45 +5461,45 @@ if st.session_state.chart_data:
         def _bc_year_label(yr):
             if yr <= 0: return f"{abs(int(yr)) + 1} BC"
             elif yr == 0: return "1 BC"
-            else: return f"{int(yr)} AD"
+            else: return f"{int(yr)}"
         dasa_rows = [{'Dasha': lord, 'Start ~ Year': _bc_year_label(s), 'End ~ Year': _bc_year_label(e),
                       'Duration': f"{int(e - s)} years"} for lord, s, e, _ in cd['dasa_periods_filtered']]
         st.dataframe(pd.DataFrame(dasa_rows), hide_index=True, use_container_width=True)
     else:
-        dasa_rows = [{'Planet': lord, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'dasa')} for lord, s, e, _ in cd['dasa_periods_filtered']]
+        dasa_rows = [{'Planet': lord, 'Start': s.strftime('%d/%m/%Y'), 'End': e.strftime('%d/%m/%Y'), 'Duration': duration_str(e-s,'dasa')} for lord, s, e, _ in cd['dasa_periods_filtered']]
         st.dataframe(pd.DataFrame(dasa_rows), hide_index=True, use_container_width=True)
 
     dp = cd['dasa_periods_filtered']
     if cd['max_depth'] >= 2 and not _is_bc:
         with st.expander("View Sub-periods (Bhukti / Anthara / Sukshma)", expanded=False):
             # --- Bhukti level ---
-            d_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in dp]
+            d_opt = [f"{p[0]} ({p[1].strftime('%d/%m/%Y')} → {p[2].strftime('%d/%m/%Y')})" for p in dp]
             sel_dasa = st.selectbox("Select Dasa:", d_opt, key="sel_dasa")
             sel_dasa_idx = d_opt.index(sel_dasa)
             bhuktis = dp[sel_dasa_idx][3]
             if bhuktis:
                 st.markdown("**Bhukti (Sub-periods)**")
-                st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'bhukti')} for l,s,e,_ in bhuktis]), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%d/%m/%Y'), 'End': e.strftime('%d/%m/%Y'), 'Duration': duration_str(e-s,'bhukti')} for l,s,e,_ in bhuktis]), hide_index=True, use_container_width=True)
 
             # --- Anthara level ---
             if cd['max_depth'] >= 3 and bhuktis:
-                b_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in bhuktis]
+                b_opt = [f"{p[0]} ({p[1].strftime('%d/%m/%Y')} → {p[2].strftime('%d/%m/%Y')})" for p in bhuktis]
                 sel_bhukti = st.selectbox("Select Bhukti to view Anthara:", b_opt, key="sel_bhukti")
                 sel_bhukti_idx = b_opt.index(sel_bhukti)
                 antaras = bhuktis[sel_bhukti_idx][3]
                 if antaras:
                     st.markdown("**Anthara (Sub-sub-periods)**")
-                    st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d'), 'End': e.strftime('%Y-%m-%d'), 'Duration': duration_str(e-s,'anthara')} for l,s,e,_ in antaras]), hide_index=True, use_container_width=True)
+                    st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%d/%m/%Y'), 'End': e.strftime('%d/%m/%Y'), 'Duration': duration_str(e-s,'anthara')} for l,s,e,_ in antaras]), hide_index=True, use_container_width=True)
 
                 # --- Sukshma level ---
                 if cd['max_depth'] >= 4 and antaras:
-                    a_opt = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in antaras]
+                    a_opt = [f"{p[0]} ({p[1].strftime('%d/%m/%Y')} → {p[2].strftime('%d/%m/%Y')})" for p in antaras]
                     sel_antara = st.selectbox("Select Anthara to view Sukshma:", a_opt, key="sel_antara")
                     sel_antara_idx = a_opt.index(sel_antara)
                     sukshmas = antaras[sel_antara_idx][3]
                     if sukshmas:
                         st.markdown("**Sukshma (Sub-sub-sub-periods)**")
-                        st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%Y-%m-%d %H:%M'), 'End': e.strftime('%Y-%m-%d %H:%M'), 'Duration': duration_str(e-s,'sukshma')} for l,s,e,_ in sukshmas]), hide_index=True, use_container_width=True)
+                        st.dataframe(pd.DataFrame([{'Planet': l, 'Start': s.strftime('%d/%m/%Y %H:%M'), 'End': e.strftime('%d/%m/%Y %H:%M'), 'Duration': duration_str(e-s,'sukshma')} for l,s,e,_ in sukshmas]), hide_index=True, use_container_width=True)
 
     if not _is_bc:
         st.subheader("Current City - Live Micro-Periods")
@@ -5516,7 +5516,7 @@ if st.session_state.chart_data:
                         active_path = find_active_path_to_depth(dp, now_utc_naive, _DEPTH_NAME_TO_INT[depth_choice])
                         flat_at_depth = collect_periods_at_depth(dp, _DEPTH_NAME_TO_INT[depth_choice])
                     
-                        st.success(f"Time zone: {tz.zone} | Local now: {now_local.strftime('%Y-%m-%d %H:%M')}")
+                        st.success(f"Time zone: {tz.zone} | Local now: {now_local.strftime('%d/%m/%Y %H:%M')}")
                         if active_path:
                             tbl = []
                             idx_found = -1
@@ -5526,7 +5526,7 @@ if st.session_state.chart_data:
                                     break
                             if idx_found != -1:
                                 for l,st_t,en_t in flat_at_depth[idx_found : idx_found+6]:
-                                    tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
+                                    tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%d/%m/%Y %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%d/%m/%Y %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
                             st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
                 except Exception as e: st.error(f"Error: {e}")
 
