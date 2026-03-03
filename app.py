@@ -2957,22 +2957,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                         if phase5_data[malefic]['p5_current_debt'] >= -0.001:
                             continue
                         
-                        # Ketu restriction: Ketu can only pull from Sun/Moon clones
-                        if malefic == 'Ketu' and clone['parent'] not in ['Sun', 'Moon']:
-                            continue
-                        # Malefic hierarchy check
-                        _s2_malefic_is_malefic = malefic in malefic_planets
-                        _s2_parent_is_malefic = clone['parent'] in malefic_planets
-                        if _s2_malefic_is_malefic and _s2_parent_is_malefic:
-                            _s2_puller_rank = navamsa_malefic_hierarchy.get(malefic, 99)
-                            _s2_parent_rank = navamsa_malefic_hierarchy.get(clone['parent'], 99)
-                            if _s2_puller_rank >= _s2_parent_rank:
-                                continue
-                        else:
-                            _s2_puller_idx = debtor_rank.index(malefic) if malefic in debtor_rank else 99
-                            _s2_parent_idx = debtor_rank.index(clone['parent']) if clone['parent'] in debtor_rank else 99
-                            if _s2_puller_idx > _s2_parent_idx: continue
-                        
                         malefic_L = phase5_data[malefic]['L']
                         diff = abs(malefic_L - clone_L)
                         if diff > 180: diff = 360 - diff
