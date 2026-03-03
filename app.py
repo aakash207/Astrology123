@@ -2776,7 +2776,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     clone_parent = clone['parent']
                     
                     targets_by_proximity = []
+                    clone_parent_is_malefic = clone_parent in malefic_planets
+                    clone_parent_malefic_rank = navamsa_malefic_hierarchy.get(clone_parent, 99)
+                    clone_parent_debtor_idx = debtor_rank.index(clone_parent) if clone_parent in debtor_rank else 99
                     for target_planet in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+                        if target_planet == clone_parent: continue
+                        # Ketu restriction: Ketu can only pull from Sun/Moon
+                        if clone_parent == 'Ketu' and target_planet not in ['Sun', 'Moon']: continue
+                        # Malefic hierarchy check
+                        target_is_malefic = target_planet in malefic_planets
+                        if clone_parent_is_malefic and target_is_malefic:
+                            target_malefic_rank = navamsa_malefic_hierarchy.get(target_planet, 99)
+                            if clone_parent_malefic_rank >= target_malefic_rank:
+                                continue
+                        else:
+                            t_debtor_idx = debtor_rank.index(target_planet) if target_planet in debtor_rank else 99
+                            if clone_parent_debtor_idx > t_debtor_idx: continue
                         target_L = phase5_data[target_planet]['L']
                         diff = abs(clone_L - target_L)
                         if diff > 180: diff = 360 - diff
@@ -2853,6 +2868,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                                 remaining_capacity -= take
                                 already_pulled += take
                                 p5_something_happened = True
+                                
+                                # Infection penalty: malefic clone pulling from malefic real planet
+                                _p5s1_tgt_is_malefic = (target_planet in malefic_planets or
+                                    (target_planet == 'Moon' and phase5_data['Moon'].get('bad_inv', 0) > 0))
+                                if clone_parent_is_malefic and _p5s1_tgt_is_malefic:
+                                    _infection_key = f"Bad {clone_parent}"
+                                    phase5_data[target_planet]['p5_inventory'][_infection_key] = phase5_data[target_planet]['p5_inventory'].get(_infection_key, 0.0) + take
+                                    phase5_data[target_planet]['p5_current_debt'] -= take
                         
                         good_still_available = any(
                             target_inv.get(c['key'], 0) > 0.001 
@@ -2889,6 +2912,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                                     remaining_capacity -= take
                                     already_pulled += take
                                     p5_something_happened = True
+                                    
+                                    # Infection penalty: malefic clone pulling from malefic real planet
+                                    _p5s1b_tgt_is_malefic = (target_planet in malefic_planets or
+                                        (target_planet == 'Moon' and phase5_data['Moon'].get('bad_inv', 0) > 0))
+                                    if clone_parent_is_malefic and _p5s1b_tgt_is_malefic:
+                                        _infection_key_b = f"Bad {clone_parent}"
+                                        phase5_data[target_planet]['p5_inventory'][_infection_key_b] = phase5_data[target_planet]['p5_inventory'].get(_infection_key_b, 0.0) + take
+                                        phase5_data[target_planet]['p5_current_debt'] -= take
                 
                 # MODIFICATION 2: NEW Step 2 - Real Malefics Pull (from Clone's original inventory only)
                 total_original_remaining = 0.0
@@ -2915,6 +2946,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     for malefic in real_malefics:
                         if phase5_data[malefic]['p5_current_debt'] >= -0.001:
                             continue
+                        
+                        # Ketu restriction: Ketu can only pull from Sun/Moon clones
+                        if malefic == 'Ketu' and clone['parent'] not in ['Sun', 'Moon']:
+                            continue
+                        # Malefic hierarchy check
+                        _s2_malefic_is_malefic = malefic in malefic_planets
+                        _s2_parent_is_malefic = clone['parent'] in malefic_planets
+                        if _s2_malefic_is_malefic and _s2_parent_is_malefic:
+                            _s2_puller_rank = navamsa_malefic_hierarchy.get(malefic, 99)
+                            _s2_parent_rank = navamsa_malefic_hierarchy.get(clone['parent'], 99)
+                            if _s2_puller_rank >= _s2_parent_rank:
+                                continue
+                        else:
+                            _s2_puller_idx = debtor_rank.index(malefic) if malefic in debtor_rank else 99
+                            _s2_parent_idx = debtor_rank.index(clone['parent']) if clone['parent'] in debtor_rank else 99
+                            if _s2_puller_idx > _s2_parent_idx: continue
                         
                         malefic_L = phase5_data[malefic]['L']
                         diff = abs(malefic_L - clone_L)
@@ -3061,6 +3108,32 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             
             if not p5_something_happened:
                 break
+        
+        # ---- KILL LOGIC: Destroy gained currencies from Active (malefic) clones ----
+        for clone in clones:
+            if clone['type'] != 'Active':
+                continue
+            # Compute gained currencies: inventory[k] minus what remains from original
+            keys_to_check = list(clone['inventory'].keys())
+            for k in keys_to_check:
+                current_val = clone['inventory'].get(k, 0.0)
+                if current_val <= 0.001:
+                    continue
+                # Original remaining = original_inventory[k] - taken_from_original[k]
+                orig_val = clone['original_inventory'].get(k, 0.0)
+                taken_key = f'taken_from_original_{k}'
+                taken_from_orig = clone.get(taken_key, 0.0)
+                original_remaining = max(0.0, orig_val - taken_from_orig)
+                gained = current_val - original_remaining
+                if gained > 0.001:
+                    # Kill the gained portion
+                    clone['inventory'][k] = current_val - gained
+                    if is_good_currency(k):
+                        # Good currency killed: NO debt change
+                        pass
+                    else:
+                        # Bad currency killed: reverse debt (undo the += take from acquisition)
+                        clone['debt'] -= gained
         
         # Part C: Logging & Disposal
         for clone in clones:
