@@ -278,8 +278,19 @@ if _FASTAPI_AVAILABLE:
             "status": "success",
         }
 else:
-    # Fallback ASGI app
+    # Fallback ASGI app (handles lifespan + health check for Streamlit Cloud)
     async def api(scope, receive, send):
+        # ── ASGI Lifespan protocol (required by uvicorn to start) ──
+        if scope["type"] == "lifespan":
+            while True:
+                msg = await receive()
+                if msg["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif msg["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
+                else:
+                    return
         if scope.get("type") != "http":
             return
         path = scope.get("path", "")
@@ -5073,6 +5084,32 @@ def plot_south_indian_style(ax, house_to_planets, lagna_sign, title):
     ax.set_xlim(0,3); ax.set_ylim(0,3); ax.set_aspect('equal'); ax.invert_yaxis()
     ax.set_title(title, fontsize=3.6, fontweight='normal')
     ax.axis('off')
+
+# ── Guard: silence Streamlit UI during ASGI / uvicorn import ──────────
+# When Streamlit Cloud imports this module to find the `api` attribute,
+# __name__ is the module name (e.g. "app"), NOT "__main__".
+# When Streamlit's ScriptRunner exec's the script, __name__ == "__main__".
+if __name__ != "__main__":
+    class _StNoOp:
+        """No-op stand-in for `st` when the module is imported outside
+        Streamlit's ScriptRunner (e.g. by uvicorn looking for `api`).
+        Prevents hundreds of ScriptRunContext warnings."""
+        def __getattr__(self, _):  return self
+        def __call__(self, *a, **kw):
+            if a and isinstance(a[0], int):
+                return [_StNoOp() for _ in range(a[0])]
+            if a and isinstance(a[0], (list, tuple)):
+                return [_StNoOp() for _ in a[0]]
+            return self
+        def __enter__(self):       return self
+        def __exit__(self, *a):    pass
+        def __contains__(self, _): return True
+        def __iter__(self):        return iter([])
+        def __bool__(self):        return False
+        def __setitem__(self, *a): pass
+        def __getitem__(self, _):  return self
+        def __setattr__(self, *a): pass
+    st = _StNoOp()  # type: ignore[assignment]
 
 # Streamlit UI
 st.set_page_config(page_title="Buvi Horoscope", layout="wide")
