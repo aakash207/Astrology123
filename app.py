@@ -1,59 +1,16 @@
-# AI NOTE:
-# Whenever adding/updating API code in this file, always follow this pattern:
-# 1) Keep FastAPI/Pydantic imports inside try/except and set _FASTAPI_AVAILABLE.
-# 2) Define API app, request models, and route decorators only inside: if _FASTAPI_AVAILABLE:
-# 3) Never let Streamlit-only runtime execute API model/route code when FastAPI is missing.
-# This ensures Streamlit app runs safely even if FastAPI/uvicorn are not installed.
-
 import streamlit as st
-try:
-    from fastapi import FastAPI
-    from fastapi import HTTPException
-    from pydantic import BaseModel
-    _FASTAPI_AVAILABLE = True
-except Exception:
-    _FASTAPI_AVAILABLE = False
-try:
-    import uvicorn
-    _UVICORN_AVAILABLE = True
-except Exception:
-    _UVICORN_AVAILABLE = False
 from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
 from collections import defaultdict
 import pandas as pd
 import json
-import logging
-import os
-import sys
-try:
-    from geopy.geocoders import Nominatim
-    from geopy.extra.rate_limiter import RateLimiter
-    _GEOPY_AVAILABLE = True
-except Exception:
-    Nominatim = None
-    RateLimiter = None
-    _GEOPY_AVAILABLE = False
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
-try:
-    from timezonefinder import TimezoneFinder
-    _TIMEZONEFINDER_AVAILABLE = True
-except Exception:
-    TimezoneFinder = None
-    _TIMEZONEFINDER_AVAILABLE = False
+from timezonefinder import TimezoneFinder
 import pytz
 import copy
-
-_argv_text = " ".join(sys.argv).lower()
-IS_STREAMLIT_CONTEXT = (
-    "streamlit" in _argv_text
-    or os.environ.get("STREAMLIT_SERVER_PORT") is not None
-)
-
-if not IS_STREAMLIT_CONTEXT:
-    logging.getLogger("streamlit").setLevel(logging.ERROR)
-    logging.getLogger("geopy").setLevel(logging.ERROR)
 
 # ---- Swiss Ephemeris / Astropy fallback ----
 USE_SWISSEPH = False
@@ -187,122 +144,6 @@ planet_ruled_signs = {
     'Venus': ['Taurus', 'Libra'],
     'Saturn': ['Capricorn', 'Aquarius']
 }
-
-# ---- Shared Core Logic + FastAPI ----
-def generate_transit_insight(planet: str, sign: str) -> dict:
-    insight = f"{planet} transiting {sign} activates your creativity sector."
-    return {
-        "planet": planet,
-        "sign": sign,
-        "insight": insight,
-        "status": "success",
-    }
-
-
-if _FASTAPI_AVAILABLE:
-    api = FastAPI(title="Transit API")
-
-    class TransitRequest(BaseModel):
-        planet: str
-        sign: str
-
-    class AscTestRequest(BaseModel):
-        name: str
-        dob: str          # YYYY-MM-DD
-        birth_time: str   # HH:MM (24-hour)
-        place: str
-
-    @api.get("/api/ping")
-    def api_ping():
-        return {"status": "ok", "message": "Transit API is running"}
-
-    @api.post("/api/generate")
-    def api_generate_transit(request: TransitRequest):
-        return generate_transit_insight(request.planet, request.sign)
-
-    @api.post("/test")
-    def api_test_ascendant(request: AscTestRequest):
-        # --- resolve place to lat/lon ---
-        place_key = (request.place or "").strip().title()
-
-        if place_key in cities_fallback:
-            lat = cities_fallback[place_key]['lat']
-            lon = cities_fallback[place_key]['lon']
-        else:
-            if not _GEOPY_AVAILABLE:
-                raise HTTPException(status_code=503, detail="Geocoding dependency unavailable")
-            try:
-                geolocator = Nominatim(user_agent="buvi_transit_api")
-                location = geolocator.geocode(request.place, exactly_one=True, timeout=5)
-            except Exception as exc:
-                raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}") from exc
-            if not location:
-                raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}")
-            lat = float(location.latitude)
-            lon = float(location.longitude)
-
-        # --- parse date ---
-        try:
-            date_obj = datetime.strptime(request.dob.strip(), "%Y-%m-%d").date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="DOB must be YYYY-MM-DD")
-
-        # --- compute timezone offset using existing helper ---
-        tz = tz_for_latlon(lat, lon)
-        naive_noon = datetime.combine(date_obj, datetime.min.time().replace(hour=12))
-        tz_offset = tz.localize(naive_noon).utcoffset().total_seconds() / 3600.0
-
-        # --- call the real compute_chart ---
-        try:
-            cd = compute_chart(
-                name=request.name,
-                date_obj=date_obj,
-                time_str=request.birth_time.strip(),
-                lat=lat,
-                lon=lon,
-                tz_offset=tz_offset,
-                max_depth=1,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Chart computation failed: {exc}")
-
-        return {
-            "name": cd["name"],
-            "dob": request.dob,
-            "birth_time": request.birth_time,
-            "place": request.place,
-            "latitude": round(lat, 6),
-            "longitude": round(lon, 6),
-            "asc_degree": round(float(cd["lagna_sid"]), 6),
-            "asc_sign": cd["lagna_sign"],
-            "status": "success",
-        }
-else:
-    # Fallback ASGI app (handles lifespan + health check for Streamlit Cloud)
-    async def api(scope, receive, send):
-        # ── ASGI Lifespan protocol (required by uvicorn to start) ──
-        if scope["type"] == "lifespan":
-            while True:
-                msg = await receive()
-                if msg["type"] == "lifespan.startup":
-                    await send({"type": "lifespan.startup.complete"})
-                elif msg["type"] == "lifespan.shutdown":
-                    await send({"type": "lifespan.shutdown.complete"})
-                    return
-                else:
-                    return
-        if scope.get("type") != "http":
-            return
-        path = scope.get("path", "")
-        if path == "/healthz":
-            headers = [(b"content-type", b"text/plain")]
-            await send({"type": "http.response.start", "status": 200, "headers": headers})
-            await send({"type": "http.response.body", "body": b"ok"})
-        else:
-            body = b'{"detail":"Running in Streamlit mode"}'
-            headers = [(b"content-type", b"application/json")]
-            await send({"type": "http.response.start", "status": 200, "headers": headers})
-            await send({"type": "http.response.body", "body": body})
 
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
@@ -5022,6 +4863,135 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
     # ====== END LAGNA ANALYSIS TABLE ======
 
+    # ═══════════════════════════════════════════════════════════════════════
+    # CHART ANALYSIS — House-wise, Planet-wise & Bhava Chalit Perspectives
+    # ═══════════════════════════════════════════════════════════════════════
+    _ALL_PLANETS = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
+    _ca_lagna_idx = sign_names.index(get_sign(lagna_sid))
+
+    # Helper: sign → house number (1-based)
+    def _sign_to_house(sign_str):
+        return (sign_names.index(sign_str) - _ca_lagna_idx) % 12 + 1
+
+    # Helper: houses ruled by a planet (empty for Rahu/Ketu)
+    def _houses_ruled(p):
+        ruled_signs = planet_ruled_signs.get(p, [])
+        return sorted([_sign_to_house(s) for s in ruled_signs])
+
+    # Pre-compute lordship label per planet  e.g. "Sun (5th lord)"
+    def _lord_label(p):
+        hrs = _houses_ruled(p)
+        if not hrs:
+            return p                    # Rahu / Ketu — no lordship
+        parts = []
+        for h in hrs:
+            suffix = {1:'st',2:'nd',3:'rd'}.get(h if h < 20 else h % 10, 'th')
+            parts.append(f"{h}{suffix}")
+        return f"{p} ({', '.join(parts)} lord)"
+
+    # ── 1. HOUSE-WISE ANALYSIS ──
+    _ca_house_wise = {}
+    for h in range(1, 13):
+        h_sign = sign_names[(_ca_lagna_idx + h - 1) % 12]
+        h_lord = sign_lords[sign_names.index(h_sign)]
+        h_lord_house = planet_house_map.get(h_lord, 0)
+        h_lord_sign = planet_sign_map.get(h_lord, '')
+
+        # Co-occupants where the house lord sits
+        h_lord_companions = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == h_lord_house and op != h_lord
+        ]
+
+        # Planets occupying this house (exclude Asc label)
+        occupants = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == h
+        ]
+
+        # Status of the house lord
+        h_lord_status = planet_data[h_lord].get('updated_status', '-')
+        if h_lord_status == '-':
+            h_lord_status = planet_data[h_lord].get('status', '-')
+
+        _ca_house_wise[h] = {
+            'sign': h_sign,
+            'lord': h_lord,
+            'lord_label': _lord_label(h_lord),
+            'lord_house': h_lord_house,
+            'lord_sign': h_lord_sign,
+            'lord_status': h_lord_status,
+            'lord_companions': h_lord_companions,
+            'occupants': occupants,
+            'house_points': _house_total_points.get(h, 0.0),
+            'lord_total_strength': planet_final_strengths.get(h_lord, 0.0),
+            'lord_maraivu_adj': _planet_maraivu_adj_strengths.get(h_lord, 0.0),
+            'lord_nps': _nps_score_dict.get(h_lord, 0.0),
+        }
+
+    # ── 2. PLANET-WISE ANALYSIS ──
+    _ca_planet_wise = {}
+    for p in _ALL_PLANETS:
+        p_house = planet_house_map.get(p, 0)
+        p_sign = planet_sign_map.get(p, '')
+        p_status = planet_data[p].get('updated_status', '-')
+        if p_status == '-':
+            p_status = planet_data[p].get('status', '-')
+        p_ruled_houses = _houses_ruled(p)
+
+        # Co-occupants in the same house
+        co_occupants = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == p_house and op != p
+        ]
+
+        # Dispositor (lord of the sign planet sits in)
+        dispositor = get_sign_lord(p_sign) if p_sign else ''
+        disp_house = planet_house_map.get(dispositor, 0)
+        disp_companions = [
+            _lord_label(op) for op in _ALL_PLANETS
+            if planet_house_map.get(op, 0) == disp_house and op != dispositor
+        ]
+        disp_status = ''
+        if dispositor:
+            disp_status = planet_data[dispositor].get('updated_status', '-')
+            if disp_status == '-':
+                disp_status = planet_data[dispositor].get('status', '-')
+
+        _ca_planet_wise[p] = {
+            'house': p_house,
+            'sign': p_sign,
+            'status': p_status,
+            'ruled_houses': p_ruled_houses,
+            'label': _lord_label(p),
+            'co_occupants': co_occupants,
+            'dispositor': dispositor,
+            'dispositor_house': disp_house,
+            'dispositor_status': disp_status,
+            'dispositor_companions': disp_companions,
+            'nps': _nps_score_dict.get(p, 0.0),
+            'nps_adjusted': _nps_score_dict.get(p + '_adjusted', 0.0),
+            'total_strength': planet_final_strengths.get(p, 0.0),
+            'maraivu_adj_strength': _planet_maraivu_adj_strengths.get(p, 0.0),
+        }
+
+    # ── 3. BHAVA CHALIT (DASABHUKTI PERSPECTIVE) ──
+    # Treat each planet's house as "1st house" and compute relative positions
+    _ca_bhava_chalit = {}
+    for p in _ALL_PLANETS:
+        p_house = planet_house_map.get(p, 0)
+        relative_map = {}   # relative_house_num -> list of planet labels
+        for h_rel in range(1, 13):
+            actual_house = ((p_house - 1) + (h_rel - 1)) % 12 + 1
+            occupants = [
+                _lord_label(op) for op in _ALL_PLANETS
+                if planet_house_map.get(op, 0) == actual_house and op != p
+            ]
+            if h_rel == 1:
+                occupants.insert(0, f"★ {_lord_label(p)}")   # mark the planet itself
+            relative_map[h_rel] = occupants
+        _ca_bhava_chalit[p] = relative_map
+
     return {
         'name': name, 'df_planets': df_planets, 'df_navamsa_exchange': df_navamsa_exchange,
         'df_navamsa_phase2': df_navamsa_phase2,
@@ -5048,8 +5018,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'selected_depth': depth_map[max_depth], 'utc_dt': utc_dt, 'max_depth': max_depth,
         'bc_mode': bc_mode, 'astro_year': astro_year,
         'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav,
-        'planet_data': planet_data, 'planet_house_map': planet_house_map,
-        'planet_sign_map': planet_sign_map,
+        'chart_house_wise': _ca_house_wise,
+        'chart_planet_wise': _ca_planet_wise,
+        'chart_bhava_chalit': _ca_bhava_chalit,
     }
 
 # South Indian plotter
@@ -5085,32 +5056,6 @@ def plot_south_indian_style(ax, house_to_planets, lagna_sign, title):
     ax.set_title(title, fontsize=3.6, fontweight='normal')
     ax.axis('off')
 
-# ── Guard: silence Streamlit UI during ASGI / uvicorn import ──────────
-# When Streamlit Cloud imports this module to find the `api` attribute,
-# __name__ is the module name (e.g. "app"), NOT "__main__".
-# When Streamlit's ScriptRunner exec's the script, __name__ == "__main__".
-if __name__ != "__main__":
-    class _StNoOp:
-        """No-op stand-in for `st` when the module is imported outside
-        Streamlit's ScriptRunner (e.g. by uvicorn looking for `api`).
-        Prevents hundreds of ScriptRunContext warnings."""
-        def __getattr__(self, _):  return self
-        def __call__(self, *a, **kw):
-            if a and isinstance(a[0], int):
-                return [_StNoOp() for _ in range(a[0])]
-            if a and isinstance(a[0], (list, tuple)):
-                return [_StNoOp() for _ in a[0]]
-            return self
-        def __enter__(self):       return self
-        def __exit__(self, *a):    pass
-        def __contains__(self, _): return True
-        def __iter__(self):        return iter([])
-        def __bool__(self):        return False
-        def __setitem__(self, *a): pass
-        def __getitem__(self, _):  return self
-        def __setattr__(self, *a): pass
-    st = _StNoOp()  # type: ignore[assignment]
-
 # Streamlit UI
 st.set_page_config(page_title="Buvi Horoscope", layout="wide")
 st.markdown("""
@@ -5136,27 +5081,16 @@ if 'search_results' not in st.session_state: st.session_state.search_results = [
 
 @st.cache_resource
 def get_geolocator():
-    if not _GEOPY_AVAILABLE:
-        return None
-    try:
-        geolocator = Nominatim(user_agent="vedic_astro_app")
-        return RateLimiter(geolocator.geocode, min_delay_seconds=1)
-    except Exception:
-        return None
+    geolocator = Nominatim(user_agent="vedic_astro_app")
+    return RateLimiter(geolocator.geocode, min_delay_seconds=1)
 
 geocode = get_geolocator()
-_tf = TimezoneFinder() if _TIMEZONEFINDER_AVAILABLE else None
+_tf = TimezoneFinder()
 
 def tz_for_latlon(lat, lon):
-    if _tf is None:
-        return pytz.UTC
-    try:
-        tzname = _tf.timezone_at(lng=lon, lat=lat)
-        if not tzname:
-            return pytz.UTC
-        return pytz.timezone(tzname)
-    except Exception:
-        return pytz.UTC
+    tzname = _tf.timezone_at(lng=lon, lat=lat)
+    if not tzname: return pytz.UTC
+    return pytz.timezone(tzname)
 
 _DEPTH_NAME_TO_INT = {'Dasa':1, 'Bhukti':2, 'Anthara':3, 'Sukshma':4, 'Prana':5, 'Sub-Prana':6}
 
@@ -5216,9 +5150,8 @@ if use_custom_coords:
     with clat: lat = st.number_input("Birth Latitude", value=13.08, format="%.4f")
     with clon: lon = st.number_input("Birth Longitude", value=80.27, format="%.4f")
 else:
-    _default_birth_city = "Chennai" if IS_STREAMLIT_CONTEXT else ""
-    birth_city_query = st.text_input("Birth City", value=_default_birth_city, placeholder="Start typing birth city name...", key="birth_city_input")
-    if geocode and birth_city_query and len(birth_city_query) >= 2:
+    birth_city_query = st.text_input("Birth City", value="Chennai", placeholder="Start typing birth city name...", key="birth_city_input")
+    if birth_city_query and len(birth_city_query) >= 2:
         try:
             locations = geocode(birth_city_query, exactly_one=False, limit=5)
             st.session_state.search_results = [{'display': loc.address, 'lat': loc.latitude, 'lon': loc.longitude, 'address': loc.address} for loc in (locations or [])]
@@ -5565,7 +5498,7 @@ if st.session_state.chart_data:
         if st.button("Show current micro-periods", use_container_width=True):
             if current_city_query:
                 try:
-                    cur_locs = geocode(current_city_query, exactly_one=False, limit=1) if geocode else []
+                    cur_locs = geocode(current_city_query, exactly_one=False, limit=1)
                     if cur_locs:
                         cur = cur_locs[0]; tz = tz_for_latlon(cur.latitude, cur.longitude)
                         now_local = datetime.now(tz); now_utc_naive = now_local.astimezone(pytz.UTC).replace(tzinfo=None)
@@ -5586,346 +5519,121 @@ if st.session_state.chart_data:
                             st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
                 except Exception as e: st.error(f"Error: {e}")
 
-    # ====== DASA-BHUKTI PROMPT CONSTRUCTOR ======
+    # ═══════════════════════════════════════════════════════════════════════
+    # CHART ANALYSIS — House-wise, Planet-wise & Bhava Chalit Perspectives
+    # ═══════════════════════════════════════════════════════════════════════
     st.markdown("---")
-    st.subheader("Dasa-Bhukti Prompt Constructor")
+    st.subheader("Chart Analysis — Multiple Perspectives")
 
-    _PROMPT_ASPECT_RULES = {
-        'Saturn': {3: 0.25, 7: 1.0, 10: 0.75},
-        'Mars': {4: 0.40, 7: 1.0, 8: 0.25},
-        'Jupiter': {5: 1.0, 7: 1.0, 9: 1.0},
-        'Venus': {7: 1.0},
-        'Mercury': {7: 1.0},
-        'Moon': {4: 0.25, 6: 0.50, 7: 1.0, 8: 0.50, 10: 0.25},
-        'Sun': {7: 1.0},
-        'Rahu': {5: 1.0, 7: 1.0, 9: 1.0},
-        'Ketu': {5: 1.0, 7: 1.0, 9: 1.0},
-    }
-    _ALL_PLANETS_PROMPT = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
-    _p_data = cd.get('planet_data', {})
-    _p_house_map = cd.get('planet_house_map', {})
-    _p_sign_map = cd.get('planet_sign_map', {})
-    _lagna_sign_prompt = cd['lagna_sign']
-    _lagna_idx_prompt = sign_names.index(_lagna_sign_prompt)
+    _hw = cd.get('chart_house_wise', {})
+    _pw = cd.get('chart_planet_wise', {})
+    _bc = cd.get('chart_bhava_chalit', {})
 
-    def _prompt_houses_ruled(p):
-        ruled = planet_ruled_signs.get(p, [])
-        return sorted([(sign_names.index(s) - _lagna_idx_prompt) % 12 + 1 for s in ruled])
+    # ── House-wise Analysis ──
+    with st.expander("🏠 House-wise Analysis", expanded=False):
+        st.caption("Each house: sign, house points, lord placement (with strength), occupants with lordships.")
+        hw_rows = []
+        for h in range(1, 13):
+            info = _hw.get(h, {})
+            occ_str = ', '.join(info.get('occupants', [])) if info.get('occupants') else '—'
+            lord_comp_str = ', '.join(info.get('lord_companions', [])) if info.get('lord_companions') else '—'
+            lord_nps = info.get('lord_nps', 0.0)
+            lord_note = (f"{info.get('lord', '')} in House {info.get('lord_house', '')} "
+                         f"({info.get('lord_sign', '')}) [{info.get('lord_status', '')}]")
+            if info.get('lord_companions'):
+                lord_note += f" with {lord_comp_str}"
+            hw_rows.append({
+                'House': h,
+                'Sign': info.get('sign', ''),
+                'House Points': f"{info.get('house_points', 0.0):.2f}",
+                'Occupants': occ_str,
+                'House Lord Placement': lord_note,
+                'Lord Shubathuva Score': f"{lord_nps:.2f}",
+            })
+        st.dataframe(pd.DataFrame(hw_rows), hide_index=True, use_container_width=True)
 
-    def _prompt_house_suffix(h):
-        return {1:'st',2:'nd',3:'rd'}.get(h if h < 20 else h % 10, 'th')
+    # ── Planet-wise Analysis ──
+    with st.expander("🪐 Planet-wise Analysis", expanded=False):
+        st.caption("Each planet: placement, lordships, co-occupants, and dispositor chain.")
+        pw_rows = []
+        for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+            info = _pw.get(p, {})
+            ruled = info.get('ruled_houses', [])
+            if ruled:
+                ruled_parts = []
+                for rh in ruled:
+                    sfx = {1:'st',2:'nd',3:'rd'}.get(rh if rh < 20 else rh % 10, 'th')
+                    ruled_parts.append(f"{rh}{sfx}")
+                ruled_str = ', '.join(ruled_parts)
+            else:
+                ruled_str = '—'
 
-    def _prompt_ruled_str(p):
-        hrs = _prompt_houses_ruled(p)
-        if not hrs:
-            return None
-        parts = []
-        for h in hrs:
-            parts.append(f"{h}{_prompt_house_suffix(h)} House")
-        return ' and '.join(parts)
+            co_str = ', '.join(info.get('co_occupants', [])) if info.get('co_occupants') else '—'
 
-    def _prompt_lord_label(p):
-        rs = _prompt_ruled_str(p)
-        if rs:
-            return f"Lord of {rs}"
-        return ''
+            disp = info.get('dispositor', '')
+            disp_h = info.get('dispositor_house', 0)
+            disp_st = info.get('dispositor_status', '')
+            disp_comp = ', '.join(info.get('dispositor_companions', [])) if info.get('dispositor_companions') else '—'
+            disp_note = f"{disp} in House {disp_h} [{disp_st}]"
+            if info.get('dispositor_companions'):
+                disp_note += f" with {disp_comp}"
 
-    def _prompt_get_aspects_on(target_planet):
-        """Return list of planets that aspect the target planet."""
-        target_house = _p_house_map.get(target_planet, 0)
-        aspecting = []
-        for p in _ALL_PLANETS_PROMPT:
-            if p == target_planet:
-                continue
-            p_house = _p_house_map.get(p, 0)
-            offsets = _PROMPT_ASPECT_RULES.get(p, {7: 1.0})
-            for offset in offsets:
-                aspected_house = ((p_house - 1) + offset) % 12 + 1
-                if aspected_house == target_house:
-                    aspecting.append(p)
-                    break
-        return aspecting
+            nps_val = info.get('nps', 0.0)
+            pw_rows.append({
+                'Planet': info.get('label', p),
+                'House': info.get('house', ''),
+                'Sign': info.get('sign', ''),
+                'Status': info.get('status', ''),
+                'Rules Houses': ruled_str,
+                'Shubathuva Score': f"{nps_val:.2f}",
+                'Co-Occupants': co_str,
+                'Dispositor': disp_note,
+            })
+        st.dataframe(pd.DataFrame(pw_rows), hide_index=True, use_container_width=True)
 
-    def _prompt_get_status(p):
-        """Get display status for a planet."""
-        data = _p_data.get(p, {})
-        updated = data.get('updated_status', '-')
-        raw = data.get('status', '-')
-        if updated not in ('-', '', None):
-            # e.g. Neechabhangam
-            label = updated
-            if raw == 'Neecham':
-                label = f"Neecha (Neechabhanga)"
-            return label
-        if raw not in ('-', '', None):
-            return raw
-        return None
-
-    def _prompt_planet_section(planet, index, level_name, level_desc):
-        """Build a text section for one planet in the prompt."""
-        data = _p_data.get(planet, {})
-        house = _p_house_map.get(planet, 0)
-        sign = _p_sign_map.get(planet, '')
-        dig_bala = data.get('dig_bala', None)
-        sthana = data.get('sthana', 0)
-        vargothuva = data.get('vargothuva', 'No')
-        status = _prompt_get_status(planet)
-
-        lines = []
-        lines.append(f"{index}. {level_name} Lord Analysis ({planet} - {level_desc}):")
-        lines.append('')
-        lines.append(f"Placement: House {house} (Sign: {sign})")
-        lines.append('')
-
-        # Status & Strength
-        strength_parts = []
-        if status:
-            strength_parts.append(f"Status: {status}")
-        if dig_bala is not None:
-            strength_parts.append(f"Dig Bala: {dig_bala}%")
-        strength_parts.append(f"Sthana Bala: {sthana}%")
-        strength_parts.append(f"Vargothuva: {vargothuva}")
-        parivardhana = data.get('parivardhana', '-')
-        if parivardhana and parivardhana != '-':
-            strength_parts.append(f"Parivardhana: {parivardhana}")
-        lines.append(f"Status & Strength: {' | '.join(strength_parts)}")
-        lines.append('')
-
-        # Houses ruled
-        ruled = _prompt_ruled_str(planet)
-        if ruled:
-            lines.append(f"Houses Ruled by {planet}: {ruled}.")
-        else:
-            lines.append(f"Houses Ruled by {planet}: None (Shadow planet).")
-        lines.append('')
-
-        # Aspects on this planet
-        aspecting = _prompt_get_aspects_on(planet)
-        if aspecting:
-            aspect_parts = []
-            for asp in aspecting:
-                asp_house = _p_house_map.get(asp, 0)
-                asp_suffix = _prompt_house_suffix(asp_house)
-                aspect_parts.append(f"{asp} (from the {asp_house}{asp_suffix} House)")
-            lines.append(f"Aspects on {planet}: Aspected by {', '.join(aspect_parts)}.")
-        else:
-            lines.append(f"Aspects on {planet}: None.")
-        lines.append('')
-
-        # Co-occupants
-        co_occupants = [
-            op for op in _ALL_PLANETS_PROMPT
-            if _p_house_map.get(op, 0) == house and op != planet
-        ]
-        if co_occupants:
-            lines.append(f"Co-occupants (Planets Conjunct with {planet}):")
-            lines.append('')
-            for cop in co_occupants:
-                cop_data = _p_data.get(cop, {})
-                cop_ruled = _prompt_lord_label(cop)
-                cop_status = _prompt_get_status(cop)
-                cop_dig = cop_data.get('dig_bala', None)
-                cop_sthana = cop_data.get('sthana', 0)
-                cop_vargo = cop_data.get('vargothuva', 'No')
-                cop_parts = []
-                if cop_ruled:
-                    cop_parts.append(cop_ruled)
-                if cop_status:
-                    cop_parts.append(f"Status: {cop_status}")
-                if cop_dig is not None:
-                    cop_parts.append(f"Dig Bala: {cop_dig}%")
-                cop_parts.append(f"Sthana Bala: {cop_sthana}%")
-                cop_parts.append(f"Vargothuva: {cop_vargo}")
-                cop_pari = cop_data.get('parivardhana', '-')
-                if cop_pari and cop_pari != '-':
-                    cop_parts.append(f"Parivardhana: {cop_pari}")
-                lines.append(f"  {cop}: {' | '.join(cop_parts)}")
-                lines.append('')
-        else:
-            lines.append(f"Co-occupants: None. ({planet} is placed alone).")
-            lines.append('')
-
-        return '\n'.join(lines)
-
-    def _prompt_mutual_relationships(lords_with_labels):
-        """Build the mutual relationships section between all planet pairs."""
-        lines = []
-        idx = len(lords_with_labels) + 1
-        lines.append(f"{idx}. Mutual Relationships ({'-'.join([l[1] for l in lords_with_labels])} Axes):")
-        lines.append('')
-
-        for i in range(len(lords_with_labels)):
-            for j in range(i + 1, len(lords_with_labels)):
-                label_a = lords_with_labels[i][1]  # e.g. 'Dasa'
-                planet_a = lords_with_labels[i][0]
-                label_b = lords_with_labels[j][1]
-                planet_b = lords_with_labels[j][0]
-
-                # Skip if both levels have the same planet — already noted via back-reference
-                if planet_a == planet_b:
-                    lines.append(f"{label_a} ({planet_a}) to {label_b} ({planet_b}) Axis: "
-                                 f"Same planet — no separate axis.")
-                    lines.append('')
-                    continue
-
-                house_a = _p_house_map.get(planet_a, 0)
-                house_b = _p_house_map.get(planet_b, 0)
-
-                # Distance from A to B
-                dist_ab = ((house_b - house_a) % 12) + 1
-                if dist_ab == 13:
-                    dist_ab = 1
-                # Distance from B to A
-                dist_ba = ((house_a - house_b) % 12) + 1
-                if dist_ba == 13:
-                    dist_ba = 1
-
-                # Determine relationship label
-                if dist_ab == 1 and dist_ba == 1:
-                    rel_label = "1/1 Relationship (Conjunct)"
-                    detail = f"They are occupying the exact same house (House {house_a})."
-                elif (dist_ab == 6 and dist_ba == 8) or (dist_ab == 8 and dist_ba == 6):
-                    rel_label = "6/8 Relationship (Shadashtaka)"
-                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
-                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
-                elif (dist_ab == 2 and dist_ba == 12) or (dist_ab == 12 and dist_ba == 2):
-                    rel_label = "2/12 Relationship (Dwirdwadasha)"
-                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
-                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
-                elif dist_ab == 7 and dist_ba == 7:
-                    rel_label = "7/7 Relationship (Opposition)"
-                    detail = f"{planet_a} and {planet_b} are in mutual 7th houses."
-                elif (dist_ab == 5 and dist_ba == 9) or (dist_ab == 9 and dist_ba == 5):
-                    rel_label = "5/9 Relationship (Trikona/Supportive)"
-                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
-                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
-                elif (dist_ab == 4 and dist_ba == 10) or (dist_ab == 10 and dist_ba == 4):
-                    rel_label = "4/10 Relationship (Kendra)"
-                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
-                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
-                elif (dist_ab == 3 and dist_ba == 11) or (dist_ab == 11 and dist_ba == 3):
-                    rel_label = "3/11 Relationship (Upachaya)"
-                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
-                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+    # ── Bhava Chalit (Dasabhukti Perspective) ──
+    with st.expander("🔄 Bhava Chalit — Dasabhukti Perspective", expanded=False):
+        st.caption("Treat each planet's house as 1st and see all other planets' relative positions.")
+        _bc_planet_sel = st.selectbox(
+            "Select Planet to view from its perspective:",
+            ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu'],
+            key='bc_planet_sel'
+        )
+        if _bc_planet_sel and _bc_planet_sel in _bc:
+            rel_map = _bc[_bc_planet_sel]
+            p_info = _pw.get(_bc_planet_sel, {})
+            st.markdown(f"**{p_info.get('label', _bc_planet_sel)}** sits in **House {p_info.get('house', '')}** ({p_info.get('sign', '')}). "
+                        f"Viewing all planets relative to this position:")
+            bc_rows = []
+            for h_rel in range(1, 13):
+                occupants = rel_map.get(h_rel, [])
+                occ_str = ', '.join(occupants) if occupants else '—'
+                # Compute actual house number
+                actual_h = ((p_info.get('house', 1) - 1) + (h_rel - 1)) % 12 + 1
+                _hw_info = _hw.get(actual_h, {})
+                # Collect strength info for planets in this relative house
+                actual_occ = [op for op in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
+                              if _pw.get(op, {}).get('house', 0) == actual_h and op != _bc_planet_sel]
+                if h_rel == 1:
+                    actual_occ_for_str = [_bc_planet_sel] + actual_occ
                 else:
-                    rel_label = f"{dist_ab}/{dist_ba} Relationship"
-                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
-                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
-
-                lines.append(f"{label_a} ({planet_a}) to {label_b} ({planet_b}) Axis: "
-                             f"{rel_label}. {detail}")
-                lines.append('')
-
-        return '\n'.join(lines)
-
-    def build_dasabhukti_prompt(cd, selected_lords):
-        """Build the full copiable prompt text from selected dasa/bhukti/antara/sukshma lords.
-        If the same planet appears at multiple levels, print its full analysis only once
-        and add a short back-reference for subsequent appearances."""
-        level_names = ['Mahadasha', 'Bhukti', 'Antara', 'Sukshma']
-        level_descs = [
-            'The Foundation of the Era',
-            'The Primary Driver of Recent Events',
-            'The Immediate Trigger/Current Focus',
-            'The Micro-Trigger'
-        ]
-        sections = []
-        lords_with_labels = []  # (planet, level_short_name)
-        level_short = ['Dasa', 'Bhukti', 'Antara', 'Sukshma']
-
-        already_detailed = {}  # planet -> (section_index, level_name) of first full analysis
-        for i, planet in enumerate(selected_lords):
-            if planet in already_detailed:
-                # Already explained — add a short back-reference instead
-                first_idx, first_level = already_detailed[planet]
-                ref_section = (f"{i + 1}. {level_names[i]} Lord Analysis ({planet} - {level_descs[i]}):\n\n"
-                               f"(Same planet as the {first_level} Lord above — see Section {first_idx} for full analysis.)\n")
-                sections.append(ref_section)
-            else:
-                section = _prompt_planet_section(planet, i + 1, level_names[i], level_descs[i])
-                sections.append(section)
-                already_detailed[planet] = (i + 1, level_names[i])
-            lords_with_labels.append((planet, level_short[i]))
-
-        # Mutual relationships (only if more than one unique lord)
-        unique_lords = []
-        seen = set()
-        for pl, lbl in lords_with_labels:
-            if pl not in seen:
-                unique_lords.append((pl, lbl))
-                seen.add(pl)
-        if len(unique_lords) > 1:
-            sections.append(_prompt_mutual_relationships(lords_with_labels))
-        elif len(lords_with_labels) > 1 and len(unique_lords) == 1:
-            # All lords are the same planet — note that
-            planet = unique_lords[0][0]
-            idx = len(lords_with_labels) + 1
-            levels_str = ', '.join([lbl for _, lbl in lords_with_labels])
-            sections.append(f"{idx}. Mutual Relationships:\n\n"
-                            f"All selected levels ({levels_str}) are ruled by the same planet ({planet}). "
-                            f"No inter-planet axis to analyse.\n")
-
-        return '\n'.join(sections)
-
-    if not _is_bc and cd['max_depth'] >= 1:
-        prompt_depth_options = ['Dasa only']
-        if cd['max_depth'] >= 2:
-            prompt_depth_options.append('Dasa + Bhukti')
-        if cd['max_depth'] >= 3:
-            prompt_depth_options.append('Dasa + Bhukti + Antara')
-        if cd['max_depth'] >= 4:
-            prompt_depth_options.append('Dasa + Bhukti + Antara + Sukshma')
-
-        prompt_depth_sel = st.selectbox("Select period depth for prompt:", prompt_depth_options, key="prompt_depth_sel")
-        _prompt_depth_count = prompt_depth_options.index(prompt_depth_sel) + 1
-
-        # Select Dasa lord
-        dp = cd['dasa_periods_filtered']
-        d_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in dp]
-        sel_d = st.selectbox("Select Mahadasha:", d_labels, key="prompt_sel_dasa")
-        sel_d_idx = d_labels.index(sel_d)
-        prompt_lords = [dp[sel_d_idx][0]]
-
-        # Select Bhukti lord
-        if _prompt_depth_count >= 2:
-            bhuktis = dp[sel_d_idx][3]
-            if bhuktis:
-                b_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in bhuktis]
-                sel_b = st.selectbox("Select Bhukti:", b_labels, key="prompt_sel_bhukti")
-                sel_b_idx = b_labels.index(sel_b)
-                prompt_lords.append(bhuktis[sel_b_idx][0])
-
-                # Select Antara lord
-                if _prompt_depth_count >= 3:
-                    antaras = bhuktis[sel_b_idx][3]
-                    if antaras:
-                        a_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in antaras]
-                        sel_a = st.selectbox("Select Antara:", a_labels, key="prompt_sel_antara")
-                        sel_a_idx = a_labels.index(sel_a)
-                        prompt_lords.append(antaras[sel_a_idx][0])
-
-                        # Select Sukshma lord
-                        if _prompt_depth_count >= 4:
-                            sukshmas = antaras[sel_a_idx][3]
-                            if sukshmas:
-                                s_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in sukshmas]
-                                sel_s = st.selectbox("Select Sukshma:", s_labels, key="prompt_sel_sukshma")
-                                sel_s_idx = s_labels.index(sel_s)
-                                prompt_lords.append(sukshmas[sel_s_idx][0])
-                            else:
-                                st.warning("No Sukshma sub-periods available for selected Antara.")
-                    else:
-                        st.warning("No Antara sub-periods available for selected Bhukti.")
-            else:
-                st.warning("No Bhukti sub-periods available for selected Dasa.")
-
-        if st.button("Generate Prompt", use_container_width=True, key="gen_prompt_btn"):
-            prompt_text = build_dasabhukti_prompt(cd, prompt_lords)
-            st.session_state['dasabhukti_prompt'] = prompt_text
-
-        if 'dasabhukti_prompt' in st.session_state and st.session_state['dasabhukti_prompt']:
-            st.code(st.session_state['dasabhukti_prompt'], language=None)
-    # ====== END DASA-BHUKTI PROMPT CONSTRUCTOR ======
+                    actual_occ_for_str = actual_occ
+                str_parts = []
+                for _op in actual_occ_for_str:
+                    _op_str = _pw.get(_op, {}).get('total_strength', 0.0)
+                    _op_mad = _pw.get(_op, {}).get('maraivu_adj_strength', 0.0)
+                    if _op_str or _op_mad:
+                        str_parts.append(f"{_op}: Str {_op_str:.1f} / MAdj {_op_mad:.1f}")
+                str_note = '; '.join(str_parts) if str_parts else '—'
+                bc_rows.append({
+                    'Relative House': h_rel,
+                    'Actual House': actual_h,
+                    'Sign': _hw_info.get('sign', ''),
+                    'House Points': f"{_hw_info.get('house_points', 0.0):.2f}",
+                    'Planets': occ_str,
+                    'Planet Strengths': str_note,
+                })
+            st.dataframe(pd.DataFrame(bc_rows), hide_index=True, use_container_width=True)
 
     # ====== EXPORT ALL DATA AS JSON ======
     st.markdown("---")
