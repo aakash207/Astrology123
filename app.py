@@ -5488,6 +5488,9 @@ if st.session_state.chart_data:
             strength_parts.append(f"Dig Bala: {dig_bala}%")
         strength_parts.append(f"Sthana Bala: {sthana}%")
         strength_parts.append(f"Vargothuva: {vargothuva}")
+        parivardhana = data.get('parivardhana', '-')
+        if parivardhana and parivardhana != '-':
+            strength_parts.append(f"Parivardhana: {parivardhana}")
         lines.append(f"Status & Strength: {' | '.join(strength_parts)}")
         lines.append('')
 
@@ -5536,6 +5539,9 @@ if st.session_state.chart_data:
                     cop_parts.append(f"Dig Bala: {cop_dig}%")
                 cop_parts.append(f"Sthana Bala: {cop_sthana}%")
                 cop_parts.append(f"Vargothuva: {cop_vargo}")
+                cop_pari = cop_data.get('parivardhana', '-')
+                if cop_pari and cop_pari != '-':
+                    cop_parts.append(f"Parivardhana: {cop_pari}")
                 lines.append(f"  {cop}: {' | '.join(cop_parts)}")
                 lines.append('')
         else:
@@ -5557,6 +5563,14 @@ if st.session_state.chart_data:
                 planet_a = lords_with_labels[i][0]
                 label_b = lords_with_labels[j][1]
                 planet_b = lords_with_labels[j][0]
+
+                # Skip if both levels have the same planet — already noted via back-reference
+                if planet_a == planet_b:
+                    lines.append(f"{label_a} ({planet_a}) to {label_b} ({planet_b}) Axis: "
+                                 f"Same planet — no separate axis.")
+                    lines.append('')
+                    continue
+
                 house_a = _p_house_map.get(planet_a, 0)
                 house_b = _p_house_map.get(planet_b, 0)
 
