@@ -13,6 +13,11 @@ try:
     _FASTAPI_AVAILABLE = True
 except Exception:
     _FASTAPI_AVAILABLE = False
+try:
+    import uvicorn
+    _UVICORN_AVAILABLE = True
+except Exception:
+    _UVICORN_AVAILABLE = False
 from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
 from collections import defaultdict
@@ -21,11 +26,22 @@ import json
 import logging
 import os
 import sys
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
+try:
+    from geopy.geocoders import Nominatim
+    from geopy.extra.rate_limiter import RateLimiter
+    _GEOPY_AVAILABLE = True
+except Exception:
+    Nominatim = None
+    RateLimiter = None
+    _GEOPY_AVAILABLE = False
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
-from timezonefinder import TimezoneFinder
+try:
+    from timezonefinder import TimezoneFinder
+    _TIMEZONEFINDER_AVAILABLE = True
+except Exception:
+    TimezoneFinder = None
+    _TIMEZONEFINDER_AVAILABLE = False
 import pytz
 import copy
 
@@ -285,6 +301,8 @@ if _FASTAPI_AVAILABLE:
             lat = cities_fallback[place_key]['lat']
             lon = cities_fallback[place_key]['lon']
         else:
+            if not _GEOPY_AVAILABLE:
+                raise HTTPException(status_code=503, detail="Geocoding dependency unavailable")
             try:
                 geolocator = Nominatim(user_agent="buvi_transit_api")
                 location = geolocator.geocode(request.place, exactly_one=True, timeout=5)
@@ -302,9 +320,7 @@ if _FASTAPI_AVAILABLE:
             raise HTTPException(status_code=400, detail="DOB must be YYYY-MM-DD")
 
         # --- compute timezone offset using existing helper ---
-        _tf_api = TimezoneFinder()
-        tzname = _tf_api.timezone_at(lng=lon, lat=lat)
-        tz = pytz.timezone(tzname) if tzname else pytz.UTC
+        tz = tz_for_latlon(lat, lon)
         naive_noon = datetime.combine(date_obj, datetime.min.time().replace(hour=12))
         tz_offset = tz.localize(naive_noon).utcoffset().total_seconds() / 3600.0
 
@@ -333,6 +349,14 @@ if _FASTAPI_AVAILABLE:
             "asc_sign": cd["lagna_sign"],
             "status": "success",
         }
+else:
+    async def api(scope, receive, send):
+        if scope.get("type") != "http":
+            return
+        body = b'{"detail":"FastAPI is not installed in this environment"}'
+        headers = [(b"content-type", b"application/json")]
+        await send({"type": "http.response.start", "status": 503, "headers": headers})
+        await send({"type": "http.response.body", "body": body})
 
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
@@ -5140,16 +5164,27 @@ if 'search_results' not in st.session_state: st.session_state.search_results = [
 
 @st.cache_resource
 def get_geolocator():
-    geolocator = Nominatim(user_agent="vedic_astro_app")
-    return RateLimiter(geolocator.geocode, min_delay_seconds=1)
+    if not _GEOPY_AVAILABLE:
+        return None
+    try:
+        geolocator = Nominatim(user_agent="vedic_astro_app")
+        return RateLimiter(geolocator.geocode, min_delay_seconds=1)
+    except Exception:
+        return None
 
 geocode = get_geolocator()
-_tf = TimezoneFinder()
+_tf = TimezoneFinder() if _TIMEZONEFINDER_AVAILABLE else None
 
 def tz_for_latlon(lat, lon):
-    tzname = _tf.timezone_at(lng=lon, lat=lat)
-    if not tzname: return pytz.UTC
-    return pytz.timezone(tzname)
+    if _tf is None:
+        return pytz.UTC
+    try:
+        tzname = _tf.timezone_at(lng=lon, lat=lat)
+        if not tzname:
+            return pytz.UTC
+        return pytz.timezone(tzname)
+    except Exception:
+        return pytz.UTC
 
 _DEPTH_NAME_TO_INT = {'Dasa':1, 'Bhukti':2, 'Anthara':3, 'Sukshma':4, 'Prana':5, 'Sub-Prana':6}
 
@@ -5211,7 +5246,7 @@ if use_custom_coords:
 else:
     _default_birth_city = "Chennai" if IS_STREAMLIT_CONTEXT else ""
     birth_city_query = st.text_input("Birth City", value=_default_birth_city, placeholder="Start typing birth city name...", key="birth_city_input")
-    if birth_city_query and len(birth_city_query) >= 2:
+    if geocode and birth_city_query and len(birth_city_query) >= 2:
         try:
             locations = geocode(birth_city_query, exactly_one=False, limit=5)
             st.session_state.search_results = [{'display': loc.address, 'lat': loc.latitude, 'lon': loc.longitude, 'address': loc.address} for loc in (locations or [])]
@@ -5558,7 +5593,7 @@ if st.session_state.chart_data:
         if st.button("Show current micro-periods", use_container_width=True):
             if current_city_query:
                 try:
-                    cur_locs = geocode(current_city_query, exactly_one=False, limit=1)
+                    cur_locs = geocode(current_city_query, exactly_one=False, limit=1) if geocode else []
                     if cur_locs:
                         cur = cur_locs[0]; tz = tz_for_latlon(cur.latitude, cur.longitude)
                         now_local = datetime.now(tz); now_utc_naive = now_local.astimezone(pytz.UTC).replace(tzinfo=None)
