@@ -278,9 +278,7 @@ if _FASTAPI_AVAILABLE:
             "status": "success",
         }
 else:
-    # Fallback ASGI app – always present so Streamlit Cloud's manager process
-    # (which runs  uvicorn app:api) finds the attribute and the /healthz
-    # health-check returns 200 instead of 503.
+    # Fallback ASGI app
     async def api(scope, receive, send):
         if scope.get("type") != "http":
             return
