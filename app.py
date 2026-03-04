@@ -1,7 +1,14 @@
 import streamlit as st
-from fastapi import FastAPI
-from fastapi import HTTPException
-from pydantic import BaseModel
+try:
+    from fastapi import FastAPI
+    from fastapi import HTTPException
+    from pydantic import BaseModel
+    _FASTAPI_AVAILABLE = True
+except Exception:
+    FastAPI = None
+    HTTPException = Exception
+    BaseModel = object
+    _FASTAPI_AVAILABLE = False
 from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
 from collections import defaultdict
@@ -244,7 +251,21 @@ def generate_transit_insight(planet: str, sign: str) -> dict:
     }
 
 
-api = FastAPI(title="Transit API")
+if _FASTAPI_AVAILABLE:
+    api = FastAPI(title="Transit API")
+else:
+    class _NoOpAPI:
+        def get(self, *args, **kwargs):
+            def _decorator(func):
+                return func
+            return _decorator
+
+        def post(self, *args, **kwargs):
+            def _decorator(func):
+                return func
+            return _decorator
+
+    api = _NoOpAPI()
 
 
 class TransitRequest(BaseModel):
