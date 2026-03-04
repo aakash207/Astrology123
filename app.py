@@ -271,7 +271,7 @@ def generate_transit_insight(planet: str, sign: str) -> dict:
     }
 
 
-if _FASTAPI_AVAILABLE:
+if _FASTAPI_AVAILABLE and not IS_STREAMLIT_CONTEXT:
     api = FastAPI(title="Transit API")
 
     class TransitRequest(BaseModel):
@@ -350,13 +350,22 @@ if _FASTAPI_AVAILABLE:
             "status": "success",
         }
 else:
+    # Fallback ASGI app – always present so Streamlit Cloud's manager process
+    # (which runs  uvicorn app:api) finds the attribute and the /healthz
+    # health-check returns 200 instead of 503.
     async def api(scope, receive, send):
         if scope.get("type") != "http":
             return
-        body = b'{"detail":"FastAPI is not installed in this environment"}'
-        headers = [(b"content-type", b"application/json")]
-        await send({"type": "http.response.start", "status": 503, "headers": headers})
-        await send({"type": "http.response.body", "body": body})
+        path = scope.get("path", "")
+        if path == "/healthz":
+            headers = [(b"content-type", b"text/plain")]
+            await send({"type": "http.response.start", "status": 200, "headers": headers})
+            await send({"type": "http.response.body", "body": b"ok"})
+        else:
+            body = b'{"detail":"Running in Streamlit mode"}'
+            headers = [(b"content-type", b"application/json")]
+            await send({"type": "http.response.start", "status": 200, "headers": headers})
+            await send({"type": "http.response.body", "body": body})
 
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
