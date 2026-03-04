@@ -8,4 +8,5 @@ timezonefinder>=6.0.0
 pytz
 pyswisseph
 numpy<2.0.0
+uvicorn
 
