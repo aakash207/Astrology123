@@ -1,3 +1,10 @@
+# AI NOTE:
+# Whenever adding/updating API code in this file, always follow this pattern:
+# 1) Keep FastAPI/Pydantic imports inside try/except and set _FASTAPI_AVAILABLE.
+# 2) Define API app, request models, and route decorators only inside: if _FASTAPI_AVAILABLE:
+# 3) Never let Streamlit-only runtime execute API model/route code when FastAPI is missing.
+# This ensures Streamlit app runs safely even if FastAPI/uvicorn are not installed.
+
 import streamlit as st
 try:
     from fastapi import FastAPI
@@ -5,9 +12,6 @@ try:
     from pydantic import BaseModel
     _FASTAPI_AVAILABLE = True
 except Exception:
-    FastAPI = None
-    HTTPException = Exception
-    BaseModel = object
     _FASTAPI_AVAILABLE = False
 from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
@@ -253,100 +257,82 @@ def generate_transit_insight(planet: str, sign: str) -> dict:
 
 if _FASTAPI_AVAILABLE:
     api = FastAPI(title="Transit API")
-else:
-    class _NoOpAPI:
-        def get(self, *args, **kwargs):
-            def _decorator(func):
-                return func
-            return _decorator
 
-        def post(self, *args, **kwargs):
-            def _decorator(func):
-                return func
-            return _decorator
+    class TransitRequest(BaseModel):
+        planet: str
+        sign: str
 
-    api = _NoOpAPI()
+    class AscTestRequest(BaseModel):
+        name: str
+        dob: str          # YYYY-MM-DD
+        birth_time: str   # HH:MM (24-hour)
+        place: str
 
+    @api.get("/api/ping")
+    def api_ping():
+        return {"status": "ok", "message": "Transit API is running"}
 
-class TransitRequest(BaseModel):
-    planet: str
-    sign: str
+    @api.post("/api/generate")
+    def api_generate_transit(request: TransitRequest):
+        return generate_transit_insight(request.planet, request.sign)
 
+    @api.post("/test")
+    def api_test_ascendant(request: AscTestRequest):
+        # --- resolve place to lat/lon ---
+        place_key = (request.place or "").strip().title()
 
-class AscTestRequest(BaseModel):
-    name: str
-    dob: str          # YYYY-MM-DD
-    birth_time: str   # HH:MM (24-hour)
-    place: str
+        if place_key in cities_fallback:
+            lat = cities_fallback[place_key]['lat']
+            lon = cities_fallback[place_key]['lon']
+        else:
+            try:
+                geolocator = Nominatim(user_agent="buvi_transit_api")
+                location = geolocator.geocode(request.place, exactly_one=True, timeout=5)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}") from exc
+            if not location:
+                raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}")
+            lat = float(location.latitude)
+            lon = float(location.longitude)
 
-
-@api.get("/api/ping")
-def api_ping():
-    return {"status": "ok", "message": "Transit API is running"}
-
-
-@api.post("/api/generate")
-def api_generate_transit(request: TransitRequest):
-    return generate_transit_insight(request.planet, request.sign)
-
-
-@api.post("/test")
-def api_test_ascendant(request: AscTestRequest):
-    # --- resolve place to lat/lon ---
-    place_key = (request.place or "").strip().title()
-
-    if place_key in cities_fallback:
-        lat = cities_fallback[place_key]['lat']
-        lon = cities_fallback[place_key]['lon']
-    else:
+        # --- parse date ---
         try:
-            geolocator = Nominatim(user_agent="buvi_transit_api")
-            location = geolocator.geocode(request.place, exactly_one=True, timeout=5)
+            date_obj = datetime.strptime(request.dob.strip(), "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="DOB must be YYYY-MM-DD")
+
+        # --- compute timezone offset using existing helper ---
+        _tf_api = TimezoneFinder()
+        tzname = _tf_api.timezone_at(lng=lon, lat=lat)
+        tz = pytz.timezone(tzname) if tzname else pytz.UTC
+        naive_noon = datetime.combine(date_obj, datetime.min.time().replace(hour=12))
+        tz_offset = tz.localize(naive_noon).utcoffset().total_seconds() / 3600.0
+
+        # --- call the real compute_chart ---
+        try:
+            cd = compute_chart(
+                name=request.name,
+                date_obj=date_obj,
+                time_str=request.birth_time.strip(),
+                lat=lat,
+                lon=lon,
+                tz_offset=tz_offset,
+                max_depth=1,
+            )
         except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}") from exc
-        if not location:
-            raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}")
-        lat = float(location.latitude)
-        lon = float(location.longitude)
+            raise HTTPException(status_code=500, detail=f"Chart computation failed: {exc}")
 
-    # --- parse date ---
-    try:
-        date_obj = datetime.strptime(request.dob.strip(), "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="DOB must be YYYY-MM-DD")
-
-    # --- compute timezone offset using existing helper ---
-    _tf_api = TimezoneFinder()
-    tzname = _tf_api.timezone_at(lng=lon, lat=lat)
-    tz = pytz.timezone(tzname) if tzname else pytz.UTC
-    naive_noon = datetime.combine(date_obj, datetime.min.time().replace(hour=12))
-    tz_offset = tz.localize(naive_noon).utcoffset().total_seconds() / 3600.0
-
-    # --- call the real compute_chart ---
-    try:
-        cd = compute_chart(
-            name=request.name,
-            date_obj=date_obj,
-            time_str=request.birth_time.strip(),
-            lat=lat,
-            lon=lon,
-            tz_offset=tz_offset,
-            max_depth=1,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Chart computation failed: {exc}")
-
-    return {
-        "name": cd["name"],
-        "dob": request.dob,
-        "birth_time": request.birth_time,
-        "place": request.place,
-        "latitude": round(lat, 6),
-        "longitude": round(lon, 6),
-        "asc_degree": round(float(cd["lagna_sid"]), 6),
-        "asc_sign": cd["lagna_sign"],
-        "status": "success",
-    }
+        return {
+            "name": cd["name"],
+            "dob": request.dob,
+            "birth_time": request.birth_time,
+            "place": request.place,
+            "latitude": round(lat, 6),
+            "longitude": round(lon, 6),
+            "asc_degree": round(float(cd["lagna_sid"]), 6),
+            "asc_sign": cd["lagna_sign"],
+            "status": "success",
+        }
 
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
