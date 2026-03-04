@@ -55,78 +55,6 @@ if not IS_STREAMLIT_CONTEXT:
     logging.getLogger("streamlit").setLevel(logging.ERROR)
     logging.getLogger("geopy").setLevel(logging.ERROR)
 
-
-class _NoOpContext:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
-class _NoOpSessionState(dict):
-    def __getattr__(self, item):
-        return self.get(item)
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-
-class _StreamlitNoOp:
-    def __init__(self):
-        self.session_state = _NoOpSessionState()
-
-    def cache_resource(self, func=None, **kwargs):
-        if func is None:
-            return lambda f: f
-        return func
-
-    def columns(self, spec, **kwargs):
-        count = spec if isinstance(spec, int) else len(spec)
-        return tuple(_NoOpContext() for _ in range(count))
-
-    def tabs(self, labels, **kwargs):
-        return tuple(_NoOpContext() for _ in labels)
-
-    def expander(self, *args, **kwargs):
-        return _NoOpContext()
-
-    def spinner(self, *args, **kwargs):
-        return _NoOpContext()
-
-    def container(self, *args, **kwargs):
-        return _NoOpContext()
-
-    def checkbox(self, *args, **kwargs):
-        return kwargs.get("value", False)
-
-    def button(self, *args, **kwargs):
-        return False
-
-    def text_input(self, *args, **kwargs):
-        return kwargs.get("value", "")
-
-    def number_input(self, *args, **kwargs):
-        return kwargs.get("value", 0)
-
-    def selectbox(self, *args, **kwargs):
-        options = kwargs.get("options")
-        if options is None and len(args) >= 2:
-            options = args[1]
-        return options[0] if options else None
-
-    def date_input(self, *args, **kwargs):
-        return kwargs.get("value")
-
-    def __getattr__(self, name):
-        def _noop(*args, **kwargs):
-            return None
-        return _noop
-
-
-if not IS_STREAMLIT_CONTEXT:
-    st = _StreamlitNoOp()
-
 # ---- Swiss Ephemeris / Astropy fallback ----
 USE_SWISSEPH = False
 try:
@@ -271,7 +199,7 @@ def generate_transit_insight(planet: str, sign: str) -> dict:
     }
 
 
-if _FASTAPI_AVAILABLE and not IS_STREAMLIT_CONTEXT:
+if _FASTAPI_AVAILABLE:
     api = FastAPI(title="Transit API")
 
     class TransitRequest(BaseModel):
