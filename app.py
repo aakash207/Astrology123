@@ -4889,6 +4889,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'selected_depth': depth_map[max_depth], 'utc_dt': utc_dt, 'max_depth': max_depth,
         'bc_mode': bc_mode, 'astro_year': astro_year,
         'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav,
+        'planet_data': planet_data, 'planet_house_map': planet_house_map,
+        'planet_sign_map': planet_sign_map,
     }
 
 # South Indian plotter
@@ -5386,6 +5388,309 @@ if st.session_state.chart_data:
                                     tbl.append({"Lord": l, "Start (local)": st_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "End (local)": en_t.replace(tzinfo=pytz.UTC).astimezone(tz).strftime('%Y-%m-%d %H:%M'), "Duration": duration_str(en_t-st_t, depth_choice.lower())})
                             st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
                 except Exception as e: st.error(f"Error: {e}")
+
+    # ====== DASA-BHUKTI PROMPT CONSTRUCTOR ======
+    st.markdown("---")
+    st.subheader("Dasa-Bhukti Prompt Constructor")
+
+    _PROMPT_ASPECT_RULES = {
+        'Saturn': {3: 0.25, 7: 1.0, 10: 0.75},
+        'Mars': {4: 0.40, 7: 1.0, 8: 0.25},
+        'Jupiter': {5: 1.0, 7: 1.0, 9: 1.0},
+        'Venus': {7: 1.0},
+        'Mercury': {7: 1.0},
+        'Moon': {4: 0.25, 6: 0.50, 7: 1.0, 8: 0.50, 10: 0.25},
+        'Sun': {7: 1.0},
+        'Rahu': {5: 1.0, 7: 1.0, 9: 1.0},
+        'Ketu': {5: 1.0, 7: 1.0, 9: 1.0},
+    }
+    _ALL_PLANETS_PROMPT = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']
+    _p_data = cd.get('planet_data', {})
+    _p_house_map = cd.get('planet_house_map', {})
+    _p_sign_map = cd.get('planet_sign_map', {})
+    _lagna_sign_prompt = cd['lagna_sign']
+    _lagna_idx_prompt = sign_names.index(_lagna_sign_prompt)
+
+    def _prompt_houses_ruled(p):
+        ruled = planet_ruled_signs.get(p, [])
+        return sorted([(sign_names.index(s) - _lagna_idx_prompt) % 12 + 1 for s in ruled])
+
+    def _prompt_house_suffix(h):
+        return {1:'st',2:'nd',3:'rd'}.get(h if h < 20 else h % 10, 'th')
+
+    def _prompt_ruled_str(p):
+        hrs = _prompt_houses_ruled(p)
+        if not hrs:
+            return None
+        parts = []
+        for h in hrs:
+            parts.append(f"{h}{_prompt_house_suffix(h)} House")
+        return ' and '.join(parts)
+
+    def _prompt_lord_label(p):
+        rs = _prompt_ruled_str(p)
+        if rs:
+            return f"Lord of {rs}"
+        return ''
+
+    def _prompt_get_aspects_on(target_planet):
+        """Return list of planets that aspect the target planet."""
+        target_house = _p_house_map.get(target_planet, 0)
+        aspecting = []
+        for p in _ALL_PLANETS_PROMPT:
+            if p == target_planet:
+                continue
+            p_house = _p_house_map.get(p, 0)
+            offsets = _PROMPT_ASPECT_RULES.get(p, {7: 1.0})
+            for offset in offsets:
+                aspected_house = ((p_house - 1) + offset) % 12 + 1
+                if aspected_house == target_house:
+                    aspecting.append(p)
+                    break
+        return aspecting
+
+    def _prompt_get_status(p):
+        """Get display status for a planet."""
+        data = _p_data.get(p, {})
+        updated = data.get('updated_status', '-')
+        raw = data.get('status', '-')
+        if updated not in ('-', '', None):
+            # e.g. Neechabhangam
+            label = updated
+            if raw == 'Neecham':
+                label = f"Neecha (Neechabhanga)"
+            return label
+        if raw not in ('-', '', None):
+            return raw
+        return None
+
+    def _prompt_planet_section(planet, index, level_name, level_desc):
+        """Build a text section for one planet in the prompt."""
+        data = _p_data.get(planet, {})
+        house = _p_house_map.get(planet, 0)
+        sign = _p_sign_map.get(planet, '')
+        dig_bala = data.get('dig_bala', None)
+        sthana = data.get('sthana', 0)
+        vargothuva = data.get('vargothuva', 'No')
+        status = _prompt_get_status(planet)
+
+        lines = []
+        lines.append(f"{index}. {level_name} Lord Analysis ({planet} - {level_desc}):")
+        lines.append('')
+        lines.append(f"Placement: House {house} (Sign: {sign})")
+        lines.append('')
+
+        # Status & Strength
+        strength_parts = []
+        if status:
+            strength_parts.append(f"Status: {status}")
+        if dig_bala is not None:
+            strength_parts.append(f"Dig Bala: {dig_bala}%")
+        strength_parts.append(f"Sthana Bala: {sthana}%")
+        strength_parts.append(f"Vargothuva: {vargothuva}")
+        lines.append(f"Status & Strength: {' | '.join(strength_parts)}")
+        lines.append('')
+
+        # Houses ruled
+        ruled = _prompt_ruled_str(planet)
+        if ruled:
+            lines.append(f"Houses Ruled by {planet}: {ruled}.")
+        else:
+            lines.append(f"Houses Ruled by {planet}: None (Shadow planet).")
+        lines.append('')
+
+        # Aspects on this planet
+        aspecting = _prompt_get_aspects_on(planet)
+        if aspecting:
+            aspect_parts = []
+            for asp in aspecting:
+                asp_house = _p_house_map.get(asp, 0)
+                asp_suffix = _prompt_house_suffix(asp_house)
+                aspect_parts.append(f"{asp} (from the {asp_house}{asp_suffix} House)")
+            lines.append(f"Aspects on {planet}: Aspected by {', '.join(aspect_parts)}.")
+        else:
+            lines.append(f"Aspects on {planet}: None.")
+        lines.append('')
+
+        # Co-occupants
+        co_occupants = [
+            op for op in _ALL_PLANETS_PROMPT
+            if _p_house_map.get(op, 0) == house and op != planet
+        ]
+        if co_occupants:
+            lines.append(f"Co-occupants (Planets Conjunct with {planet}):")
+            lines.append('')
+            for cop in co_occupants:
+                cop_data = _p_data.get(cop, {})
+                cop_ruled = _prompt_lord_label(cop)
+                cop_status = _prompt_get_status(cop)
+                cop_dig = cop_data.get('dig_bala', None)
+                cop_sthana = cop_data.get('sthana', 0)
+                cop_vargo = cop_data.get('vargothuva', 'No')
+                cop_parts = []
+                if cop_ruled:
+                    cop_parts.append(cop_ruled)
+                if cop_status:
+                    cop_parts.append(f"Status: {cop_status}")
+                if cop_dig is not None:
+                    cop_parts.append(f"Dig Bala: {cop_dig}%")
+                cop_parts.append(f"Sthana Bala: {cop_sthana}%")
+                cop_parts.append(f"Vargothuva: {cop_vargo}")
+                lines.append(f"  {cop}: {' | '.join(cop_parts)}")
+                lines.append('')
+        else:
+            lines.append(f"Co-occupants: None. ({planet} is placed alone).")
+            lines.append('')
+
+        return '\n'.join(lines)
+
+    def _prompt_mutual_relationships(lords_with_labels):
+        """Build the mutual relationships section between all planet pairs."""
+        lines = []
+        idx = len(lords_with_labels) + 1
+        lines.append(f"{idx}. Mutual Relationships ({'-'.join([l[1] for l in lords_with_labels])} Axes):")
+        lines.append('')
+
+        for i in range(len(lords_with_labels)):
+            for j in range(i + 1, len(lords_with_labels)):
+                label_a = lords_with_labels[i][1]  # e.g. 'Dasa'
+                planet_a = lords_with_labels[i][0]
+                label_b = lords_with_labels[j][1]
+                planet_b = lords_with_labels[j][0]
+                house_a = _p_house_map.get(planet_a, 0)
+                house_b = _p_house_map.get(planet_b, 0)
+
+                # Distance from A to B
+                dist_ab = ((house_b - house_a) % 12) + 1
+                if dist_ab == 13:
+                    dist_ab = 1
+                # Distance from B to A
+                dist_ba = ((house_a - house_b) % 12) + 1
+                if dist_ba == 13:
+                    dist_ba = 1
+
+                # Determine relationship label
+                if dist_ab == 1 and dist_ba == 1:
+                    rel_label = "1/1 Relationship (Conjunct)"
+                    detail = f"They are occupying the exact same house (House {house_a})."
+                elif (dist_ab == 6 and dist_ba == 8) or (dist_ab == 8 and dist_ba == 6):
+                    rel_label = "6/8 Relationship (Shadashtaka)"
+                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
+                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+                elif (dist_ab == 2 and dist_ba == 12) or (dist_ab == 12 and dist_ba == 2):
+                    rel_label = "2/12 Relationship (Dwirdwadasha)"
+                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
+                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+                elif dist_ab == 7 and dist_ba == 7:
+                    rel_label = "7/7 Relationship (Opposition)"
+                    detail = f"{planet_a} and {planet_b} are in mutual 7th houses."
+                elif (dist_ab == 5 and dist_ba == 9) or (dist_ab == 9 and dist_ba == 5):
+                    rel_label = "5/9 Relationship (Trikona/Supportive)"
+                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
+                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+                elif (dist_ab == 4 and dist_ba == 10) or (dist_ab == 10 and dist_ba == 4):
+                    rel_label = "4/10 Relationship (Kendra)"
+                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
+                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+                elif (dist_ab == 3 and dist_ba == 11) or (dist_ab == 11 and dist_ba == 3):
+                    rel_label = "3/11 Relationship (Upachaya)"
+                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
+                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+                else:
+                    rel_label = f"{dist_ab}/{dist_ba} Relationship"
+                    detail = (f"{planet_a} is {dist_ab} houses away from {planet_b}, "
+                              f"and {planet_b} is {dist_ba} houses away from {planet_a}.")
+
+                lines.append(f"{label_a} ({planet_a}) to {label_b} ({planet_b}) Axis: "
+                             f"{rel_label}. {detail}")
+                lines.append('')
+
+        return '\n'.join(lines)
+
+    def build_dasabhukti_prompt(cd, selected_lords):
+        """Build the full copiable prompt text from selected dasa/bhukti/antara/sukshma lords."""
+        level_names = ['Mahadasha', 'Bhukti', 'Antara', 'Sukshma']
+        level_descs = [
+            'The Foundation of the Era',
+            'The Primary Driver of Recent Events',
+            'The Immediate Trigger/Current Focus',
+            'The Micro-Trigger'
+        ]
+        sections = []
+        lords_with_labels = []  # (planet, level_short_name)
+        level_short = ['Dasa', 'Bhukti', 'Antara', 'Sukshma']
+
+        for i, planet in enumerate(selected_lords):
+            section = _prompt_planet_section(planet, i + 1, level_names[i], level_descs[i])
+            sections.append(section)
+            lords_with_labels.append((planet, level_short[i]))
+
+        # Mutual relationships (only if more than one lord)
+        if len(lords_with_labels) > 1:
+            sections.append(_prompt_mutual_relationships(lords_with_labels))
+
+        return '\n'.join(sections)
+
+    if not _is_bc and cd['max_depth'] >= 1:
+        prompt_depth_options = ['Dasa only']
+        if cd['max_depth'] >= 2:
+            prompt_depth_options.append('Dasa + Bhukti')
+        if cd['max_depth'] >= 3:
+            prompt_depth_options.append('Dasa + Bhukti + Antara')
+        if cd['max_depth'] >= 4:
+            prompt_depth_options.append('Dasa + Bhukti + Antara + Sukshma')
+
+        prompt_depth_sel = st.selectbox("Select period depth for prompt:", prompt_depth_options, key="prompt_depth_sel")
+        _prompt_depth_count = prompt_depth_options.index(prompt_depth_sel) + 1
+
+        # Select Dasa lord
+        dp = cd['dasa_periods_filtered']
+        d_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in dp]
+        sel_d = st.selectbox("Select Mahadasha:", d_labels, key="prompt_sel_dasa")
+        sel_d_idx = d_labels.index(sel_d)
+        prompt_lords = [dp[sel_d_idx][0]]
+
+        # Select Bhukti lord
+        if _prompt_depth_count >= 2:
+            bhuktis = dp[sel_d_idx][3]
+            if bhuktis:
+                b_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in bhuktis]
+                sel_b = st.selectbox("Select Bhukti:", b_labels, key="prompt_sel_bhukti")
+                sel_b_idx = b_labels.index(sel_b)
+                prompt_lords.append(bhuktis[sel_b_idx][0])
+
+                # Select Antara lord
+                if _prompt_depth_count >= 3:
+                    antaras = bhuktis[sel_b_idx][3]
+                    if antaras:
+                        a_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in antaras]
+                        sel_a = st.selectbox("Select Antara:", a_labels, key="prompt_sel_antara")
+                        sel_a_idx = a_labels.index(sel_a)
+                        prompt_lords.append(antaras[sel_a_idx][0])
+
+                        # Select Sukshma lord
+                        if _prompt_depth_count >= 4:
+                            sukshmas = antaras[sel_a_idx][3]
+                            if sukshmas:
+                                s_labels = [f"{p[0]} ({p[1].strftime('%Y-%m-%d')} → {p[2].strftime('%Y-%m-%d')})" for p in sukshmas]
+                                sel_s = st.selectbox("Select Sukshma:", s_labels, key="prompt_sel_sukshma")
+                                sel_s_idx = s_labels.index(sel_s)
+                                prompt_lords.append(sukshmas[sel_s_idx][0])
+                            else:
+                                st.warning("No Sukshma sub-periods available for selected Antara.")
+                    else:
+                        st.warning("No Antara sub-periods available for selected Bhukti.")
+            else:
+                st.warning("No Bhukti sub-periods available for selected Dasa.")
+
+        if st.button("Generate Prompt", use_container_width=True, key="gen_prompt_btn"):
+            prompt_text = build_dasabhukti_prompt(cd, prompt_lords)
+            st.session_state['dasabhukti_prompt'] = prompt_text
+
+        if 'dasabhukti_prompt' in st.session_state and st.session_state['dasabhukti_prompt']:
+            st.text_area("Copiable Prompt:", value=st.session_state['dasabhukti_prompt'],
+                         height=500, key="prompt_output_area")
+    # ====== END DASA-BHUKTI PROMPT CONSTRUCTOR ======
 
     # ====== EXPORT ALL DATA AS JSON ======
     st.markdown("---")
