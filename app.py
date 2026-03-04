@@ -5608,7 +5608,9 @@ if st.session_state.chart_data:
         return '\n'.join(lines)
 
     def build_dasabhukti_prompt(cd, selected_lords):
-        """Build the full copiable prompt text from selected dasa/bhukti/antara/sukshma lords."""
+        """Build the full copiable prompt text from selected dasa/bhukti/antara/sukshma lords.
+        If the same planet appears at multiple levels, print its full analysis only once
+        and add a short back-reference for subsequent appearances."""
         level_names = ['Mahadasha', 'Bhukti', 'Antara', 'Sukshma']
         level_descs = [
             'The Foundation of the Era',
@@ -5620,14 +5622,37 @@ if st.session_state.chart_data:
         lords_with_labels = []  # (planet, level_short_name)
         level_short = ['Dasa', 'Bhukti', 'Antara', 'Sukshma']
 
+        already_detailed = {}  # planet -> (section_index, level_name) of first full analysis
         for i, planet in enumerate(selected_lords):
-            section = _prompt_planet_section(planet, i + 1, level_names[i], level_descs[i])
-            sections.append(section)
+            if planet in already_detailed:
+                # Already explained — add a short back-reference instead
+                first_idx, first_level = already_detailed[planet]
+                ref_section = (f"{i + 1}. {level_names[i]} Lord Analysis ({planet} - {level_descs[i]}):\n\n"
+                               f"(Same planet as the {first_level} Lord above — see Section {first_idx} for full analysis.)\n")
+                sections.append(ref_section)
+            else:
+                section = _prompt_planet_section(planet, i + 1, level_names[i], level_descs[i])
+                sections.append(section)
+                already_detailed[planet] = (i + 1, level_names[i])
             lords_with_labels.append((planet, level_short[i]))
 
-        # Mutual relationships (only if more than one lord)
-        if len(lords_with_labels) > 1:
+        # Mutual relationships (only if more than one unique lord)
+        unique_lords = []
+        seen = set()
+        for pl, lbl in lords_with_labels:
+            if pl not in seen:
+                unique_lords.append((pl, lbl))
+                seen.add(pl)
+        if len(unique_lords) > 1:
             sections.append(_prompt_mutual_relationships(lords_with_labels))
+        elif len(lords_with_labels) > 1 and len(unique_lords) == 1:
+            # All lords are the same planet — note that
+            planet = unique_lords[0][0]
+            idx = len(lords_with_labels) + 1
+            levels_str = ', '.join([lbl for _, lbl in lords_with_labels])
+            sections.append(f"{idx}. Mutual Relationships:\n\n"
+                            f"All selected levels ({levels_str}) are ruled by the same planet ({planet}). "
+                            f"No inter-planet axis to analyse.\n")
 
         return '\n'.join(sections)
 
