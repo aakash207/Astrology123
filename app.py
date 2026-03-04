@@ -1,9 +1,15 @@
 import streamlit as st
+from fastapi import FastAPI
+from fastapi import HTTPException
+from pydantic import BaseModel
 from datetime import datetime, timedelta
 from math import sin, cos, tan, atan2, degrees, radians
 from collections import defaultdict
 import pandas as pd
 import json
+import logging
+import os
+import sys
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import matplotlib.pyplot as plt
@@ -11,6 +17,88 @@ from matplotlib.patches import FancyBboxPatch
 from timezonefinder import TimezoneFinder
 import pytz
 import copy
+
+_argv_text = " ".join(sys.argv).lower()
+IS_STREAMLIT_CONTEXT = (
+    "streamlit" in _argv_text
+    or os.environ.get("STREAMLIT_SERVER_PORT") is not None
+)
+
+if not IS_STREAMLIT_CONTEXT:
+    logging.getLogger("streamlit").setLevel(logging.ERROR)
+    logging.getLogger("geopy").setLevel(logging.ERROR)
+
+
+class _NoOpContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _NoOpSessionState(dict):
+    def __getattr__(self, item):
+        return self.get(item)
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+
+class _StreamlitNoOp:
+    def __init__(self):
+        self.session_state = _NoOpSessionState()
+
+    def cache_resource(self, func=None, **kwargs):
+        if func is None:
+            return lambda f: f
+        return func
+
+    def columns(self, spec, **kwargs):
+        count = spec if isinstance(spec, int) else len(spec)
+        return tuple(_NoOpContext() for _ in range(count))
+
+    def tabs(self, labels, **kwargs):
+        return tuple(_NoOpContext() for _ in labels)
+
+    def expander(self, *args, **kwargs):
+        return _NoOpContext()
+
+    def spinner(self, *args, **kwargs):
+        return _NoOpContext()
+
+    def container(self, *args, **kwargs):
+        return _NoOpContext()
+
+    def checkbox(self, *args, **kwargs):
+        return kwargs.get("value", False)
+
+    def button(self, *args, **kwargs):
+        return False
+
+    def text_input(self, *args, **kwargs):
+        return kwargs.get("value", "")
+
+    def number_input(self, *args, **kwargs):
+        return kwargs.get("value", 0)
+
+    def selectbox(self, *args, **kwargs):
+        options = kwargs.get("options")
+        if options is None and len(args) >= 2:
+            options = args[1]
+        return options[0] if options else None
+
+    def date_input(self, *args, **kwargs):
+        return kwargs.get("value")
+
+    def __getattr__(self, name):
+        def _noop(*args, **kwargs):
+            return None
+        return _noop
+
+
+if not IS_STREAMLIT_CONTEXT:
+    st = _StreamlitNoOp()
 
 # ---- Swiss Ephemeris / Astropy fallback ----
 USE_SWISSEPH = False
@@ -144,6 +232,100 @@ planet_ruled_signs = {
     'Venus': ['Taurus', 'Libra'],
     'Saturn': ['Capricorn', 'Aquarius']
 }
+
+# ---- Shared Core Logic + FastAPI ----
+def generate_transit_insight(planet: str, sign: str) -> dict:
+    insight = f"{planet} transiting {sign} activates your creativity sector."
+    return {
+        "planet": planet,
+        "sign": sign,
+        "insight": insight,
+        "status": "success",
+    }
+
+
+api = FastAPI(title="Transit API")
+
+
+class TransitRequest(BaseModel):
+    planet: str
+    sign: str
+
+
+class AscTestRequest(BaseModel):
+    name: str
+    dob: str          # YYYY-MM-DD
+    birth_time: str   # HH:MM (24-hour)
+    place: str
+
+
+@api.get("/api/ping")
+def api_ping():
+    return {"status": "ok", "message": "Transit API is running"}
+
+
+@api.post("/api/generate")
+def api_generate_transit(request: TransitRequest):
+    return generate_transit_insight(request.planet, request.sign)
+
+
+@api.post("/test")
+def api_test_ascendant(request: AscTestRequest):
+    # --- resolve place to lat/lon ---
+    place_key = (request.place or "").strip().title()
+
+    if place_key in cities_fallback:
+        lat = cities_fallback[place_key]['lat']
+        lon = cities_fallback[place_key]['lon']
+    else:
+        try:
+            geolocator = Nominatim(user_agent="buvi_transit_api")
+            location = geolocator.geocode(request.place, exactly_one=True, timeout=5)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}") from exc
+        if not location:
+            raise HTTPException(status_code=400, detail=f"Could not resolve place: {request.place}")
+        lat = float(location.latitude)
+        lon = float(location.longitude)
+
+    # --- parse date ---
+    try:
+        date_obj = datetime.strptime(request.dob.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="DOB must be YYYY-MM-DD")
+
+    # --- compute timezone offset using existing helper ---
+    _tf_api = TimezoneFinder()
+    tzname = _tf_api.timezone_at(lng=lon, lat=lat)
+    tz = pytz.timezone(tzname) if tzname else pytz.UTC
+    naive_noon = datetime.combine(date_obj, datetime.min.time().replace(hour=12))
+    tz_offset = tz.localize(naive_noon).utcoffset().total_seconds() / 3600.0
+
+    # --- call the real compute_chart ---
+    try:
+        cd = compute_chart(
+            name=request.name,
+            date_obj=date_obj,
+            time_str=request.birth_time.strip(),
+            lat=lat,
+            lon=lon,
+            tz_offset=tz_offset,
+            max_depth=1,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Chart computation failed: {exc}")
+
+    return {
+        "name": cd["name"],
+        "dob": request.dob,
+        "birth_time": request.birth_time,
+        "place": request.place,
+        "latitude": round(lat, 6),
+        "longitude": round(lon, 6),
+        "asc_degree": round(float(cd["lagna_sid"]), 6),
+        "asc_sign": cd["lagna_sign"],
+        "status": "success",
+    }
 
 def get_lahiri_ayanamsa(year):
     base = 23.853; rate = 50.2388/3600.0
@@ -5020,7 +5202,8 @@ if use_custom_coords:
     with clat: lat = st.number_input("Birth Latitude", value=13.08, format="%.4f")
     with clon: lon = st.number_input("Birth Longitude", value=80.27, format="%.4f")
 else:
-    birth_city_query = st.text_input("Birth City", value="Chennai", placeholder="Start typing birth city name...", key="birth_city_input")
+    _default_birth_city = "Chennai" if IS_STREAMLIT_CONTEXT else ""
+    birth_city_query = st.text_input("Birth City", value=_default_birth_city, placeholder="Start typing birth city name...", key="birth_city_input")
     if birth_city_query and len(birth_city_query) >= 2:
         try:
             locations = geocode(birth_city_query, exactly_one=False, limit=5)
