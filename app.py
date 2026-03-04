@@ -5725,6 +5725,10 @@ if st.session_state.chart_data:
         if st.button("Generate Prompt", use_container_width=True, key="gen_prompt_btn"):
             prompt_text = build_dasabhukti_prompt(cd, prompt_lords)
             st.session_state['dasabhukti_prompt'] = prompt_text
+            # Clear the text_area widget state so it picks up the new value
+            if 'prompt_output_area' in st.session_state:
+                del st.session_state['prompt_output_area']
+            st.rerun()
 
         if 'dasabhukti_prompt' in st.session_state and st.session_state['dasabhukti_prompt']:
             st.text_area("Copiable Prompt:", value=st.session_state['dasabhukti_prompt'],
