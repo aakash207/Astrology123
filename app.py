@@ -5641,17 +5641,33 @@ if st.session_state.chart_data:
                 for h in ruled_houses:
                     parts.append(f"{_db_ord(h)} House")
                 result = ' and '.join(parts)
-                # Add special tags
                 tags = []
                 for h in ruled_houses:
                     if h == 1: tags.append('Lagana Lord')
                 return f"{result}" + (f" ({', '.join(tags)})" if tags else '')
 
+            # ── Track already-explained planets to avoid repetition ──
+            _db_explained_planets = {}   # planet_name -> first level_name it was explained under
+            _db_section_num = 0
+
             # ── Build per-lord analysis ──
             for idx, lord in enumerate(_db_lords):
-                info = _pw.get(lord, {})
                 level_name = _DB_LEVEL_NAMES[idx]
                 level_title = _DB_LEVEL_TITLES[idx]
+
+                # If this planet was already fully explained at a prior level, add a short reference
+                if lord in _db_explained_planets:
+                    prev_level = _db_explained_planets[lord]
+                    _db_section_num += 1
+                    _db_lines.append(f"{_db_section_num}. {level_name} Lord Analysis ({lord} - {level_title}):\n")
+                    _db_lines.append(f"(Same as {prev_level} Lord above — {lord}. Refer to the {prev_level} section for full placement, strength, aspects, and co-occupant details.)\n")
+                    _db_lines.append("\n")
+                    continue
+
+                _db_explained_planets[lord] = level_name
+                _db_section_num += 1
+
+                info = _pw.get(lord, {})
                 house = info.get('house', 0)
                 sign = info.get('sign', '')
                 status = info.get('status', '-')
@@ -5662,7 +5678,13 @@ if st.session_state.chart_data:
                 co_occupants = info.get('co_occupants', [])
                 aspected_by = info.get('aspected_by', [])
 
-                _db_lines.append(f"{idx+1}. {level_name} Lord Analysis ({lord} - {level_title}):\n")
+                # Also note which other levels share this lord
+                _other_levels = [_DB_LEVEL_NAMES[j] for j in range(len(_db_lords)) if j != idx and _db_lords[j] == lord]
+                _level_header = f"{level_name} Lord Analysis ({lord} - {level_title})"
+                if _other_levels:
+                    _level_header += f" [Also serves as {' & '.join(_other_levels)} Lord]"
+
+                _db_lines.append(f"{_db_section_num}. {_level_header}:\n")
                 _db_lines.append(f"Placement: House {house} (Sign: {sign})\n")
 
                 # Status & Strength line
@@ -5690,7 +5712,6 @@ if st.session_state.chart_data:
                 if co_occupants:
                     _db_lines.append(f"Co-occupants (Planets Conjunct with {lord}):\n")
                     for co_label in co_occupants:
-                        # Extract the planet name from the label like "Mercury (5th, 8th lord)"
                         co_name = co_label.split(' (')[0] if ' (' in co_label else co_label
                         co_info = _pw.get(co_name, {})
                         co_status = co_info.get('status', '-')
@@ -5716,23 +5737,22 @@ if st.session_state.chart_data:
 
                 _db_lines.append("\n")
 
-            # ── Mutual Relationships ──
+            # ── Mutual Relationships (all pairwise axes) ──
             if len(_db_lords) >= 2:
-                _db_lines.append(f"{len(_db_lords)}. Mutual Relationships ({'-'.join(_DB_LEVEL_NAMES[:len(_db_lords)])} Axes):\n")
-                _db_pairs_done = []
+                _db_section_num += 1
+                _active_level_names = _DB_LEVEL_NAMES[:len(_db_lords)]
+                _db_lines.append(f"{_db_section_num}. Mutual Relationships ({'-'.join(_active_level_names)} Axes):\n")
                 for i in range(len(_db_lords)):
                     for j in range(i + 1, len(_db_lords)):
                         p1 = _db_lords[i]
                         p2 = _db_lords[j]
                         h1 = _pw.get(p1, {}).get('house', 0)
                         h2 = _pw.get(p2, {}).get('house', 0)
-                        # Compute house distance
                         dist_1_to_2 = (h2 - h1) % 12
                         if dist_1_to_2 == 0: dist_1_to_2 = 12
                         dist_2_to_1 = (h1 - h2) % 12
                         if dist_2_to_1 == 0: dist_2_to_1 = 12
 
-                        # Determine relationship type
                         if dist_1_to_2 == dist_2_to_1 == 12:
                             rel_label = "1/1 Relationship (Conjunct)"
                             rel_desc = f"They are occupying the exact same house ({_db_ord(h1)} House)."
@@ -5745,13 +5765,9 @@ if st.session_state.chart_data:
                             rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
                                         f"and {p2} is {dist_2_to_1} houses away from {p1}.")
                         elif sorted([dist_1_to_2, dist_2_to_1]) == [6, 6]:
-                            rel_label = f"6/6 Relationship (Opposition)"
-                            rel_desc = f"They are directly opposite each other."
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [4, 8]:
-                            rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Shadashtaka)"
-                            rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
-                                        f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [6, 8]:
+                            rel_label = "6/6 Relationship (Opposition)"
+                            rel_desc = "They are directly opposite each other."
+                        elif sorted([dist_1_to_2, dist_2_to_1]) in [[4, 8], [6, 8]]:
                             rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Shadashtaka)"
                             rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
                                         f"and {p2} is {dist_2_to_1} houses away from {p1}.")
@@ -5762,15 +5778,19 @@ if st.session_state.chart_data:
 
                         level_i = _DB_LEVEL_NAMES[i]
                         level_j = _DB_LEVEL_NAMES[j]
-                        _db_lines.append(f"{level_i} ({p1}) to {level_j} ({p2}) Axis: "
-                                         f"{rel_label}. {rel_desc}\n")
+                        # If both lords are the same planet, note self-axis
+                        if p1 == p2:
+                            _db_lines.append(f"{level_i} ({p1}) to {level_j} ({p2}) Axis: "
+                                             f"Same planet — self-axis (no house distance).\n")
+                        else:
+                            _db_lines.append(f"{level_i} ({p1}) to {level_j} ({p2}) Axis: "
+                                             f"{rel_label}. {rel_desc}\n")
 
             prompt_text = '\n'.join(_db_lines)
             st.session_state['db_prompt_text'] = prompt_text
 
         if 'db_prompt_text' in st.session_state and st.session_state['db_prompt_text']:
-            st.text_area("Generated Prompt (copy below):", value=st.session_state['db_prompt_text'],
-                         height=500, key="db_prompt_output")
+            st.code(st.session_state['db_prompt_text'], language=None)
 
 else: st.info("Enter birth details above and click 'Generate Chart' to begin")
 
