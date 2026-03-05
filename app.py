@@ -2143,20 +2143,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             phase4_data[p]['p4_inventory'][k] = v
     
     gift_pot_config = {
-        'Sagittarius': ('Jupiter', 100),
-        'Pisces': ('Jupiter', 80),
-        'Libra': ('Venus', 80),
-        'Taurus': ('Venus', 60)
+        'Sagittarius': ('Jupiter', 100, 1.00),   # (gifter, old_multiplier, debt_clearance_cap_pct)
+        'Pisces':      ('Jupiter',  80, 0.80),
+        'Libra':       ('Venus',    80, 0.80),
+        'Taurus':      ('Venus',    60, 0.60)
     }
     
     pot_inventory = {}
     pot_currency_type = {}
+    pot_debt_cap_pct = {}  # per-sign: max fraction of a planet's debt the pot can clear
     
-    for sign_name, (gifter, multiplier) in gift_pot_config.items():
+    for sign_name, (gifter, multiplier, cap_pct) in gift_pot_config.items():
         gifter_sthana = planet_data[gifter]['sthana']
         pot_value = multiplier * (gifter_sthana / 100.0)
         pot_inventory[sign_name] = pot_value
         pot_currency_type[sign_name] = gifter
+        pot_debt_cap_pct[sign_name] = cap_pct
     
     p4_standard_malefics = ['Saturn', 'Rahu', 'Ketu', 'Mars', 'Sun']
     p4_standard_benefics = ['Jupiter', 'Venus', 'Mercury']
@@ -2178,6 +2180,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             house_reserves[target_sign][currency_type] += sign_pot
             pot_inventory[target_sign] = 0.0
             continue
+        
+        # Per-planet gift cap: each planet can receive at most cap_pct of its initial debt
+        _p4_cap_frac = pot_debt_cap_pct[target_sign]
+        _p4_planet_gift_cap = {}
+        _p4_planet_gifted = {}
+        for _p4p in planets_in_sign:
+            _p4_init_debt = abs(phase4_data[_p4p]['p4_current_debt']) if phase4_data[_p4p]['p4_current_debt'] < -0.001 else 0.0
+            _p4_planet_gift_cap[_p4p] = _p4_init_debt * _p4_cap_frac
+            _p4_planet_gifted[_p4p] = 0.0
         
         p4_cycle_limit = 200
         p4_cycles = 0
@@ -2240,13 +2251,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 debt = phase4_data[malefic]['p4_current_debt']
                 
                 if debt < -0.001:
+                    # Enforce per-planet gift cap
+                    _p4_remaining_cap = _p4_planet_gift_cap[malefic] - _p4_planet_gifted[malefic]
+                    if _p4_remaining_cap <= 0.001:
+                        continue
                     needed = abs(debt)
-                    take = min(1.0, needed, sign_pot)
+                    take = min(1.0, needed, sign_pot, _p4_remaining_cap)
                     
                     if take > 0.001:
                         sign_pot -= take
                         phase4_data[malefic]['p4_inventory'][currency_type] += take
                         phase4_data[malefic]['p4_current_debt'] += take
+                        _p4_planet_gifted[malefic] += take
                         p4_something_happened = True
             
             all_malefics_cleared = True
@@ -2263,13 +2279,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     debt = phase4_data[benefic]['p4_current_debt']
                     
                     if debt < -0.001:
+                        # Enforce per-planet gift cap
+                        _p4_remaining_cap = _p4_planet_gift_cap[benefic] - _p4_planet_gifted[benefic]
+                        if _p4_remaining_cap <= 0.001:
+                            continue
                         needed = abs(debt)
-                        take = min(1.0, needed, sign_pot)
+                        take = min(1.0, needed, sign_pot, _p4_remaining_cap)
                         
                         if take > 0.001:
                             sign_pot -= take
                             phase4_data[benefic]['p4_inventory'][currency_type] += take
                             phase4_data[benefic]['p4_current_debt'] += take
+                            _p4_planet_gifted[benefic] += take
                             p4_something_happened = True
             
             if not p4_something_happened:
