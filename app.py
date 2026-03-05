@@ -4004,10 +4004,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 _cur_pct_parts.append(f"{_ck}({_cpct:.1f}%)")
         _cur_pct_str = ", ".join(_cur_pct_parts) if _cur_pct_parts else "-"
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _cur_pct_str, m_pct_str, adjusted_str, _hap_score_str, _hap_notes_str])
+        # Normalised for Predictions
+        # Benefics (Jupiter, Venus, Mercury, waxing Moon): score² / 100
+        # All others (malefics, waning Moon): (100 + score) / 2
+        _is_pred_benefic = (p in ('Jupiter', 'Venus', 'Mercury')) or (p == 'Moon' and _nps_moon_is_waxing)
+        if _is_pred_benefic:
+            _pred_norm = (final_ns ** 2) / 100.0
+        else:
+            _pred_norm = (100.0 + final_ns) / 2.0
+        _pred_norm_str = f"{_pred_norm:.2f}"
+
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _pred_norm_str, _cur_pct_str, m_pct_str, adjusted_str, _hap_score_str, _hap_notes_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score', 'Happiness Score', 'Happiness Notes'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Normalised for Predictions', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score', 'Happiness Score', 'Happiness Notes'])
 
     # ---- SUCHAMA SCORES TABLE ----
     _suchama_rows = []
