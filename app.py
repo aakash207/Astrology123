@@ -4005,11 +4005,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _cur_pct_str = ", ".join(_cur_pct_parts) if _cur_pct_parts else "-"
 
         # Normalised for Predictions
-        # Benefics (Jupiter, Venus, Mercury, waxing Moon): score² / 100
+        # Benefics (Jupiter, Venus, Mercury, waxing Moon): score² / 100, clamped to [0, 100]
         # All others (malefics, waning Moon): (100 + score) / 2
         _is_pred_benefic = (p in ('Jupiter', 'Venus', 'Mercury')) or (p == 'Moon' and _nps_moon_is_waxing)
         if _is_pred_benefic:
             _pred_norm = (final_ns ** 2) / 100.0
+            _pred_norm = max(0.0, min(100.0, _pred_norm))
         else:
             _pred_norm = (100.0 + final_ns) / 2.0
         _pred_norm_str = f"{_pred_norm:.2f}"
