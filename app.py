@@ -5927,26 +5927,24 @@ if st.session_state.chart_data:
                         p2 = _db_lords[j]
                         h1 = _pw.get(p1, {}).get('house', 0)
                         h2 = _pw.get(p2, {}).get('house', 0)
-                        dist_1_to_2 = (h2 - h1) % 12
-                        if dist_1_to_2 == 0: dist_1_to_2 = 12
-                        dist_2_to_1 = (h1 - h2) % 12
-                        if dist_2_to_1 == 0: dist_2_to_1 = 12
+                        dist_1_to_2 = ((h2 - h1) % 12) + 1
+                        dist_2_to_1 = ((h1 - h2) % 12) + 1
 
-                        if dist_1_to_2 == dist_2_to_1 == 12:
+                        if dist_1_to_2 == dist_2_to_1 == 1:
                             rel_label = "1/1 Relationship (Conjunct)"
                             rel_desc = f"They are occupying the exact same house ({_db_ord(h1)} House)."
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [1, 11]:
+                        elif sorted([dist_1_to_2, dist_2_to_1]) == [2, 12]:
                             rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Adjacent)"
                             rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
                                         f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [5, 7]:
+                        elif sorted([dist_1_to_2, dist_2_to_1]) == [6, 8]:
                             rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Trikona/Kendra)"
                             rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
                                         f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [6, 6]:
-                            rel_label = "6/6 Relationship (Opposition)"
+                        elif sorted([dist_1_to_2, dist_2_to_1]) == [7, 7]:
+                            rel_label = "7/7 Relationship (Opposition)"
                             rel_desc = "They are directly opposite each other."
-                        elif sorted([dist_1_to_2, dist_2_to_1]) in [[4, 8], [6, 8]]:
+                        elif sorted([dist_1_to_2, dist_2_to_1]) in [[5, 9], [7, 9]]:
                             rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Shadashtaka)"
                             rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
                                         f"and {p2} is {dist_2_to_1} houses away from {p1}.")
