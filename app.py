@@ -674,6 +674,45 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         planet_data['Saturn']['default_currency'] = ", ".join(saturn_parts)
         planet_data['Saturn']['debt'] = f"{planet_data['Saturn']['current_debt']:.2f}"
 
+    # HOUSE LORD BONUS: Add good currency & volume when house lord is Uchcham/Moolathirigonam/Aatchi
+    # Skip Rahu, Ketu, and self-dispositor (lord == planet).  Skip if planet itself has a negative status.
+    _hlb_pct_map = {'Uchcham': 20, 'Moolathirigonam': 16, 'Aatchi': 12}
+    _hlb_negative_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
+    for _hlb_p in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']:
+        _hlb_sign = planet_sign_map[_hlb_p]
+        _hlb_lord = get_sign_lord(_hlb_sign)
+        if _hlb_lord == _hlb_p:
+            continue  # skip self-dispositor
+        # Skip planets that have a negative status (preserve existing Neecham logic)
+        _hlb_p_status = planet_status_map.get(_hlb_p, '-')
+        _hlb_p_updated = planet_data[_hlb_p].get('updated_status', '-')
+        _hlb_p_eff = _hlb_p_updated if _hlb_p_updated not in ('-', '', None) else _hlb_p_status
+        if _hlb_p_eff in _hlb_negative_statuses:
+            continue
+        _hlb_lord_status = planet_status_map.get(_hlb_lord, '-')
+        _hlb_pct = _hlb_pct_map.get(_hlb_lord_status, 0)
+        if _hlb_pct <= 0:
+            continue
+        _hlb_amount = _hlb_pct / 100.0 * 100  # percentage × max capacity (100)
+
+        # Determine good currency key
+        if _hlb_p in ['Jupiter', 'Venus', 'Mercury']:
+            _hlb_key = _hlb_p
+        else:
+            _hlb_key = f"Good {_hlb_p}"
+
+        # Add volume and good currency
+        planet_data[_hlb_p]['volume'] += _hlb_amount
+        planet_data[_hlb_p]['final_inventory'][_hlb_key] += _hlb_amount
+
+        # Update display string
+        _hlb_parts = []
+        _hlb_inv = planet_data[_hlb_p]['final_inventory']
+        for _hlb_k, _hlb_v in _hlb_inv.items():
+            if _hlb_v > 0.001:
+                _hlb_parts.append(f"{_hlb_k}[{_hlb_v:.2f}]")
+        planet_data[_hlb_p]['default_currency'] = ", ".join(_hlb_parts)
+
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         data = planet_data[p]
         rows.append([
@@ -934,6 +973,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                             del planet_best_currency[p_name]
                             continue
                         
+                        # Sun cannot take Bad Moon currency
+                        if debtor == 'Sun' and tgt['key'] == 'Bad Moon':
+                            del planet_best_currency[p_name]
+                            continue
+                        
                         avail = navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']]
                         if avail <= 0:
                             # This currency is exhausted, find next best from this planet
@@ -1029,6 +1073,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     # Never pull your own bad currency from someone else
                     _nav_own_bad_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                     if tgt['key'] == _nav_own_bad_key:
+                        continue
+                    
+                    # Sun cannot take Bad Moon currency
+                    if debtor == 'Sun' and tgt['key'] == 'Bad Moon':
                         continue
                     
                     avail = navamsa_data[tgt['planet']]['nav_inventory'][tgt['key']]
@@ -1722,6 +1770,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 # Never pull your own bad currency from someone else
                 _own_bad_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                 if tgt['key'] == _own_bad_key:
+                    continue
+                
+                # Sun cannot take Bad Moon currency
+                if debtor == 'Sun' and tgt['key'] == 'Bad Moon':
                     continue
                 
                 if debtor_is_malefic and not tgt['is_good'] and good_available:
@@ -4795,16 +4847,22 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _la_h9_notes = f"House 9 total HP = {_la_h9_raw:.2f}"
 
     # 9. AG Bonus: weighted sum (LLStr includes Suchama)
-    # Use capped (≤100) values for all inputs
-    _c_moon_score      = min(_la_moon_score,        100.0)
-    _c_ll_score        = min(_la_ll_score,           100.0)
-    _c_ll_str_score    = min(_la_ll_str_score,       100.0)
-    _c_ll_suchama_score= min(_la_ll_suchama_score,   100.0)
-    _c_h1_score        = min(_la_h1_score,           100.0)
-    _c_lagna_pt_score  = min(_la_lagna_pt_score,     100.0)
-    _c_nav_score       = min(_la_nav_score,          100.0)
-    _c_sun_score       = min(_la_sun_score,          100.0)
-    _c_h9_score        = min(_la_h9_score,           100.0)
+    # Apply threshold rule for all inputs:
+    # if score > 100 or score < -100, use 100.
+    def _la_cap_100(score):
+        if score > 100.0 or score < -100.0:
+            return 100.0
+        return score
+
+    _c_moon_score      = _la_cap_100(_la_moon_score)
+    _c_ll_score        = _la_cap_100(_la_ll_score)
+    _c_ll_str_score    = _la_cap_100(_la_ll_str_score)
+    _c_ll_suchama_score= _la_cap_100(_la_ll_suchama_score)
+    _c_h1_score        = _la_cap_100(_la_h1_score)
+    _c_lagna_pt_score  = _la_cap_100(_la_lagna_pt_score)
+    _c_nav_score       = _la_cap_100(_la_nav_score)
+    _c_sun_score       = _la_cap_100(_la_sun_score)
+    _c_h9_score        = _la_cap_100(_la_h9_score)
 
     _ag_ll_str_combined = _c_ll_str_score + _c_ll_suchama_score
     _ag_moon   = _c_moon_score * 25.0 / 100.0
@@ -4842,9 +4900,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                   f"H9({_c_h9_score:.2f}*10%)={_bv_h9:.2f}")
 
     def _la_fmt(score, notes):
-        """Cap score at 100 for display; append raw value to notes if exceeded."""
-        if score > 100.0:
-            return f"100.00", notes + f" | raw: {score:.2f}"
+        """Apply display threshold rule; append raw value to notes if thresholded."""
+        capped = _la_cap_100(score)
+        if capped != score:
+            return f"{capped:.2f}", notes + f" | raw: {score:.2f}"
         return f"{score:.2f}", notes
 
     lagna_analysis_rows = [
@@ -4861,6 +4920,82 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         ['Bhuvi Bonus',         *_la_fmt(_bv_total,            _bv_notes)],
     ]
     df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
+
+    # ====== NORMALISED LAGNA ANALYSIS TABLE (0-100 scale) ======
+    # Maps -100..100 → 0..100:  normalised = (capped_score + 100) / 2
+    def _la_normalise(score):
+        capped = _la_cap_100(score)
+        return (capped + 100.0) / 2.0
+
+    def _la_norm_fmt(score, notes):
+        capped = _la_cap_100(score)
+        norm = (capped + 100.0) / 2.0
+        extra = ''
+        if capped != score:
+            extra = f" | raw: {score:.2f}"
+        return f"{norm:.2f}", f"({capped:.2f} + 100) / 2 = {norm:.2f}" + extra
+
+    # Re-compute AG & Bhuvi with normalised inputs
+    _n_moon   = _la_normalise(_la_moon_score)
+    _n_ll     = _la_normalise(_la_ll_score)
+    _n_ll_str = _la_normalise(_la_ll_str_score)
+    _n_ll_su  = _la_normalise(_la_ll_suchama_score)
+    _n_h1     = _la_normalise(_la_h1_score)
+    _n_lp     = _la_normalise(_la_lagna_pt_score)
+    _n_nav    = _la_normalise(_la_nav_score)
+    _n_sun    = _la_normalise(_la_sun_score)
+    _n_h9     = _la_normalise(_la_h9_score)
+
+    _nag_ll_str_comb = _n_ll_str + _n_ll_su
+    _nag_moon  = _n_moon * 25.0 / 100.0
+    _nag_ll    = _n_ll * 12.5 / 100.0
+    _nag_ll_s  = _nag_ll_str_comb * 12.5 / 100.0
+    _nag_h1    = _n_h1 * 40.0 / 100.0
+    _nag_lp    = _n_lp * 10.0 / 100.0
+    _nag_nav   = _n_nav * 10.0 / 100.0
+    _nag_total = _nag_moon + _nag_ll + _nag_ll_s + _nag_h1 + _nag_lp + _nag_nav
+    _nag_notes = (f"Moon({_n_moon:.2f}*25%)={_nag_moon:.2f} + "
+                  f"LL({_n_ll:.2f}*12.5%)={_nag_ll:.2f} + "
+                  f"LLStr+Suchama({_n_ll_str:.2f}+{_n_ll_su:.2f}={_nag_ll_str_comb:.2f}*12.5%)={_nag_ll_s:.2f} + "
+                  f"H1({_n_h1:.2f}*40%)={_nag_h1:.2f} + "
+                  f"LP({_n_lp:.2f}*10%)={_nag_lp:.2f} + "
+                  f"NavLagna({_n_nav:.2f}*10%)={_nag_nav:.2f}")
+
+    _nbv_ll_str_comb = _n_ll_str + _n_ll_su
+    _nbv_moon  = _n_moon * 20.0 / 100.0
+    _nbv_ll    = _n_ll * 10.0 / 100.0
+    _nbv_ll_s  = _nbv_ll_str_comb * 10.0 / 100.0
+    _nbv_h1    = _n_h1 * 30.0 / 100.0
+    _nbv_lp    = _n_lp * 5.0 / 100.0
+    _nbv_nav   = _n_nav * 10.0 / 100.0
+    _nbv_sun   = _n_sun * 10.0 / 100.0
+    _nbv_h9    = _n_h9 * 10.0 / 100.0
+    _nbv_total = _nbv_moon + _nbv_ll + _nbv_ll_s + _nbv_h1 + _nbv_lp + _nbv_nav + _nbv_sun + _nbv_h9
+    _nbv_notes = (f"Moon({_n_moon:.2f}*20%)={_nbv_moon:.2f} + "
+                  f"LL({_n_ll:.2f}*10%)={_nbv_ll:.2f} + "
+                  f"LLStr+Suchama({_n_ll_str:.2f}+{_n_ll_su:.2f}={_nbv_ll_str_comb:.2f}*10%)={_nbv_ll_s:.2f} + "
+                  f"H1({_n_h1:.2f}*30%)={_nbv_h1:.2f} + "
+                  f"LP({_n_lp:.2f}*5%)={_nbv_lp:.2f} + "
+                  f"NavLagna({_n_nav:.2f}*10%)={_nbv_nav:.2f} + "
+                  f"Sun({_n_sun:.2f}*10%)={_nbv_sun:.2f} + "
+                  f"H9({_n_h9:.2f}*10%)={_nbv_h9:.2f}")
+
+    norm_lagna_rows = [
+        ["Moon's Light",        *_la_norm_fmt(_la_moon_score,       _la_moon_notes)],
+        ['Lagna Lord Score',    *_la_norm_fmt(_la_ll_score,         _la_ll_notes)],
+        ['Lagna Lord Strength', *_la_norm_fmt(_la_ll_str_score,     _la_ll_str_notes)],
+        ['Lagna Lord Suchama',  *_la_norm_fmt(_la_ll_suchama_score, _la_ll_suchama_notes)],
+        ['1st House Points',    *_la_norm_fmt(_la_h1_score,         _la_h1_notes)],
+        ['Lagna Point',         *_la_norm_fmt(_la_lagna_pt_score,   _la_lagna_pt_notes)],
+        ['Navamsa Lagna Score', *_la_norm_fmt(_la_nav_score,        _la_nav_notes)],
+        ['Sun Score',           *_la_norm_fmt(_la_sun_score,        _la_sun_notes)],
+        ['9th House Points',    *_la_norm_fmt(_la_h9_score,         _la_h9_notes)],
+        ['AG Bonus',            f"{_nag_total:.2f}", _nag_notes],
+        ['Bhuvi Bonus',         f"{_nbv_total:.2f}", _nbv_notes],
+    ]
+    df_norm_lagna_analysis = pd.DataFrame(norm_lagna_rows, columns=['Metric', 'Normalised Score (0-100)', 'Notes'])
+    # ====== END NORMALISED LAGNA ANALYSIS TABLE ======
+
     # ====== END LAGNA ANALYSIS TABLE ======
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -5028,6 +5163,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'df_house_reserves': df_house_reserves,
         'df_bonus': df_bonus,
         'df_lagna_analysis': df_lagna_analysis,
+        'df_norm_lagna_analysis': df_norm_lagna_analysis,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
@@ -5454,6 +5590,9 @@ if st.session_state.chart_data:
 
     st.subheader("Lagna Analysis")
     st.dataframe(cd['df_lagna_analysis'], hide_index=True, use_container_width=True)
+
+    st.subheader("Normalised Lagna Analysis (0-100)")
+    st.dataframe(cd['df_norm_lagna_analysis'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
