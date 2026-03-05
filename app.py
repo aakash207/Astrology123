@@ -4867,8 +4867,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     # Apply threshold rule for all inputs:
     # if score > 100 or score < -100, use 100.
     def _la_cap_100(score):
-        if score > 100.0 or score < -100.0:
+        if score > 100.0:
             return 100.0
+        if score < -100.0:
+            return -100.0
         return score
 
     _c_moon_score      = _la_cap_100(_la_moon_score)
