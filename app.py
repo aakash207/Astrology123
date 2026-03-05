@@ -3047,8 +3047,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                         if phase5_data[malefic]['p5_current_debt'] >= -0.001:
                             continue
                         
-                        # Ketu restriction: Ketu can only pull from Sun/Moon clones
-                        if malefic == 'Ketu' and clone['parent'] not in ['Sun', 'Moon']:
+                        # Ketu restriction: Ketu can only pull from Sun/Moon/Benefic clones
+                        if malefic == 'Ketu' and clone['parent'] not in ['Sun', 'Moon', 'Jupiter', 'Venus', 'Mercury']:
                             continue
                         
                         malefic_L = phase5_data[malefic]['L']
@@ -5256,6 +5256,289 @@ def plot_south_indian_style(ax, house_to_planets, lagna_sign, title):
     ax.set_title(title, fontsize=3.6, fontweight='normal')
     ax.axis('off')
 
+
+# ── Shared house-distance helpers (used by both Streamlit UI and logicapi) ──
+def vedic_house_distance(from_house: int, to_house: int) -> int:
+    """Inclusive Vedic house distance. Same house = 1, next = 2, opposite = 7."""
+    return ((to_house - from_house) % 12) + 1
+
+def classify_axis(dist_ab: int, dist_ba: int) -> str:
+    """Return a human label for the inclusive-distance pair."""
+    pair = sorted([dist_ab, dist_ba])
+    if pair == [1, 1]:   return "Conjunct"
+    if pair == [2, 12]:  return "2/12 Axis"
+    if pair == [3, 11]:  return "3/11 Axis"
+    if pair == [4, 10]:  return "Kendra"
+    if pair == [5, 9]:   return "Trikona"
+    if pair == [6, 8]:   return "Shadashtaka"
+    if pair == [7, 7]:   return "Opposition"
+    return "Neutral"
+
+
+# ── Dasa-Bhukti prompt builder (single source of truth) ──────
+def generate_dasa_prompt(cd, lords):
+    """Build the full dasa-bhukti analysis prompt from chart data.
+
+    Args:
+        cd:    The full chart data dict returned by compute_chart().
+        lords: List of planet names, e.g. ['Ketu'] or ['Ketu','Jupiter']
+               or ['Ketu','Jupiter','Venus'].
+
+    Returns:
+        dict with keys: planetary_positions, house_details, prompt_text
+    """
+    import math
+
+    _pw = cd.get('chart_planet_wise', {})
+    _hw = cd.get('chart_house_wise', {})
+    df_planets = cd.get('df_planets')
+    df_house_status = cd.get('df_house_status')
+    df_house_points = cd.get('df_house_points')
+    df_normalized_planet_scores = cd.get('df_normalized_planet_scores')
+    df_planet_strengths = cd.get('df_planet_strengths')
+
+    # Build quick look-ups for normalised score and planet strength
+    _norm_score_map = {}   # planet -> Final Normalized Score (with KHS)
+    _norm_no_khs_map = {}  # planet -> Normalised without KHS
+    if df_normalized_planet_scores is not None:
+        for _, nr in df_normalized_planet_scores.iterrows():
+            _norm_score_map[str(nr['Planet'])] = nr['Final Normalized Score']
+            _norm_no_khs_map[str(nr['Planet'])] = nr['Normalised without KHS']
+
+    _strength_map = {}     # planet -> Total Strength
+    if df_planet_strengths is not None:
+        for _, sr in df_planet_strengths.iterrows():
+            _strength_map[str(sr['Planet'])] = sr['Total Strength']
+
+    # House planetary / lord score look-ups from df_house_points
+    _hp_planetary_score = {}  # house_num (int) -> House Planetary Score
+    _hp_lord_score = {}       # house_num (int) -> House Lord Score
+    _hp_sign = {}             # house_num (int) -> House Sign
+    if df_house_points is not None:
+        for _, hr in df_house_points.iterrows():
+            h_num = hr['House']
+            _hp_planetary_score[h_num] = hr['House Planetary Score']
+            _hp_lord_score[h_num] = hr['House Lord Score']
+            _hp_sign[h_num] = hr['House Sign']
+
+    # Vedic house names
+    _HOUSE_NAMES = {
+        1: 'Tanu', 2: 'Dhana', 3: 'Sahaja', 4: 'Sukha',
+        5: 'Putra', 6: 'Ari', 7: 'Yuvati', 8: 'Randhra',
+        9: 'Dharma', 10: 'Karma', 11: 'Labha', 12: 'Vyaya',
+    }
+
+    # ── 1. Planetary Positions ────────────────────────────────
+    # Show: Deg, Sign, Status (Updated Status if available), Parivardhana (if present),
+    #       Normalised Score (with KHS), Planet Strength
+    pp_lines = []
+    if df_planets is not None:
+        for _, row in df_planets.iterrows():
+            planet_name = str(row['Planet'])
+            parts = [
+                f"Deg: {row['Deg']}",
+                f"Sign: {row['Sign']}",
+            ]
+            if planet_name != 'Asc':
+                # Status: prefer Updated Status over Status
+                upd = row.get('Updated Status', '-')
+                status = row.get('Status', '-')
+                if upd and str(upd) not in ('-', 'nan', ''):
+                    parts.append(f"Status: {upd}")
+                elif status and str(status) not in ('-', 'nan', ''):
+                    parts.append(f"Status: {status}")
+                # Parivardhana: only if present
+                pari = row.get('Parivardhana', '-')
+                if pari and str(pari) not in ('-', 'nan', ''):
+                    parts.append(f"Parivardhana: {pari}")
+                # Normalised Score (with KHS)
+                ns_val = _norm_score_map.get(planet_name, '')
+                if ns_val != '':
+                    parts.append(f"Normalised Score: {ns_val}")
+                # Planet Strength
+                ps_val = _strength_map.get(planet_name, '')
+                if ps_val != '':
+                    parts.append(f"Strength: {ps_val}")
+            pp_lines.append(f"{planet_name}: {' | '.join(parts)}")
+    planetary_positions = '\n'.join(pp_lines)
+
+    # ── 2. House Details ──────────────────────────────────────
+    # Show: House Name (Sign), House Planetary Score, House Lord Score
+    hd_lines = []
+    if df_house_status is not None:
+        for _, row in df_house_status.iterrows():
+            h_label = str(row['House'])          # "House 1" … "House 12"
+            h_num = int(h_label.split()[-1])     # extract number
+            h_name = _HOUSE_NAMES.get(h_num, '')
+            h_sign = _hp_sign.get(h_num, '')
+            hps = _hp_planetary_score.get(h_num, '-')
+            hls = _hp_lord_score.get(h_num, '-')
+            hd_lines.append(
+                f"{h_label} ({h_name} – {h_sign}): "
+                f"Planetary Score: {hps} | House Lord Score: {hls}"
+            )
+    house_details = '\n'.join(hd_lines)
+
+    # ── 3. Lord analysis prompt ───────────────────────────────
+    _LEVEL_NAMES = ['Mahadasha', 'Bhukti', 'Antara', 'Sukshma']
+    _LEVEL_TITLES = [
+        'The Foundation of the Era',
+        'The Primary Driver of Recent Events',
+        'The Immediate Trigger/Current Focus',
+        'The Micro-Level Influence',
+    ]
+
+    def _ord(n):
+        return f"{n}{({1:'st',2:'nd',3:'rd'}.get(n if n < 20 else n % 10, 'th'))}"
+
+    def _ruled_str(ruled_houses):
+        if not ruled_houses:
+            return 'None (Shadow planet)'
+        parts = []
+        for h in ruled_houses:
+            parts.append(f"{_ord(h)} House")
+        result = ' and '.join(parts)
+        tags = []
+        for h in ruled_houses:
+            if h == 1:
+                tags.append('Lagana Lord')
+        return result + (f" ({', '.join(tags)})" if tags else '')
+
+    explained = {}
+    section_num = 0
+    prompt_lines = []
+
+    for idx, lord in enumerate(lords):
+        level_name = _LEVEL_NAMES[idx] if idx < len(_LEVEL_NAMES) else f"Level{idx+1}"
+        level_title = _LEVEL_TITLES[idx] if idx < len(_LEVEL_TITLES) else ''
+
+        if lord in explained:
+            prev_level = explained[lord]
+            section_num += 1
+            prompt_lines.append(
+                f"{section_num}. {level_name} Lord Analysis ({lord} - {level_title}):\n"
+            )
+            prompt_lines.append(
+                f"(Same as {prev_level} Lord above — {lord}. "
+                f"Refer to the {prev_level} section for full placement, "
+                f"strength, aspects, and co-occupant details.)\n"
+            )
+            prompt_lines.append("\n")
+            continue
+
+        explained[lord] = level_name
+        section_num += 1
+
+        info = _pw.get(lord, {})
+        house = info.get('house', 0)
+        sign = info.get('sign', '')
+        status = info.get('status', '-')
+        dig_bala = info.get('dig_bala', 0)
+        sthana_bala = info.get('sthana_bala', 0)
+        vargothuva = info.get('vargothuva', 'No')
+        ruled_houses = info.get('ruled_houses', [])
+        co_occupants = info.get('co_occupants', [])
+        aspected_by = info.get('aspected_by', [])
+
+        other_levels = [
+            _LEVEL_NAMES[j] for j in range(len(lords))
+            if j != idx and j < len(_LEVEL_NAMES) and lords[j] == lord
+        ]
+        header = f"{level_name} Lord Analysis ({lord} - {level_title})"
+        if other_levels:
+            header += f" [Also serves as {' & '.join(other_levels)} Lord]"
+
+        prompt_lines.append(f"{section_num}. {header}:\n")
+        prompt_lines.append(f"Placement: House {house} (Sign: {sign})\n")
+
+        strength_parts = []
+        if status and status != '-':
+            strength_parts.append(f"Status: {status}")
+        strength_parts.append(f"Dig Bala: {dig_bala}%")
+        strength_parts.append(f"Sthana Bala: {sthana_bala}%")
+        strength_parts.append(f"Vargothuva: {vargothuva}")
+        prompt_lines.append(f"Status & Strength: {' | '.join(strength_parts)}\n")
+
+        prompt_lines.append(f"Houses Ruled by {lord}: {_ruled_str(ruled_houses)}.\n")
+
+        if aspected_by:
+            asp_parts = [
+                f"{a['planet']} (from the {_ord(a['from_house'])} House)"
+                for a in aspected_by
+            ]
+            prompt_lines.append(f"Aspects on {lord}: Aspected by {', '.join(asp_parts)}.\n")
+        else:
+            prompt_lines.append(f"Aspects on {lord}: None.\n")
+
+        if co_occupants:
+            prompt_lines.append(f"Co-occupants (Planets Conjunct with {lord}):\n")
+            for co_label in co_occupants:
+                co_name = co_label.split(' (')[0] if ' (' in co_label else co_label
+                co_info = _pw.get(co_name, {})
+                co_parts = []
+                co_ruled = co_info.get('ruled_houses', [])
+                if co_ruled:
+                    co_parts.append(' & '.join(f"Lord of {_ord(rh)}" for rh in co_ruled))
+                co_st = co_info.get('status', '-')
+                if co_st and co_st != '-':
+                    co_parts.append(f"Status: {co_st}")
+                co_parts.append(f"Dig Bala: {co_info.get('dig_bala', 0)}%")
+                co_parts.append(f"Sthana Bala: {co_info.get('sthana_bala', 0)}%")
+                co_parts.append(f"Vargothuva: {co_info.get('vargothuva', 'No')}")
+                prompt_lines.append(f"  {co_name}: {' | '.join(co_parts)}\n")
+        else:
+            prompt_lines.append(f"Co-occupants: None. ({lord} is placed alone).\n")
+
+        prompt_lines.append("\n")
+
+    # ── 4. Mutual Relationships ───────────────────────────────
+    if len(lords) >= 2:
+        section_num += 1
+        active_names = _LEVEL_NAMES[:len(lords)]
+        prompt_lines.append(
+            f"{section_num}. Mutual Relationships ({'-'.join(active_names)} Axes):\n"
+        )
+        for i in range(len(lords)):
+            for j in range(i + 1, len(lords)):
+                p1, p2 = lords[i], lords[j]
+                h1 = _pw.get(p1, {}).get('house', 0)
+                h2 = _pw.get(p2, {}).get('house', 0)
+                li = _LEVEL_NAMES[i] if i < len(_LEVEL_NAMES) else f"Level{i+1}"
+                lj = _LEVEL_NAMES[j] if j < len(_LEVEL_NAMES) else f"Level{j+1}"
+
+                if p1 == p2:
+                    prompt_lines.append(
+                        f"{li} ({p1}) to {lj} ({p2}) Axis: "
+                        f"Same planet — self-axis (no house distance).\n"
+                    )
+                    continue
+
+                d12 = vedic_house_distance(h1, h2)
+                d21 = vedic_house_distance(h2, h1)
+                axis_type = classify_axis(d12, d21)
+
+                if axis_type == "Conjunct":
+                    lbl = "1/1 Relationship (Conjunct)"
+                    desc = f"They are occupying the exact same house ({_ord(h1)} House)."
+                elif axis_type == "Opposition":
+                    lbl = "7/7 Relationship (Opposition)"
+                    desc = "They are directly opposite each other."
+                else:
+                    lbl = f"{d12}/{d21} Relationship ({axis_type})"
+                    desc = (f"{p2} is {d12} houses away from {p1}, "
+                            f"and {p1} is {d21} houses away from {p2}.")
+
+                prompt_lines.append(f"{li} ({p1}) to {lj} ({p2}) Axis: {lbl}. {desc}\n")
+
+    prompt_text = '\n'.join(prompt_lines)
+
+    return {
+        "planetary_positions": planetary_positions,
+        "house_details": house_details,
+        "prompt_text": prompt_text,
+    }
+
+
 # Streamlit UI
 st.set_page_config(page_title="Buvi Horoscope", layout="wide")
 st.markdown("""
@@ -5806,165 +6089,8 @@ if st.session_state.chart_data:
         ]
 
         if st.button("Generate Dasa-Bhukti Prompt", use_container_width=True, key="gen_db_prompt_btn"):
-            _db_lines = []
-
-            # ── Helper: ordinal suffix ──
-            def _db_ord(n):
-                return f"{n}{({1:'st',2:'nd',3:'rd'}.get(n if n < 20 else n % 10, 'th'))}"
-
-            # ── Helper: format houses ruled ──
-            def _db_ruled_str(ruled_houses):
-                if not ruled_houses:
-                    return 'None (Shadow planet)'
-                parts = []
-                for h in ruled_houses:
-                    parts.append(f"{_db_ord(h)} House")
-                result = ' and '.join(parts)
-                tags = []
-                for h in ruled_houses:
-                    if h == 1: tags.append('Lagana Lord')
-                return f"{result}" + (f" ({', '.join(tags)})" if tags else '')
-
-            # ── Track already-explained planets to avoid repetition ──
-            _db_explained_planets = {}   # planet_name -> first level_name it was explained under
-            _db_section_num = 0
-
-            # ── Build per-lord analysis ──
-            for idx, lord in enumerate(_db_lords):
-                level_name = _DB_LEVEL_NAMES[idx]
-                level_title = _DB_LEVEL_TITLES[idx]
-
-                # If this planet was already fully explained at a prior level, add a short reference
-                if lord in _db_explained_planets:
-                    prev_level = _db_explained_planets[lord]
-                    _db_section_num += 1
-                    _db_lines.append(f"{_db_section_num}. {level_name} Lord Analysis ({lord} - {level_title}):\n")
-                    _db_lines.append(f"(Same as {prev_level} Lord above — {lord}. Refer to the {prev_level} section for full placement, strength, aspects, and co-occupant details.)\n")
-                    _db_lines.append("\n")
-                    continue
-
-                _db_explained_planets[lord] = level_name
-                _db_section_num += 1
-
-                info = _pw.get(lord, {})
-                house = info.get('house', 0)
-                sign = info.get('sign', '')
-                status = info.get('status', '-')
-                dig_bala = info.get('dig_bala', 0)
-                sthana_bala = info.get('sthana_bala', 0)
-                vargothuva = info.get('vargothuva', 'No')
-                ruled_houses = info.get('ruled_houses', [])
-                co_occupants = info.get('co_occupants', [])
-                aspected_by = info.get('aspected_by', [])
-
-                # Also note which other levels share this lord
-                _other_levels = [_DB_LEVEL_NAMES[j] for j in range(len(_db_lords)) if j != idx and _db_lords[j] == lord]
-                _level_header = f"{level_name} Lord Analysis ({lord} - {level_title})"
-                if _other_levels:
-                    _level_header += f" [Also serves as {' & '.join(_other_levels)} Lord]"
-
-                _db_lines.append(f"{_db_section_num}. {_level_header}:\n")
-                _db_lines.append(f"Placement: House {house} (Sign: {sign})\n")
-
-                # Status & Strength line
-                strength_parts = []
-                if status and status != '-':
-                    strength_parts.append(f"Status: {status}")
-                strength_parts.append(f"Dig Bala: {dig_bala}%")
-                strength_parts.append(f"Sthana Bala: {sthana_bala}%")
-                strength_parts.append(f"Vargothuva: {vargothuva}")
-                _db_lines.append(f"Status & Strength: {' | '.join(strength_parts)}\n")
-
-                # Houses Ruled
-                _db_lines.append(f"Houses Ruled by {lord}: {_db_ruled_str(ruled_houses)}.\n")
-
-                # Aspects on this planet
-                if aspected_by:
-                    asp_parts = []
-                    for asp in aspected_by:
-                        asp_parts.append(f"{asp['planet']} (from the {_db_ord(asp['from_house'])} House)")
-                    _db_lines.append(f"Aspects on {lord}: Aspected by {', '.join(asp_parts)}.\n")
-                else:
-                    _db_lines.append(f"Aspects on {lord}: None.\n")
-
-                # Co-occupants
-                if co_occupants:
-                    _db_lines.append(f"Co-occupants (Planets Conjunct with {lord}):\n")
-                    for co_label in co_occupants:
-                        co_name = co_label.split(' (')[0] if ' (' in co_label else co_label
-                        co_info = _pw.get(co_name, {})
-                        co_status = co_info.get('status', '-')
-                        co_dig = co_info.get('dig_bala', 0)
-                        co_sthana = co_info.get('sthana_bala', 0)
-                        co_vargo = co_info.get('vargothuva', 'No')
-                        co_ruled = co_info.get('ruled_houses', [])
-                        co_ruled_parts = []
-                        for rh in co_ruled:
-                            co_ruled_parts.append(f"Lord of {_db_ord(rh)}")
-                        co_ruled_str = ' & '.join(co_ruled_parts) if co_ruled_parts else ''
-                        co_detail_parts = []
-                        if co_ruled_str:
-                            co_detail_parts.append(co_ruled_str)
-                        if co_status and co_status != '-':
-                            co_detail_parts.append(f"Status: {co_status}")
-                        co_detail_parts.append(f"Dig Bala: {co_dig}%")
-                        co_detail_parts.append(f"Sthana Bala: {co_sthana}%")
-                        co_detail_parts.append(f"Vargothuva: {co_vargo}")
-                        _db_lines.append(f"  {co_name}: {' | '.join(co_detail_parts)}\n")
-                else:
-                    _db_lines.append(f"Co-occupants: None. ({lord} is placed alone).\n")
-
-                _db_lines.append("\n")
-
-            # ── Mutual Relationships (all pairwise axes) ──
-            if len(_db_lords) >= 2:
-                _db_section_num += 1
-                _active_level_names = _DB_LEVEL_NAMES[:len(_db_lords)]
-                _db_lines.append(f"{_db_section_num}. Mutual Relationships ({'-'.join(_active_level_names)} Axes):\n")
-                for i in range(len(_db_lords)):
-                    for j in range(i + 1, len(_db_lords)):
-                        p1 = _db_lords[i]
-                        p2 = _db_lords[j]
-                        h1 = _pw.get(p1, {}).get('house', 0)
-                        h2 = _pw.get(p2, {}).get('house', 0)
-                        dist_1_to_2 = ((h2 - h1) % 12) + 1
-                        dist_2_to_1 = ((h1 - h2) % 12) + 1
-
-                        if dist_1_to_2 == dist_2_to_1 == 1:
-                            rel_label = "1/1 Relationship (Conjunct)"
-                            rel_desc = f"They are occupying the exact same house ({_db_ord(h1)} House)."
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [2, 12]:
-                            rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Adjacent)"
-                            rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
-                                        f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [6, 8]:
-                            rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Trikona/Kendra)"
-                            rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
-                                        f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-                        elif sorted([dist_1_to_2, dist_2_to_1]) == [7, 7]:
-                            rel_label = "7/7 Relationship (Opposition)"
-                            rel_desc = "They are directly opposite each other."
-                        elif sorted([dist_1_to_2, dist_2_to_1]) in [[5, 9], [7, 9]]:
-                            rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship (Shadashtaka)"
-                            rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
-                                        f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-                        else:
-                            rel_label = f"{dist_1_to_2}/{dist_2_to_1} Relationship"
-                            rel_desc = (f"{p1} is {dist_1_to_2} houses away from {p2}, "
-                                        f"and {p2} is {dist_2_to_1} houses away from {p1}.")
-
-                        level_i = _DB_LEVEL_NAMES[i]
-                        level_j = _DB_LEVEL_NAMES[j]
-                        # If both lords are the same planet, note self-axis
-                        if p1 == p2:
-                            _db_lines.append(f"{level_i} ({p1}) to {level_j} ({p2}) Axis: "
-                                             f"Same planet — self-axis (no house distance).\n")
-                        else:
-                            _db_lines.append(f"{level_i} ({p1}) to {level_j} ({p2}) Axis: "
-                                             f"{rel_label}. {rel_desc}\n")
-
-            prompt_text = '\n'.join(_db_lines)
-            st.session_state['db_prompt_text'] = prompt_text
+            _result = generate_dasa_prompt(cd, _db_lords)
+            st.session_state['db_prompt_text'] = _result['prompt_text']
 
         if 'db_prompt_text' in st.session_state and st.session_state['db_prompt_text']:
             st.code(st.session_state['db_prompt_text'], language=None)
