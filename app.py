@@ -674,31 +674,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         planet_data['Saturn']['default_currency'] = ", ".join(saturn_parts)
         planet_data['Saturn']['debt'] = f"{planet_data['Saturn']['current_debt']:.2f}"
 
-    # HOUSE LORD BONUS (Volume): Increase volume when house lord is Uchcham/Moolathirigonam/Aatchi
-    # Good currency is added later, just before Phase 5 clones are created.
-    # Skip Rahu, Ketu, and self-dispositor (lord == planet).  Skip if planet itself has a negative status.
-    _hlb_pct_map = {'Uchcham': 20, 'Moolathirigonam': 16, 'Aatchi': 12}
-    _hlb_negative_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-    for _hlb_p in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']:
-        _hlb_sign = planet_sign_map[_hlb_p]
-        _hlb_lord = get_sign_lord(_hlb_sign)
-        if _hlb_lord == _hlb_p:
-            continue  # skip self-dispositor
-        # Skip planets that have a negative status (preserve existing Neecham logic)
-        _hlb_p_status = planet_status_map.get(_hlb_p, '-')
-        _hlb_p_updated = planet_data[_hlb_p].get('updated_status', '-')
-        _hlb_p_eff = _hlb_p_updated if _hlb_p_updated not in ('-', '', None) else _hlb_p_status
-        if _hlb_p_eff in _hlb_negative_statuses:
-            continue
-        _hlb_lord_status = planet_status_map.get(_hlb_lord, '-')
-        _hlb_pct = _hlb_pct_map.get(_hlb_lord_status, 0)
-        if _hlb_pct <= 0:
-            continue
-        _hlb_max_cap = capacity_dict.get(_hlb_p, 100)
-        _hlb_amount = _hlb_pct / 100.0 * _hlb_max_cap  # percentage × planet max capacity
-
-        # Add volume only (good currency added before Phase 5 snapshot)
-        planet_data[_hlb_p]['volume'] += _hlb_amount
+    # HOUSE LORD BONUS: Good currency is added later, just before Phase 5 clones are created.
+    # Volume is NOT boosted here — only currency is added at the Phase 5 step.
 
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         data = planet_data[p]
@@ -2346,7 +2323,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 phase5_data[p]['bad_inv'] += v
     
     # HOUSE LORD BONUS (Good Currency): Add good currency just before Phase 5 clones.
-    # Volume was already boosted at planet_data init; here we enrich the Phase 5 inventory.
+    # Volume is NOT boosted — only good currency is added here.
+    _hlb5_bonus_amounts = {}  # Track bonus amounts per planet for NPS add-on
     _hlb5_pct_map = {'Uchcham': 20, 'Moolathirigonam': 16, 'Aatchi': 12}
     _hlb5_negative_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
     for _hlb5_p in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']:
@@ -2374,6 +2352,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
         # Add good currency to Phase 5 inventory (volume already correct from init)
         phase5_data[_hlb5_p]['p5_inventory'][_hlb5_key] += _hlb5_amount
+        _hlb5_bonus_amounts[_hlb5_p] = _hlb5_amount
 
     # Snapshot inventories & debts BEFORE any exchange, so all clones are created simultaneously
     _p5_snapshot_inv = {}
@@ -3804,7 +3783,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             raw_khs = (_khs_avg / 10.0) * 2
             _khs_val = min(raw_khs, 20.0)
 
-        _ns_without_khs = final_ns  # capture score before KHS
+        # House Lord Bonus add-on to normalized score
+        _hlb5_nps_addon = _hlb5_bonus_amounts.get(p, 0.0)
+        if _hlb5_nps_addon > 0.001:
+            final_ns += _hlb5_nps_addon
+            formula_type += f" + HLB({_hlb5_nps_addon:.2f})"
+
+        _ns_without_khs = final_ns  # capture score before KHS (includes HLB)
 
         final_ns += _khs_val
         if abs(_khs_val) > 0.001:
