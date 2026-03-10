@@ -4928,32 +4928,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _ml_all_currencies = [(k, v) for k, v in _ml_pot['inventory'].items()
                    if v > 0.001 and k != 'Good Rahu']
 
-            # Interleave: good, bad, good, bad... by hierarchy rank
-            _ml_good_list = sorted(
-                [(k, v) for k, v in _ml_all_currencies if is_good_currency(k)],
+            # Sort ALL currencies by rank hierarchy (highest first), no good/bad interleave
+            _ml_sorted_currencies = sorted(
+                _ml_all_currencies,
                 key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
-            _ml_bad_list = sorted(
-                [(k, v) for k, v in _ml_all_currencies if not is_good_currency(k)],
-                key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
-            _ml_sorted_currencies = []
-            _ml_gi, _ml_bi = 0, 0
-            _ml_pick_good = True  # start with good
-            while _ml_gi < len(_ml_good_list) or _ml_bi < len(_ml_bad_list):
-                if _ml_pick_good and _ml_gi < len(_ml_good_list):
-                    _ml_sorted_currencies.append(_ml_good_list[_ml_gi])
-                    _ml_gi += 1
-                elif not _ml_pick_good and _ml_bi < len(_ml_bad_list):
-                    _ml_sorted_currencies.append(_ml_bad_list[_ml_bi])
-                    _ml_bi += 1
-                elif _ml_gi < len(_ml_good_list):
-                    _ml_sorted_currencies.append(_ml_good_list[_ml_gi])
-                    _ml_gi += 1
-                elif _ml_bi < len(_ml_bad_list):
-                    _ml_sorted_currencies.append(_ml_bad_list[_ml_bi])
-                    _ml_bi += 1
-                _ml_pick_good = not _ml_pick_good
 
-            # Take all currencies in interleaved order up to remaining_cap (no debt check)
+            # Take all currencies by rank up to remaining_cap (no debt check)
             for c_key, c_avail in _ml_sorted_currencies:
                 if _ml_remaining_cap <= 0.001:
                     break
