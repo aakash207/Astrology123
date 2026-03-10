@@ -4913,7 +4913,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
         # Step C: Pull good AND bad currency from pots (like Lagna sim), with gap-based cap
         for _ml_pot in _ml_ordered_pots:
-            if _ml_sim_debt >= -0.001:
+            if _ml_sim_debt >= -0.001 and _ml_pot["is_malefic"]:
                 break
 
             _ml_raw_diff = abs(_ml_moon_L - _ml_pot['L'])
@@ -4977,7 +4977,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                         continue  # already took 1 bad
                     if _ml_took_good and _ml_took_bad:
                         break  # took 1 of each, move on
-                    needed = abs(_ml_sim_debt) if _ml_c_is_good else c_avail  # bad: take full available
+                    needed = c_avail  # malefic: take full available for both good and bad (paired exchange)
                     take = min(needed, c_avail, _ml_remaining_cap)
                     if take > 0.001:
                         _ml_gained_inv[c_key] += take
@@ -4995,10 +4995,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             else:
                 # Benefic pot: take all by rank, good reduces debt, bad increases debt
                 for c_key, c_avail in _ml_sorted_currencies:
-                    if _ml_sim_debt >= -0.001 or _ml_remaining_cap <= 0.001:
+                    if _ml_remaining_cap <= 0.001:  # no debt check — take irrespective of debt
                         break
                     _ml_c_is_good = is_good_currency(c_key)
-                    needed = abs(_ml_sim_debt) if _ml_c_is_good else c_avail
+                    needed = c_avail  # take full available irrespective of debt
                     take = min(needed, c_avail, _ml_remaining_cap)
                     if take > 0.001:
                         _ml_gained_inv[c_key] += take
