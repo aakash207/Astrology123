@@ -4821,14 +4821,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
     # ====== MOON LIGHT CALCULATOR ======
     _ml_diff = (moon_lon - sun_lon) % 360
-    _ml_is_waxing = ((paksha == 'Shukla') or (moon_phase_name == 'Purnima')) and _ml_diff >= 20
+    _ml_is_waxing = ((paksha == 'Shukla') or (moon_phase_name == 'Purnima')) and _ml_diff >= 12
 
     if not _ml_is_waxing:
-        # Waning Moon (or diff < 20 deg: neg volume territory) — use NPS score directly
+        # Waning Moon (or diff < 12 deg (Amavasya combust zone): neg volume territory) — use NPS score directly
         _ml_score = _nps_score_dict.get('Moon', 0.0)
         _ml_score = max(-100.0, min(100.0, _ml_score))
         _ml_breakdown = f"NPS Score = {_nps_score_dict.get('Moon', 0.0):.2f}"
-        _ml_notes = f"Waning Moon (diff={_ml_diff:.1f}deg) — using NPS score"
+        _ml_notes = f"{"Waxing Moon (combust zone)" if paksha == "Shukla" else "Waning Moon"} (diff={_ml_diff:.1f}deg) — using NPS score"
         _ml_initial_debt_str = '-'
         _ml_remaining_debt_str = '-'
     else:
@@ -5004,7 +5004,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     # 1. Moon's Light — use Moon Light Calculator score
     _la_moon_score = _ml_score
     _la_moon_is_waxing = _ml_is_waxing
-    _la_moon_phase_label = 'Waxing' if _la_moon_is_waxing else 'Waning'
+    _la_moon_phase_label = 'Waxing' if _la_moon_is_waxing else ('Waxing (combust)' if paksha == 'Shukla' else 'Waning')
     _la_moon_notes = f"{_la_moon_phase_label} Moon — Moon Light Score = {_la_moon_score:.2f}"
 
     # 2. Lagna Lord Final Normalized Score from NPS
