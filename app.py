@@ -5054,16 +5054,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _c_h9_score        = _la_cap_100(_la_h9_score)
 
     _ag_ll_str_combined = _c_ll_str_score + _c_ll_suchama_score
-    _ag_moon   = _c_moon_score * 25.0 / 100.0
-    _ag_ll     = _c_ll_score * 12.5 / 100.0
-    _ag_ll_str = _ag_ll_str_combined * 12.5 / 100.0
+    _ag_moon   = _c_moon_score * 20.0 / 100.0
+    _ag_ll     = _c_ll_score * 15.0 / 100.0
+    _ag_ll_str = _ag_ll_str_combined * 15.0 / 100.0
     _ag_h1     = _c_h1_score * 40.0 / 100.0
     _ag_lp     = _c_lagna_pt_score * 10.0 / 100.0
     _ag_nav    = _c_nav_score * 10.0 / 100.0
     _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp + _ag_nav
-    _ag_notes  = (f"Moon({_c_moon_score:.2f}*25%)={_ag_moon:.2f} + "
-                  f"LL({_c_ll_score:.2f}*12.5%)={_ag_ll:.2f} + "
-                  f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*12.5%)={_ag_ll_str:.2f} + "
+    _ag_notes  = (f"Moon({_c_moon_score:.2f}*20%)={_ag_moon:.2f} + "
+                  f"LL({_c_ll_score:.2f}*15%)={_ag_ll:.2f} + "
+                  f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*15%)={_ag_ll_str:.2f} + "
                   f"H1({_c_h1_score:.2f}*40%)={_ag_h1:.2f} + "
                   f"LP({_c_lagna_pt_score:.2f}*10%)={_ag_lp:.2f} + "
                   f"NavLagna({_c_nav_score:.2f}*10%)={_ag_nav:.2f}")
@@ -5075,7 +5075,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _bv_ll_str = _bv_ll_str_combined * 10.0 / 100.0
     _bv_h1     = _c_h1_score * 30.0 / 100.0
     _bv_lp     = _c_lagna_pt_score * 5.0 / 100.0
-    _bv_nav    = _c_nav_score * 10.0 / 100.0
+    _bv_nav    = _c_nav_score * 5.0 / 100.0
     _bv_sun    = _c_sun_score * 10.0 / 100.0
     _bv_h9     = _c_h9_score * 10.0 / 100.0
     _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_nav + _bv_sun + _bv_h9
@@ -5084,7 +5084,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                   f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
                   f"H1({_c_h1_score:.2f}*30%)={_bv_h1:.2f} + "
                   f"LP({_c_lagna_pt_score:.2f}*5%)={_bv_lp:.2f} + "
-                  f"NavLagna({_c_nav_score:.2f}*10%)={_bv_nav:.2f} + "
+                  f"NavLagna({_c_nav_score:.2f}*5%)={_bv_nav:.2f} + "
                   f"Sun({_c_sun_score:.2f}*10%)={_bv_sun:.2f} + "
                   f"H9({_c_h9_score:.2f}*10%)={_bv_h9:.2f}")
 
@@ -5110,80 +5110,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     ]
     df_lagna_analysis = pd.DataFrame(lagna_analysis_rows, columns=['Metric', 'Score (out of 100)', 'Notes'])
 
-    # ====== NORMALISED LAGNA ANALYSIS TABLE (0-100 scale) ======
-    # Maps -100..100 → 0..100:  normalised = (capped_score + 100) / 2
-    def _la_normalise(score):
-        capped = _la_cap_100(score)
-        return (capped + 100.0) / 2.0
-
-    def _la_norm_fmt(score, notes):
-        capped = _la_cap_100(score)
-        norm = (capped + 100.0) / 2.0
-        extra = ''
-        if capped != score:
-            extra = f" | raw: {score:.2f}"
-        return f"{norm:.2f}", f"({capped:.2f} + 100) / 2 = {norm:.2f}" + extra
-
-    # Re-compute AG & Bhuvi with normalised inputs
-    _n_moon   = _la_normalise(_la_moon_score)
-    _n_ll     = _la_normalise(_la_ll_score)
-    _n_ll_str = _la_normalise(_la_ll_str_score)
-    _n_ll_su  = _la_normalise(_la_ll_suchama_score)
-    _n_h1     = _la_normalise(_la_h1_score)
-    _n_lp     = _la_normalise(_la_lagna_pt_score)
-    _n_nav    = _la_normalise(_la_nav_score)
-    _n_sun    = _la_normalise(_la_sun_score)
-    _n_h9     = _la_normalise(_la_h9_score)
-
-    _nag_ll_str_comb = _n_ll_str + _n_ll_su
-    _nag_moon  = _n_moon * 25.0 / 100.0
-    _nag_ll    = _n_ll * 12.5 / 100.0
-    _nag_ll_s  = _nag_ll_str_comb * 12.5 / 100.0
-    _nag_h1    = _n_h1 * 40.0 / 100.0
-    _nag_lp    = _n_lp * 10.0 / 100.0
-    _nag_nav   = _n_nav * 10.0 / 100.0
-    _nag_total = _nag_moon + _nag_ll + _nag_ll_s + _nag_h1 + _nag_lp + _nag_nav
-    _nag_notes = (f"Moon({_n_moon:.2f}*25%)={_nag_moon:.2f} + "
-                  f"LL({_n_ll:.2f}*12.5%)={_nag_ll:.2f} + "
-                  f"LLStr+Suchama({_n_ll_str:.2f}+{_n_ll_su:.2f}={_nag_ll_str_comb:.2f}*12.5%)={_nag_ll_s:.2f} + "
-                  f"H1({_n_h1:.2f}*40%)={_nag_h1:.2f} + "
-                  f"LP({_n_lp:.2f}*10%)={_nag_lp:.2f} + "
-                  f"NavLagna({_n_nav:.2f}*10%)={_nag_nav:.2f}")
-
-    _nbv_ll_str_comb = _n_ll_str + _n_ll_su
-    _nbv_moon  = _n_moon * 20.0 / 100.0
-    _nbv_ll    = _n_ll * 10.0 / 100.0
-    _nbv_ll_s  = _nbv_ll_str_comb * 10.0 / 100.0
-    _nbv_h1    = _n_h1 * 30.0 / 100.0
-    _nbv_lp    = _n_lp * 5.0 / 100.0
-    _nbv_nav   = _n_nav * 10.0 / 100.0
-    _nbv_sun   = _n_sun * 10.0 / 100.0
-    _nbv_h9    = _n_h9 * 10.0 / 100.0
-    _nbv_total = _nbv_moon + _nbv_ll + _nbv_ll_s + _nbv_h1 + _nbv_lp + _nbv_nav + _nbv_sun + _nbv_h9
-    _nbv_notes = (f"Moon({_n_moon:.2f}*20%)={_nbv_moon:.2f} + "
-                  f"LL({_n_ll:.2f}*10%)={_nbv_ll:.2f} + "
-                  f"LLStr+Suchama({_n_ll_str:.2f}+{_n_ll_su:.2f}={_nbv_ll_str_comb:.2f}*10%)={_nbv_ll_s:.2f} + "
-                  f"H1({_n_h1:.2f}*30%)={_nbv_h1:.2f} + "
-                  f"LP({_n_lp:.2f}*5%)={_nbv_lp:.2f} + "
-                  f"NavLagna({_n_nav:.2f}*10%)={_nbv_nav:.2f} + "
-                  f"Sun({_n_sun:.2f}*10%)={_nbv_sun:.2f} + "
-                  f"H9({_n_h9:.2f}*10%)={_nbv_h9:.2f}")
-
-    norm_lagna_rows = [
-        ["Moon's Light",        *_la_norm_fmt(_la_moon_score,       _la_moon_notes)],
-        ['Lagna Lord Score',    *_la_norm_fmt(_la_ll_score,         _la_ll_notes)],
-        ['Lagna Lord Strength', *_la_norm_fmt(_la_ll_str_score,     _la_ll_str_notes)],
-        ['Lagna Lord Suchama',  *_la_norm_fmt(_la_ll_suchama_score, _la_ll_suchama_notes)],
-        ['1st House Points',    *_la_norm_fmt(_la_h1_score,         _la_h1_notes)],
-        ['Lagna Point',         *_la_norm_fmt(_la_lagna_pt_score,   _la_lagna_pt_notes)],
-        ['Navamsa Lagna Score', *_la_norm_fmt(_la_nav_score,        _la_nav_notes)],
-        ['Sun Score',           *_la_norm_fmt(_la_sun_score,        _la_sun_notes)],
-        ['9th House Points',    *_la_norm_fmt(_la_h9_score,         _la_h9_notes)],
-        ['AG Bonus',            f"{_nag_total:.2f}", _nag_notes],
-        ['Bhuvi Bonus',         f"{_nbv_total:.2f}", _nbv_notes],
-    ]
-    df_norm_lagna_analysis = pd.DataFrame(norm_lagna_rows, columns=['Metric', 'Normalised Score (0-100)', 'Notes'])
-    # ====== END NORMALISED LAGNA ANALYSIS TABLE ======
 
     # ====== END LAGNA ANALYSIS TABLE ======
 
@@ -5352,7 +5278,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'df_house_reserves': df_house_reserves,
         'df_bonus': df_bonus,
         'df_lagna_analysis': df_lagna_analysis,
-        'df_norm_lagna_analysis': df_norm_lagna_analysis,
         'df_normalized_planet_scores': df_normalized_planet_scores,
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
@@ -6123,8 +6048,6 @@ if st.session_state.chart_data:
     st.subheader("Lagna Analysis")
     st.dataframe(cd['df_lagna_analysis'], hide_index=True, use_container_width=True)
 
-    st.subheader("Normalised Lagna Analysis (0-100)")
-    st.dataframe(cd['df_norm_lagna_analysis'], hide_index=True, use_container_width=True)
 
     st.subheader("Rasi (D1) & Navamsa (D9) - South Indian")
     col1, col2 = st.columns(2, gap="small")
