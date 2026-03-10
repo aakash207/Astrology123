@@ -482,6 +482,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         dig_bala = calculate_dig_bala(p, L, lagna_sid)
         planet_cap = p.capitalize()
         sthana = sthana_bala_dict.get(planet_cap, [0]*12)[sign_names.index(sign)]
+
+        # KENDRA/KONA STHANA BOOST: +10 for malefics in kendra, benefics in kona
+        _p_house = planet_house_map.get(planet_cap, 0)
+        _is_benefic_moon = (planet_cap == 'Moon' and (paksha == 'Shukla' or moon_phase_name == 'Purnima'))
+        if planet_cap in ('Saturn', 'Mars', 'Sun') and _p_house in (1, 4, 7, 10):
+            sthana = min(sthana + 10, 100)
+        elif (planet_cap in ('Venus', 'Jupiter', 'Mercury') or _is_benefic_moon) and _p_house in (1, 5, 9):
+            sthana = min(sthana + 10, 100)
         
         nav_sign = get_navamsa_sign(L)
         vargothuva = 'Yes' if sign == nav_sign else 'No'
