@@ -4843,7 +4843,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_sources = {}
 
         _ml_hr_copy = copy.deepcopy(dict(house_reserves))  # don't affect real reserves
-        for _ml_hr_sign in sign_names:
+        for _ml_hr_sign in [_ml_moon_sign]:  # only pull from reserve of Moon's own sign
             if _ml_sim_debt >= -0.001:
                 break
             _ml_hr_sign_dict = _ml_hr_copy.get(_ml_hr_sign, {})
