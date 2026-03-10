@@ -4832,12 +4832,31 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_initial_debt_str = '-'
         _ml_remaining_debt_str = '-'
     else:
-        # Waxing Moon — run fresh simulation (like Lagna simulation, NOT leftover)
+        # Waxing Moon — fresh simulation: ONLY good currency, gap-based caps, + house reserves
         _ml_moon_L = phase5_data['Moon']['L']
         _ml_moon_vol = phase5_data['Moon']['volume']
-        _ml_sim_debt = -(_ml_moon_vol)  # no existing debt, just volume as target
+        _ml_moon_sign = phase5_data['Moon']['sign']
+        _ml_sim_debt = -(_ml_moon_vol)  # fresh debt = negative volume
 
-        # Build fresh universe of pots from phase5 (exclude Moon itself)
+        # Step A: Pull from House Bonus Reserves for Moon's sign (good currency only)
+        _ml_gained_inv = defaultdict(float)
+        _ml_sources = {}
+
+        _ml_hr = house_reserves.get(_ml_moon_sign, {})
+        for _ml_hr_key, _ml_hr_val in sorted(_ml_hr.items(), key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True):
+            if _ml_sim_debt >= -0.001:
+                break
+            if _ml_hr_val <= 0.001:
+                continue
+            if not is_good_currency(_ml_hr_key):
+                continue
+            _ml_hr_take = min(abs(_ml_sim_debt), _ml_hr_val)
+            if _ml_hr_take > 0.001:
+                _ml_gained_inv[_ml_hr_key] += _ml_hr_take
+                _ml_sim_debt += _ml_hr_take
+                _ml_sources.setdefault(_ml_hr_key, []).append(f"HouseReserve_{_ml_moon_sign}({_ml_hr_take:.2f})")
+
+        # Step B: Build fresh universe of pots from phase5 (exclude Moon itself)
         _ml_universe_pots = []
         for _ml_p in ['Sun','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
             _ml_pot_inv = copy.deepcopy(dict(phase5_data[_ml_p]['p5_inventory']))
@@ -4871,10 +4890,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_benefic_pots = [p for p in _ml_universe_pots if not p['is_malefic']]
         _ml_ordered_pots = _ml_malefic_pots + _ml_benefic_pots
 
-        _ml_gained_inv = defaultdict(float)
-        _ml_sources = {}
-        _ml_good_from_malefic = defaultdict(float)
-
+        # Step C: Pull ONLY good currency from pots, with gap-based cap
         for _ml_pot in _ml_ordered_pots:
             if _ml_sim_debt >= -0.001:
                 break
@@ -4891,14 +4907,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _ml_max_pull = _ml_pot['volume'] * (_ml_cap_pct / 100.0)
             _ml_remaining_cap = _ml_max_pull
 
+            # Filter to ONLY good currencies (no bad, no Jupiter Poison)
             _ml_sorted_currencies = sorted(
-                [(k, v) for k, v in _ml_pot['inventory'].items() if v > 0.001],
+                [(k, v) for k, v in _ml_pot['inventory'].items()
+                 if v > 0.001 and is_good_currency(k) and k != 'Good Rahu' and k != 'Jupiter Poison'],
                 key=lambda x: get_p5_currency_rank_score(x[0]),
                 reverse=True
             )
 
             for c_key, c_avail in _ml_sorted_currencies:
-                if c_key == 'Good Rahu': continue
                 if _ml_sim_debt >= -0.001 or _ml_remaining_cap <= 0.001:
                     break
                 needed = abs(_ml_sim_debt)
@@ -4909,28 +4926,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     _ml_remaining_cap -= take
                     _ml_src_label = _ml_pot['name']
                     _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
-                    if _ml_pot['is_malefic'] and is_good_currency(c_key) and c_key != 'Jupiter Poison':
-                        _ml_good_from_malefic[c_key] += take
 
-        # Post-sim: halve good currency from malefic pots
-        for c_key, malefic_amount in _ml_good_from_malefic.items():
-            _ml_penalty = malefic_amount * 0.50
-            _ml_gained_inv[c_key] -= _ml_penalty
-
-        # Calculate score
+        # Calculate score: Moon Light = [total good currency / volume] × 100
         _ml_good_total = sum(v for k, v in _ml_gained_inv.items() if is_good_currency(k))
-        _ml_bad_total = sum(v for k, v in _ml_gained_inv.items() if 'Bad' in k)
-        _ml_jp_poison = _ml_gained_inv.get('Jupiter Poison', 0.0)
-        if _ml_jp_poison > 0.001:
-            _ml_good_total -= _ml_jp_poison
-            _ml_bad_total += _ml_jp_poison
-        _ml_net = _ml_good_total - _ml_bad_total
 
-        # Normalize: score / volume * 100, clamp [-100, 100]
         if abs(_ml_moon_vol) < 0.001:
             _ml_score = 0.0
         else:
-            _ml_score = (_ml_net / _ml_moon_vol) * 100
+            _ml_score = (_ml_good_total / _ml_moon_vol) * 100
         _ml_score = max(-100.0, min(100.0, _ml_score))
 
         # Breakdown
