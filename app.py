@@ -1983,19 +1983,28 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         navp3_gained = navamsa_phase3_data[p]['navp3_gained_currencies']
         
+        # Separate good and bad currencies from navamsa gained
+        total_good = 0.0
+        total_bad = 0.0
         for k, v in navp3_gained.items():
             if v > 0.001:
-                add_amount = v * 0.20
-                # Add under "Good Bonus" instead of the original currency name
-                phase3_data[p]['p3_inventory']['Good Bonus'] += add_amount
+                if is_good_currency(k):
+                    total_good += v
+                else:
+                    total_bad += v
         
-        navp3_debt = navamsa_phase3_data[p]['navp3_debt']
-        debt_change = navp3_debt * 0.20
-        phase3_data[p]['p3_current_debt'] += debt_change
-        # Bad Bonus: if the navamsa debt transfer is a penalty (negative), record it as Bad Bonus currency
-        if debt_change < -0.001:
-            phase3_data[p]['p3_inventory']['Bad Bonus'] += abs(debt_change)
-    
+        # 20% of total good currencies -> Good Bonus
+        good_bonus = total_good * 0.20
+        if good_bonus > 0.001:
+            phase3_data[p]['p3_inventory']['Good Bonus'] += good_bonus
+            phase3_data[p]['p3_current_debt'] += good_bonus
+        
+        # 20% of total bad currencies -> Bad Bonus (no debt added - it's just penalty currency)
+        bad_bonus = total_bad * 0.20
+        if bad_bonus > 0.001:
+            phase3_data[p]['p3_inventory']['Bad Bonus'] += bad_bonus
+            phase3_data[p]['p3_current_debt'] -= bad_bonus
+
     planets_in_house_11 = []
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         if phase3_data[p]['rasi_house'] == 11:
