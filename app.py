@@ -4838,23 +4838,39 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_moon_sign = phase5_data['Moon']['sign']
         _ml_sim_debt = -(_ml_moon_vol)  # fresh debt = negative volume
 
-        # Step A: Pull from House Bonus Reserves for Moon's sign (good currency only)
+        # Step A: Pull from House Bonus Reserves (deep copy, good currency only, debt-cap per sign)
         _ml_gained_inv = defaultdict(float)
         _ml_sources = {}
 
-        _ml_hr = house_reserves.get(_ml_moon_sign, {})
-        for _ml_hr_key, _ml_hr_val in sorted(_ml_hr.items(), key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True):
+        _ml_hr_copy = copy.deepcopy(dict(house_reserves))  # don't affect real reserves
+        for _ml_hr_sign in sign_names:
             if _ml_sim_debt >= -0.001:
                 break
-            if _ml_hr_val <= 0.001:
+            _ml_hr_sign_dict = _ml_hr_copy.get(_ml_hr_sign, {})
+            if not _ml_hr_sign_dict:
                 continue
-            if not is_good_currency(_ml_hr_key):
-                continue
-            _ml_hr_take = min(abs(_ml_sim_debt), _ml_hr_val)
-            if _ml_hr_take > 0.001:
-                _ml_gained_inv[_ml_hr_key] += _ml_hr_take
-                _ml_sim_debt += _ml_hr_take
-                _ml_sources.setdefault(_ml_hr_key, []).append(f"HouseReserve_{_ml_moon_sign}({_ml_hr_take:.2f})")
+            # Debt cap for this sign: use Phase 4 pot_debt_cap_pct if available, else 100%
+            _ml_hr_cap_frac = pot_debt_cap_pct.get(_ml_hr_sign, 1.0)
+            _ml_hr_sign_cap = abs(_ml_sim_debt) * _ml_hr_cap_frac
+            # 11th house reserve: restrict to 50% of its total
+            if _ml_hr_sign == house_11_sign:
+                _ml_hr_11_total = sum(v for v in _ml_hr_sign_dict.values() if v > 0.001)
+                _ml_hr_sign_cap = min(_ml_hr_sign_cap, _ml_hr_11_total * 0.50)
+            _ml_hr_sign_taken = 0.0
+
+            for _ml_hr_key, _ml_hr_val in sorted(_ml_hr_sign_dict.items(), key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True):
+                if _ml_sim_debt >= -0.001 or _ml_hr_sign_taken >= _ml_hr_sign_cap - 0.001:
+                    break
+                if _ml_hr_val <= 0.001:
+                    continue
+                if not is_good_currency(_ml_hr_key):
+                    continue
+                _ml_hr_take = min(abs(_ml_sim_debt), _ml_hr_val, _ml_hr_sign_cap - _ml_hr_sign_taken)
+                if _ml_hr_take > 0.001:
+                    _ml_gained_inv[_ml_hr_key] += _ml_hr_take
+                    _ml_sim_debt += _ml_hr_take
+                    _ml_hr_sign_taken += _ml_hr_take
+                    _ml_sources.setdefault(_ml_hr_key, []).append(f"HouseReserve_{_ml_hr_sign}({_ml_hr_take:.2f})")
 
         # Step B: Build fresh universe of pots from phase5 (exclude Moon itself)
         _ml_universe_pots = []
