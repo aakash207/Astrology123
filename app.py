@@ -4911,8 +4911,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_benefic_pots = [p for p in _ml_universe_pots if not p['is_malefic']]
         _ml_ordered_pots = _ml_malefic_pots + _ml_benefic_pots
 
-        _ml_good_from_malefic = defaultdict(float)  # good currency from malefic pots (halved later, like Lagna sim)
-
         # Step C: Pull good AND bad currency from pots (like Lagna sim), with gap-based cap
         for _ml_pot in _ml_ordered_pots:
             if _ml_sim_debt >= -0.001:
@@ -4965,26 +4963,54 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     _ml_all_currencies,
                     key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
 
-            for c_key, c_avail in _ml_sorted_currencies:
-                if _ml_sim_debt >= -0.001 or _ml_remaining_cap <= 0.001:
-                    break
-                needed = abs(_ml_sim_debt)
-                take = min(needed, c_avail, _ml_remaining_cap)
-                if take > 0.001:
-                    _ml_gained_inv[c_key] += take
-                    _ml_sim_debt += take
-                    _ml_remaining_cap -= take
-                    _ml_src_label = _ml_pot['name']
-                    _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
-                    # Track good currency from malefic pots (for halving later)
-                    if _ml_pot['is_malefic'] and is_good_currency(c_key) and c_key != 'Jupiter Poison':
-                        _ml_good_from_malefic[c_key] += take
+            if _ml_pot['is_malefic']:
+                # Malefic pot: take exactly 1 good + 1 bad, then move to next pot
+                _ml_took_good = False
+                _ml_took_bad = False
+                for c_key, c_avail in _ml_sorted_currencies:
+                    if _ml_remaining_cap <= 0.001:
+                        break
+                    _ml_c_is_good = is_good_currency(c_key)
+                    if _ml_c_is_good and _ml_took_good:
+                        continue  # already took 1 good
+                    if not _ml_c_is_good and _ml_took_bad:
+                        continue  # already took 1 bad
+                    if _ml_took_good and _ml_took_bad:
+                        break  # took 1 of each, move on
+                    needed = abs(_ml_sim_debt) if _ml_c_is_good else c_avail  # bad: take full available
+                    take = min(needed, c_avail, _ml_remaining_cap)
+                    if take > 0.001:
+                        _ml_gained_inv[c_key] += take
+                        if _ml_c_is_good:
+                            _ml_sim_debt += take  # good reduces debt
+                        else:
+                            _ml_sim_debt -= take  # bad increases debt
+                        _ml_remaining_cap -= take
+                        _ml_src_label = _ml_pot['name']
+                        _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
+                        if _ml_c_is_good:
+                            _ml_took_good = True
+                        else:
+                            _ml_took_bad = True
+            else:
+                # Benefic pot: take all by rank, good reduces debt, bad increases debt
+                for c_key, c_avail in _ml_sorted_currencies:
+                    if _ml_sim_debt >= -0.001 or _ml_remaining_cap <= 0.001:
+                        break
+                    _ml_c_is_good = is_good_currency(c_key)
+                    needed = abs(_ml_sim_debt) if _ml_c_is_good else c_avail
+                    take = min(needed, c_avail, _ml_remaining_cap)
+                    if take > 0.001:
+                        _ml_gained_inv[c_key] += take
+                        if _ml_c_is_good:
+                            _ml_sim_debt += take  # good reduces debt
+                        else:
+                            _ml_sim_debt -= take  # bad increases debt
+                        _ml_remaining_cap -= take
+                        _ml_src_label = _ml_pot['name']
+                        _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
 
 
-        # Post-sim: halve good currency that came from malefic pots (like Lagna sim)
-        for _ml_gm_key, _ml_gm_amount in _ml_good_from_malefic.items():
-            _ml_penalty = _ml_gm_amount * 0.50
-            _ml_gained_inv[_ml_gm_key] -= _ml_penalty
         # Calculate score: Moon Light = [(good - bad) / volume] × 100  (like Lagna sim)
         _ml_gained_good = sum(v for k, v in _ml_gained_inv.items() if is_good_currency(k))
         _ml_gained_bad = sum(v for k, v in _ml_gained_inv.items() if 'Bad' in k)
