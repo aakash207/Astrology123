@@ -68,13 +68,13 @@ sign_lords = ['Mars','Venus','Mercury','Moon','Sun','Mercury','Venus','Mars','Ju
 # Sthana Bala Dict
 sthana_bala_dict = {
     # Houses: Aries, Taurus, Gemini, Cancer, Leo, Virgo, Libra, Scorpio, Sagittarius, Capricorn, Aquarius, Pisces
-    'Sun':     [100, 90, 80, 70, 60, 50, 40, 50, 60, 70, 80, 90],
+    'Sun':     [100, 90, 80, 70, 80, 50, 40, 50, 60, 70, 80, 90],
     'Moon':    [ 70,100, 70, 80, 70, 60, 50, 40, 50, 60, 60, 70],
-    'Jupiter': [ 60, 60, 70,100, 90, 60, 60, 70, 90, 40, 50, 80],
-    'Venus':   [ 60, 80, 60, 50, 40, 30, 90, 50, 60, 70, 60,100],
+    'Jupiter': [ 60, 60, 60,100, 80, 60, 60, 60, 80, 40, 50, 70],
+    'Venus':   [ 60, 70, 60, 50, 40, 30, 80, 50, 60, 70, 60,100],
     'Mercury': [ 40, 60, 80, 50, 70,100, 70, 50, 50, 60, 50, 30],
-    'Mars':    [ 80, 70, 50, 40, 70, 50, 50, 60, 70,100, 90, 60],
-    'Saturn':  [ 40, 50, 60, 70, 80, 60,100, 90, 50, 80, 90, 50],
+    'Mars':    [ 80, 70, 60, 40, 60, 60, 60, 60, 70,100, 70, 60],
+    'Saturn':  [ 40, 50, 60, 70, 80, 60,100, 90, 60, 80, 90, 50],
     'Rahu':    [100]*12,
     'Ketu':    [100]*12
 }
@@ -3701,15 +3701,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
         # --- Determine case and calculate ---
         if p == 'Moon' and _nps_moon_is_waxing and not is_neecha:
-            # Case A: Waxing Moon, NOT Negative Status
-            # debt < 0: add |debt| to denom; debt > 0: subtract debt from denom
-            abs_debt = abs(p5_debt) if p5_debt < 0 else (-p5_debt if p5_debt > 0 else 0.0)
-            denom_val = total_good + abs_debt + total_bad
-            if abs(denom_val) < 0.001:
+            # Case A: Waxing Moon, NOT Negative Status - debt-based formula (same as CaseE/F)
+            if abs(p_volume) < 0.001:
                 final_ns = 0.0
             else:
-                final_ns = ((total_good - total_bad) / denom_val) * 100
-            formula_type = f"CaseA: Waxing Moon [(Good {total_good:.2f} - Bad {total_bad:.2f}) / (Good {total_good:.2f} + DebtAdj {abs_debt:.2f} + Bad {total_bad:.2f})] x100 = {final_ns:.2f}"
+                final_ns = ((p_volume + p5_debt) / p_volume) * 100
+            _debt_sign = '+' if p5_debt >= 0 else '-'
+            formula_type = f"CaseA: ((Vol{p_volume:.2f} {_debt_sign} Debt{abs(p5_debt):.2f}) / Vol{p_volume:.2f}) * 100 = {final_ns:.2f}"
 
         elif p == 'Moon' and _nps_moon_is_waxing and is_neecha:
             # Case B: Waxing Moon, IS Negative Status
