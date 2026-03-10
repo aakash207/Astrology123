@@ -1006,9 +1006,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                                 _nav_infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                                 navamsa_data[_nav_tgt_name]['nav_inventory'][_nav_infection_key] += take
                                 navamsa_data[_nav_tgt_name]['nav_gained_currencies'][_nav_infection_key] += take
-                                # Infection adds Bad Currency => Debt Increases
-                                navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
-                                navamsa_data[_nav_tgt_name]['nav_debt'] -= take
+                                # Infection adds Bad Currency only (no extra debt - already applied when currency was lost)
+                                # navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take  # removed: double penalty fix
+                                # navamsa_data[_nav_tgt_name]['nav_debt'] -= take  # removed: double penalty fix
                     
                     if not round_happened:
                         break
@@ -1092,9 +1092,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                             _nav_infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                             navamsa_data[_nav_tgt_name]['nav_inventory'][_nav_infection_key] += take
                             navamsa_data[_nav_tgt_name]['nav_gained_currencies'][_nav_infection_key] += take
-                            # Infection adds Bad Currency => Debt Increases
-                            navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take
-                            navamsa_data[_nav_tgt_name]['nav_debt'] -= take
+                            # Infection adds Bad Currency only (no extra debt - already applied when currency was lost)
+                            # navamsa_data[_nav_tgt_name]['nav_current_debt'] -= take  # removed: double penalty fix
+                            # navamsa_data[_nav_tgt_name]['nav_debt'] -= take  # removed: double penalty fix
 
         if not nav_something_happened: nav_loop_active = False
     
@@ -1782,8 +1782,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     if debtor_is_malefic and _tgt_is_malefic:
                         _infection_key = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
                         planet_data[_tgt_name]['final_inventory'][_infection_key] += take
-                        # Infection adds Bad Currency => Debt Increases
-                        planet_data[_tgt_name]['current_debt'] -= take
+                        # Infection adds Bad Currency only (no extra debt - already applied when currency was lost)
+                        # planet_data[_tgt_name]['current_debt'] -= take  # removed: double penalty fix
                     
                     good_available = any(t['is_good'] and planet_data[t['planet']]['final_inventory'].get(t['key'], 0) > 0 for t in potential_targets)
 
@@ -2938,7 +2938,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                                 if clone_parent_is_malefic and _p5s1_tgt_is_malefic:
                                     _infection_key = f"Bad {clone_parent}"
                                     phase5_data[target_planet]['p5_inventory'][_infection_key] = phase5_data[target_planet]['p5_inventory'].get(_infection_key, 0.0) + take
-                                    phase5_data[target_planet]['p5_current_debt'] -= take
+                                    # phase5_data[target_planet]['p5_current_debt'] -= take  # removed: double penalty fix
                         
                         good_still_available = any(
                             target_inv.get(c['key'], 0) > 0.001 
@@ -2982,7 +2982,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                                     if clone_parent_is_malefic and _p5s1b_tgt_is_malefic:
                                         _infection_key_b = f"Bad {clone_parent}"
                                         phase5_data[target_planet]['p5_inventory'][_infection_key_b] = phase5_data[target_planet]['p5_inventory'].get(_infection_key_b, 0.0) + take
-                                        phase5_data[target_planet]['p5_current_debt'] -= take
+                                        # phase5_data[target_planet]['p5_current_debt'] -= take  # removed: double penalty fix
                 
                 # MODIFICATION 2: NEW Step 2 - Real Malefics Pull (from Clone's original inventory only)
                 total_original_remaining = 0.0
