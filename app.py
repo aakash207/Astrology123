@@ -4834,9 +4834,15 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     else:
         # Waxing Moon — fresh simulation: ONLY good currency, gap-based caps, + house reserves
         _ml_moon_L = phase5_data['Moon']['L']
-        _ml_moon_vol = phase5_data['Moon']['volume']
+        _ml_moon_vol = planet_data['Moon']['volume']   # from initial Planetary Positions table
         _ml_moon_sign = phase5_data['Moon']['sign']
-        _ml_sim_debt = -(_ml_moon_vol)  # fresh debt = negative volume
+        _ml_initial_good = planet_data['Moon']['good_inv']  # from initial Planetary Positions table
+
+        # Carry forward Moon's Phase 5 end-state currencies
+        _ml_existing_inv = copy.deepcopy(dict(phase5_data['Moon']['p5_inventory']))
+        _ml_existing_good = sum(v for k, v in _ml_existing_inv.items() if is_good_currency(k) and v > 0.001)
+        _ml_gap = _ml_moon_vol - _ml_initial_good  # artificial debt = volume - initial good (both from first table)
+        _ml_sim_debt = -(_ml_gap) if _ml_gap > 0.001 else 0.0  # only add debt for the gap
 
         # Step A: Pull from House Bonus Reserves (deep copy, good currency only, debt-cap per sign)
         _ml_gained_inv = defaultdict(float)
@@ -4914,12 +4920,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _ml_raw_diff = abs(_ml_moon_L - _ml_pot['L'])
             if _ml_raw_diff > 180:
                 _ml_raw_diff = 360 - _ml_raw_diff
-            _ml_gap = int(_ml_raw_diff)
+            _ml_deg_gap = int(_ml_raw_diff)
 
-            if _ml_gap > 22:
+            if _ml_deg_gap > 22:
                 continue
 
-            _ml_cap_pct = mix_dict.get(_ml_gap, 0)
+            _ml_cap_pct = mix_dict.get(_ml_deg_gap, 0)
             _ml_max_pull = _ml_pot['volume'] * (_ml_cap_pct / 100.0)
             _ml_remaining_cap = _ml_max_pull
 
@@ -4943,19 +4949,27 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     _ml_src_label = _ml_pot['name']
                     _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
 
-        # Calculate score: Moon Light = [total good currency / volume] × 100
-        _ml_good_total = sum(v for k, v in _ml_gained_inv.items() if is_good_currency(k))
+        # Calculate score: Moon Light = [(existing_good + gained_good) / volume] × 100
+        _ml_gained_good = sum(v for k, v in _ml_gained_inv.items() if is_good_currency(k))
+        _ml_total_good = _ml_existing_good + _ml_gained_good
 
         if abs(_ml_moon_vol) < 0.001:
             _ml_score = 0.0
         else:
-            _ml_score = (_ml_good_total / _ml_moon_vol) * 100
+            _ml_score = (_ml_total_good / _ml_moon_vol) * 100
         _ml_score = max(-100.0, min(100.0, _ml_score))
 
-        # Breakdown
+        # Breakdown — show existing currencies + newly gained
+        _ml_combined_inv = defaultdict(float)
+        for k, v in _ml_existing_inv.items():
+            if v > 0.001 and is_good_currency(k):
+                _ml_combined_inv[k] += v
+        for k, v in _ml_gained_inv.items():
+            if v > 0.001:
+                _ml_combined_inv[k] += v
         _ml_bd_parts = []
-        for k in sorted(_ml_gained_inv.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
-            v = _ml_gained_inv[k]
+        for k in sorted(_ml_combined_inv.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+            v = _ml_combined_inv[k]
             if v > 0.001:
                 _ml_bd_parts.append(f"{k}[{v:.2f}]")
         _ml_breakdown = ", ".join(_ml_bd_parts) if _ml_bd_parts else "-"
@@ -4965,8 +4979,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             entries = _ml_sources[k]
             _ml_notes_parts.append(f"{k} from " + ", ".join(entries))
         _ml_notes = "; ".join(_ml_notes_parts) if _ml_notes_parts else "-"
+        if _ml_existing_good > 0.001:
+            _ml_notes = f"Existing good={_ml_existing_good:.2f}, Gap debt={_ml_gap:.2f}; " + _ml_notes
 
-        _ml_initial_debt_str = f"{-_ml_moon_vol:.2f}"
+        _ml_initial_debt_str = f"{-_ml_gap:.2f}" if _ml_gap > 0.001 else '0.00'
         _ml_remaining_debt_str = f"{_ml_sim_debt:.2f}" if abs(_ml_sim_debt) >= 0.01 else '0.00'
 
     # ====== END MOON LIGHT CALCULATOR ======
