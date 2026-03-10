@@ -4819,10 +4819,144 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
     # ====== END NAVAMSA LAGNA SCORE SIMULATION ======
 
+    # ====== MOON LIGHT CALCULATOR ======
+    _ml_diff = (moon_lon - sun_lon) % 360
+    _ml_is_waxing = ((paksha == 'Shukla') or (moon_phase_name == 'Purnima')) and _ml_diff >= 20
+
+    if not _ml_is_waxing:
+        # Waning Moon (or diff < 20 deg: neg volume territory) — use NPS score directly
+        _ml_score = _nps_score_dict.get('Moon', 0.0)
+        _ml_score = max(-100.0, min(100.0, _ml_score))
+        _ml_breakdown = f"NPS Score = {_nps_score_dict.get('Moon', 0.0):.2f}"
+        _ml_notes = f"Waning Moon (diff={_ml_diff:.1f}deg) — using NPS score"
+        _ml_initial_debt_str = '-'
+        _ml_remaining_debt_str = '-'
+    else:
+        # Waxing Moon — run fresh simulation (like Lagna simulation, NOT leftover)
+        _ml_moon_L = phase5_data['Moon']['L']
+        _ml_moon_vol = phase5_data['Moon']['volume']
+        _ml_sim_debt = -(_ml_moon_vol)  # no existing debt, just volume as target
+
+        # Build fresh universe of pots from phase5 (exclude Moon itself)
+        _ml_universe_pots = []
+        for _ml_p in ['Sun','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+            _ml_pot_inv = copy.deepcopy(dict(phase5_data[_ml_p]['p5_inventory']))
+            _ml_pot_vol = phase5_data[_ml_p]['volume']
+            _ml_pot_L = phase5_data[_ml_p]['L']
+            _ml_universe_pots.append({
+                'name': _ml_p,
+                'L': _ml_pot_L,
+                'inventory': _ml_pot_inv,
+                'volume': _ml_pot_vol,
+                'is_malefic': _sim_is_malefic(_ml_p),
+                'kind': 'real'
+            })
+
+        # Add clone pots (fresh deep copy)
+        for _ml_cl in all_leftover_clones:
+            _ml_cl_inv = copy.deepcopy(dict(_ml_cl['inventory']))
+            _ml_cl_vol = sum(v for v in _ml_cl_inv.values() if v > 0.001)
+            _ml_parent = _ml_cl['parent']
+            _ml_universe_pots.append({
+                'name': f"Clone({_ml_parent}_{_ml_cl['offset']})",
+                'L': _ml_cl['L'],
+                'inventory': _ml_cl_inv,
+                'volume': _ml_cl_vol,
+                'is_malefic': _sim_is_malefic(_ml_parent),
+                'kind': 'clone'
+            })
+
+        # Order: malefic first, then benefic
+        _ml_malefic_pots = [p for p in _ml_universe_pots if p['is_malefic']]
+        _ml_benefic_pots = [p for p in _ml_universe_pots if not p['is_malefic']]
+        _ml_ordered_pots = _ml_malefic_pots + _ml_benefic_pots
+
+        _ml_gained_inv = defaultdict(float)
+        _ml_sources = {}
+        _ml_good_from_malefic = defaultdict(float)
+
+        for _ml_pot in _ml_ordered_pots:
+            if _ml_sim_debt >= -0.001:
+                break
+
+            _ml_raw_diff = abs(_ml_moon_L - _ml_pot['L'])
+            if _ml_raw_diff > 180:
+                _ml_raw_diff = 360 - _ml_raw_diff
+            _ml_gap = int(_ml_raw_diff)
+
+            if _ml_gap > 22:
+                continue
+
+            _ml_cap_pct = mix_dict.get(_ml_gap, 0)
+            _ml_max_pull = _ml_pot['volume'] * (_ml_cap_pct / 100.0)
+            _ml_remaining_cap = _ml_max_pull
+
+            _ml_sorted_currencies = sorted(
+                [(k, v) for k, v in _ml_pot['inventory'].items() if v > 0.001],
+                key=lambda x: get_p5_currency_rank_score(x[0]),
+                reverse=True
+            )
+
+            for c_key, c_avail in _ml_sorted_currencies:
+                if c_key == 'Good Rahu': continue
+                if _ml_sim_debt >= -0.001 or _ml_remaining_cap <= 0.001:
+                    break
+                needed = abs(_ml_sim_debt)
+                take = min(needed, c_avail, _ml_remaining_cap)
+                if take > 0.001:
+                    _ml_gained_inv[c_key] += take
+                    _ml_sim_debt += take
+                    _ml_remaining_cap -= take
+                    _ml_src_label = _ml_pot['name']
+                    _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
+                    if _ml_pot['is_malefic'] and is_good_currency(c_key) and c_key != 'Jupiter Poison':
+                        _ml_good_from_malefic[c_key] += take
+
+        # Post-sim: halve good currency from malefic pots
+        for c_key, malefic_amount in _ml_good_from_malefic.items():
+            _ml_penalty = malefic_amount * 0.50
+            _ml_gained_inv[c_key] -= _ml_penalty
+
+        # Calculate score
+        _ml_good_total = sum(v for k, v in _ml_gained_inv.items() if is_good_currency(k))
+        _ml_bad_total = sum(v for k, v in _ml_gained_inv.items() if 'Bad' in k)
+        _ml_jp_poison = _ml_gained_inv.get('Jupiter Poison', 0.0)
+        if _ml_jp_poison > 0.001:
+            _ml_good_total -= _ml_jp_poison
+            _ml_bad_total += _ml_jp_poison
+        _ml_net = _ml_good_total - _ml_bad_total
+
+        # Normalize: score / volume * 100, clamp [-100, 100]
+        if abs(_ml_moon_vol) < 0.001:
+            _ml_score = 0.0
+        else:
+            _ml_score = (_ml_net / _ml_moon_vol) * 100
+        _ml_score = max(-100.0, min(100.0, _ml_score))
+
+        # Breakdown
+        _ml_bd_parts = []
+        for k in sorted(_ml_gained_inv.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+            v = _ml_gained_inv[k]
+            if v > 0.001:
+                _ml_bd_parts.append(f"{k}[{v:.2f}]")
+        _ml_breakdown = ", ".join(_ml_bd_parts) if _ml_bd_parts else "-"
+
+        _ml_notes_parts = []
+        for k in sorted(_ml_sources.keys(), key=lambda x: get_p5_currency_rank_score(x), reverse=True):
+            entries = _ml_sources[k]
+            _ml_notes_parts.append(f"{k} from " + ", ".join(entries))
+        _ml_notes = "; ".join(_ml_notes_parts) if _ml_notes_parts else "-"
+
+        _ml_initial_debt_str = f"{-_ml_moon_vol:.2f}"
+        _ml_remaining_debt_str = f"{_ml_sim_debt:.2f}" if abs(_ml_sim_debt) >= 0.01 else '0.00'
+
+    # ====== END MOON LIGHT CALCULATOR ======
+
     df_bonus = pd.DataFrame(
         [
             ['Lagna Score', f"{sim_net_score:.2f}", '-100.00', remaining_debt_str, breakdown_str, notes_str],
-            ['Navamsa Lagna Score', f"{sim_nav_net_score:.2f}", '-100.00', nav_remaining_debt_str, nav_breakdown_str, nav_notes_str]
+            ['Navamsa Lagna Score', f"{sim_nav_net_score:.2f}", '-100.00', nav_remaining_debt_str, nav_breakdown_str, nav_notes_str],
+            ['Moon Light', f"{_ml_score:.2f}", _ml_initial_debt_str, _ml_remaining_debt_str, _ml_breakdown, _ml_notes]
         ],
         columns=['Simulation', 'Score', 'Initial Debt', 'Remaining Debt', 'Currency Breakdown', 'Notes']
     )
@@ -4832,11 +4966,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _la_lagna_sign = get_sign(lagna_sid)
     _la_lagna_lord = get_sign_lord(_la_lagna_sign)
 
-    # 1. Moon's Light — use final normalized score from NPS
-    _la_moon_score = _nps_score_dict.get('Moon', 0.0)
-    _la_moon_is_waxing = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
+    # 1. Moon's Light — use Moon Light Calculator score
+    _la_moon_score = _ml_score
+    _la_moon_is_waxing = _ml_is_waxing
     _la_moon_phase_label = 'Waxing' if _la_moon_is_waxing else 'Waning'
-    _la_moon_notes = f"{_la_moon_phase_label} Moon — Final Normalized Score = {_la_moon_score:.2f}"
+    _la_moon_notes = f"{_la_moon_phase_label} Moon — Moon Light Score = {_la_moon_score:.2f}"
 
     # 2. Lagna Lord Final Normalized Score from NPS
     _la_ll_adj = _nps_score_dict.get(_la_lagna_lord, 0.0)
