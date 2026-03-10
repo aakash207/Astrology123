@@ -657,22 +657,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         planet_data['Mars']['default_currency'] = f"Good Mars[{_mars_new_good:.2f}], Bad Mars[{_mars_new_bad:.2f}]"
         planet_data['Mars']['debt'] = f"{-_mars_new_bad:.2f}"
 
-    # Saturn in Taurus: switches from -100% malefic to -75 malefic and +25 benefic (Good Saturn)
-    if planet_data['Saturn']['sign'] == 'Taurus':
-        _saturn_bad = planet_data['Saturn']['final_inventory'].get('Bad Saturn', 0.0)
-        # Split: 75% stays as Bad Saturn, 25% becomes Good Saturn (benefic)
-        new_bad_saturn = _saturn_bad * 0.75
-        new_good_saturn = _saturn_bad * 0.25
-        planet_data['Saturn']['final_inventory']['Bad Saturn'] = new_bad_saturn
-        planet_data['Saturn']['final_inventory']['Good Saturn'] = new_good_saturn
-        # Update debt: Good Saturn reduces the debt
-        planet_data['Saturn']['current_debt'] = (-new_bad_saturn + new_good_saturn) if new_bad_saturn > 0 else 0.0
-        # Update display strings
-        saturn_parts = []
-        if new_good_saturn > 0: saturn_parts.append(f"Good Saturn[{new_good_saturn:.2f}]")
-        if new_bad_saturn > 0: saturn_parts.append(f"Bad Saturn[{new_bad_saturn:.2f}]")
-        planet_data['Saturn']['default_currency'] = ", ".join(saturn_parts)
-        planet_data['Saturn']['debt'] = f"{planet_data['Saturn']['current_debt']:.2f}"
 
     # HOUSE LORD BONUS: Good currency is added later, just before Phase 5 clones are created.
     # Volume is NOT boosted here — only currency is added at the Phase 5 step.
@@ -5359,21 +5343,44 @@ def generate_dasa_prompt(cd, lords):
     planetary_positions = '\n'.join(pp_lines)
 
     # ── 2. House Details ──────────────────────────────────────
-    # Show: House Name (Sign), House Planetary Score, House Lord Score
+    # Read directly from df_house_status (the House Analysis table)
+    # Columns: House, Planets, Aspects from, Lord, Lord in
+
     hd_lines = []
     if df_house_status is not None:
         for _, row in df_house_status.iterrows():
-            h_label = str(row['House'])          # "House 1" … "House 12"
-            h_num = int(h_label.split()[-1])     # extract number
-            h_name = _HOUSE_NAMES.get(h_num, '')
+            h_label = str(row['House'])                    # "House 1" … "House 12"
+            h_num = int(h_label.split()[-1])
             h_sign = _hp_sign.get(h_num, '')
-            hps = _hp_planetary_score.get(h_num, '-')
-            hls = _hp_lord_score.get(h_num, '-')
+
+            # Planets in house
+            planets_raw = str(row['Planets']).strip()
+            if planets_raw and planets_raw != 'Empty':
+                contains_str = 'Contains ' + planets_raw
+            else:
+                contains_str = 'Empty'
+
+            # Aspects from (already correctly computed in the table)
+            asp_raw = str(row['Aspects from']).strip()
+            if asp_raw and asp_raw != 'None':
+                asp_list = [a.strip() for a in asp_raw.split(',')]
+                if len(asp_list) > 1:
+                    aspects_str = 'Aspects from ' + ', '.join(asp_list)
+                else:
+                    aspects_str = 'Aspect from ' + asp_list[0]
+            else:
+                aspects_str = 'No Aspects'
+
+            # Lord and lord placement
+            h_lord = str(row['Lord']).strip()
+            lord_in = str(row['Lord in']).strip()         # "House 5" etc.
+            lord_str = f"Lord: {h_lord} (placed in {lord_in})" if h_lord else ''
+
             hd_lines.append(
-                f"{h_label} ({h_name} – {h_sign}): "
-                f"Planetary Score: {hps} | House Lord Score: {hls}"
+                f"{h_label} ({h_sign}): {contains_str} | "
+                f"{aspects_str} | {lord_str}"
             )
-    house_details = '\n'.join(hd_lines)
+    house_details = '\n\n'.join(hd_lines)
 
     # ── 3. Lord analysis prompt ───────────────────────────────
     _LEVEL_NAMES = ['Mahadasha', 'Bhukti', 'Antara', 'Sukshma']
@@ -5403,6 +5410,42 @@ def generate_dasa_prompt(cd, lords):
     explained = {}
     section_num = 0
     prompt_lines = []
+
+    # Add DOB and Dasa start date header
+    _birth_dob = cd.get('_birth_dob', '')
+    _birth_time = cd.get('_birth_time', '')
+    if _birth_dob:
+        prompt_lines.append(f"Date of Birth: {_birth_dob}  Time: {_birth_time}\n")
+
+    _dasa_filtered = cd.get('dasa_periods_filtered', [])
+    period_dates = {}
+    if lords and _dasa_filtered:
+        for _dl, _ds, _de, _dsubs in _dasa_filtered:
+            if _dl == lords[0]:
+                _ds_str = _ds.strftime('%d-%m-%Y') if hasattr(_ds, 'strftime') else str(_ds)
+                _de_str = _de.strftime('%d-%m-%Y') if hasattr(_de, 'strftime') else str(_de)
+                prompt_lines.append(f"Mahadasha: {lords[0]} | {_ds_str} to {_de_str}")
+                period_dates['mahadasha'] = {'lord': lords[0], 'start': _ds_str, 'end': _de_str}
+
+                if len(lords) > 1 and _dsubs:
+                    for _bl, _bs, _be, _bsubs in _dsubs:
+                        if _bl == lords[1]:
+                            _bs_str = _bs.strftime('%d-%m-%Y') if hasattr(_bs, 'strftime') else str(_bs)
+                            _be_str = _be.strftime('%d-%m-%Y') if hasattr(_be, 'strftime') else str(_be)
+                            prompt_lines.append(f"Bhukti: {lords[1]} | {_bs_str} to {_be_str}")
+                            period_dates['bhukti'] = {'lord': lords[1], 'start': _bs_str, 'end': _be_str}
+
+                            if len(lords) > 2 and _bsubs:
+                                for _al, _a_s, _a_e, _ in _bsubs:
+                                    if _al == lords[2]:
+                                        _a_s_str = _a_s.strftime('%d-%m-%Y') if hasattr(_a_s, 'strftime') else str(_a_s)
+                                        _a_e_str = _a_e.strftime('%d-%m-%Y') if hasattr(_a_e, 'strftime') else str(_a_e)
+                                        prompt_lines.append(f"Antara: {lords[2]} | {_a_s_str} to {_a_e_str}")
+                                        period_dates['antara'] = {'lord': lords[2], 'start': _a_s_str, 'end': _a_e_str}
+                                        break
+                            break
+                break
+        prompt_lines.append("")
 
     for idx, lord in enumerate(lords):
         level_name = _LEVEL_NAMES[idx] if idx < len(_LEVEL_NAMES) else f"Level{idx+1}"
@@ -5532,6 +5575,7 @@ def generate_dasa_prompt(cd, lords):
         "planetary_positions": planetary_positions,
         "house_details": house_details,
         "prompt_text": prompt_text,
+        "period_dates": period_dates,
     }
 
 
