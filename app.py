@@ -4832,7 +4832,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_initial_debt_str = '-'
         _ml_remaining_debt_str = '-'
     else:
-        # Waxing Moon — fresh simulation: ONLY good currency, gap-based caps, + house reserves
+        # Waxing Moon — fresh simulation: good AND bad currency (like Lagna sim), gap-based caps, + house reserves
         _ml_moon_L = phase5_data['Moon']['L']
         _ml_moon_vol = planet_data['Moon']['volume']   # from initial Planetary Positions table
         _ml_moon_sign = phase5_data['Moon']['sign']
@@ -4841,6 +4841,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         # Carry forward Moon's Phase 5 end-state currencies
         _ml_existing_inv = copy.deepcopy(dict(phase5_data['Moon']['p5_inventory']))
         _ml_existing_good = sum(v for k, v in _ml_existing_inv.items() if is_good_currency(k) and v > 0.001)
+        _ml_existing_bad = sum(v for k, v in _ml_existing_inv.items() if 'Bad' in k and v > 0.001)
         _ml_gap = _ml_moon_vol - _ml_initial_good  # artificial debt = volume - initial good (both from first table)
         _ml_sim_debt = -(_ml_gap) if _ml_gap > 0.001 else 0.0  # only add debt for the gap
 
@@ -4868,8 +4869,6 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 if _ml_sim_debt >= -0.001 or _ml_hr_sign_taken >= _ml_hr_sign_cap - 0.001:
                     break
                 if _ml_hr_val <= 0.001:
-                    continue
-                if not is_good_currency(_ml_hr_key):
                     continue
                 _ml_hr_take = min(abs(_ml_sim_debt), _ml_hr_val, _ml_hr_sign_cap - _ml_hr_sign_taken)
                 if _ml_hr_take > 0.001:
@@ -4912,7 +4911,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ml_benefic_pots = [p for p in _ml_universe_pots if not p['is_malefic']]
         _ml_ordered_pots = _ml_malefic_pots + _ml_benefic_pots
 
-        # Step C: Pull ONLY good currency from pots, with gap-based cap
+        _ml_good_from_malefic = defaultdict(float)  # good currency from malefic pots (halved later, like Lagna sim)
+
+        # Step C: Pull good AND bad currency from pots (like Lagna sim), with gap-based cap
         for _ml_pot in _ml_ordered_pots:
             if _ml_sim_debt >= -0.001:
                 break
@@ -4929,10 +4930,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _ml_max_pull = _ml_pot['volume'] * (_ml_cap_pct / 100.0)
             _ml_remaining_cap = _ml_max_pull
 
-            # Filter to ONLY good currencies (no bad, no Jupiter Poison)
+            # Take all currencies (good and bad), excluding Good Rahu (like Lagna sim)
             _ml_sorted_currencies = sorted(
                 [(k, v) for k, v in _ml_pot['inventory'].items()
-                 if v > 0.001 and is_good_currency(k) and k != 'Good Rahu' and k != 'Jupiter Poison'],
+                 if v > 0.001 and k != 'Good Rahu'],
                 key=lambda x: get_p5_currency_rank_score(x[0]),
                 reverse=True
             )
@@ -4948,21 +4949,37 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     _ml_remaining_cap -= take
                     _ml_src_label = _ml_pot['name']
                     _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
+                    # Track good currency from malefic pots (for halving later)
+                    if _ml_pot['is_malefic'] and is_good_currency(c_key) and c_key != 'Jupiter Poison':
+                        _ml_good_from_malefic[c_key] += take
 
-        # Calculate score: Moon Light = [(existing_good + gained_good) / volume] × 100
+
+        # Post-sim: halve good currency that came from malefic pots (like Lagna sim)
+        for _ml_gm_key, _ml_gm_amount in _ml_good_from_malefic.items():
+            _ml_penalty = _ml_gm_amount * 0.50
+            _ml_gained_inv[_ml_gm_key] -= _ml_penalty
+        # Calculate score: Moon Light = [(good - bad) / volume] × 100  (like Lagna sim)
         _ml_gained_good = sum(v for k, v in _ml_gained_inv.items() if is_good_currency(k))
+        _ml_gained_bad = sum(v for k, v in _ml_gained_inv.items() if 'Bad' in k)
+        # Jupiter Poison: treat as bad (like Lagna sim)
+        _ml_jp_poison = _ml_gained_inv.get('Jupiter Poison', 0.0)
+        if _ml_jp_poison > 0.001:
+            _ml_gained_good -= _ml_jp_poison
+            _ml_gained_bad += _ml_jp_poison
         _ml_total_good = _ml_existing_good + _ml_gained_good
+        _ml_total_bad = _ml_existing_bad + _ml_gained_bad
+        _ml_net_score = _ml_total_good - _ml_total_bad
 
         if abs(_ml_moon_vol) < 0.001:
             _ml_score = 0.0
         else:
-            _ml_score = (_ml_total_good / _ml_moon_vol) * 100
+            _ml_score = (_ml_net_score / _ml_moon_vol) * 100
         _ml_score = max(-100.0, min(100.0, _ml_score))
 
-        # Breakdown — show existing currencies + newly gained
+        # Breakdown — show existing currencies + newly gained (good and bad)
         _ml_combined_inv = defaultdict(float)
         for k, v in _ml_existing_inv.items():
-            if v > 0.001 and is_good_currency(k):
+            if v > 0.001:
                 _ml_combined_inv[k] += v
         for k, v in _ml_gained_inv.items():
             if v > 0.001:
@@ -4979,8 +4996,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             entries = _ml_sources[k]
             _ml_notes_parts.append(f"{k} from " + ", ".join(entries))
         _ml_notes = "; ".join(_ml_notes_parts) if _ml_notes_parts else "-"
-        if _ml_existing_good > 0.001:
-            _ml_notes = f"Existing good={_ml_existing_good:.2f}, Gap debt={_ml_gap:.2f}; " + _ml_notes
+        if _ml_existing_good > 0.001 or _ml_existing_bad > 0.001:
+            _ml_notes = f"Existing good={_ml_existing_good:.2f}, bad={_ml_existing_bad:.2f}, Gap debt={_ml_gap:.2f}; " + _ml_notes
 
         _ml_initial_debt_str = f"{-_ml_gap:.2f}" if _ml_gap > 0.001 else '0.00'
         _ml_remaining_debt_str = f"{_ml_sim_debt:.2f}" if abs(_ml_sim_debt) >= 0.01 else '0.00'
