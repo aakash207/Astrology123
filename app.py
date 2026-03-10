@@ -4887,7 +4887,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 'inventory': _ml_pot_inv,
                 'volume': _ml_pot_vol,
                 'is_malefic': _sim_is_malefic(_ml_p),
-                'kind': 'real'
+                'kind': 'real',
+                'parent': _ml_p
             })
 
         # Add clone pots (fresh deep copy)
@@ -4901,7 +4902,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 'inventory': _ml_cl_inv,
                 'volume': _ml_cl_vol,
                 'is_malefic': _sim_is_malefic(_ml_parent),
-                'kind': 'clone'
+                'kind': 'clone',
+                'parent': _ml_parent
             })
 
         # Order: by closest distance to Moon (not malefic-first)
@@ -4919,6 +4921,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
             if _ml_deg_gap > 22:
                 continue
+
+            # Hierarchy check: Moon can only take from planets it's allowed to per debtor_rank
+            _ml_pot_parent = _ml_pot.get('parent', _ml_pot['name'])
+            if _ml_pot_parent != 'Moon':  # skip self (Moon excluded from pot list anyway)
+                _ml_moon_is_malefic = _sim_is_malefic('Moon')
+                _ml_pot_parent_is_malefic = _sim_is_malefic(_ml_pot_parent)
+                if _ml_moon_is_malefic and _ml_pot_parent_is_malefic:
+                    # Both malefic: use navamsa_malefic_hierarchy (lower rank = higher hierarchy)
+                    _ml_moon_mal_rank = navamsa_malefic_hierarchy.get('Moon', 99)
+                    _ml_pot_mal_rank = navamsa_malefic_hierarchy.get(_ml_pot_parent, 99)
+                    if _ml_moon_mal_rank >= _ml_pot_mal_rank:
+                        continue  # Moon's hierarchy is lower or equal, cannot take
+                else:
+                    # Use debtor_rank position
+                    _ml_moon_dr_idx = debtor_rank.index('Moon') if 'Moon' in debtor_rank else 99
+                    _ml_pot_dr_idx = debtor_rank.index(_ml_pot_parent) if _ml_pot_parent in debtor_rank else 99
+                    if _ml_moon_dr_idx > _ml_pot_dr_idx:
+                        continue  # Moon appears later in debtor_rank, cannot take from earlier planet
+
 
             _ml_cap_pct = mix_dict.get(_ml_deg_gap, 0)
             _ml_max_pull = _ml_pot['volume'] * (_ml_cap_pct / 100.0)
