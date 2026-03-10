@@ -2345,6 +2345,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
         # Add good currency to Phase 5 inventory (volume already correct from init)
         phase5_data[_hlb5_p]['p5_inventory'][_hlb5_key] += _hlb5_amount
+        phase5_data[_hlb5_p]['p5_current_debt'] += _hlb5_amount  # reduce debt by same amount of good currency added
         _hlb5_bonus_amounts[_hlb5_p] = _hlb5_amount
 
     # Snapshot inventories & debts BEFORE any exchange, so all clones are created simultaneously
@@ -3776,13 +3777,13 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             raw_khs = (_khs_avg / 10.0) * 2
             _khs_val = min(raw_khs, 20.0)
 
-        # House Lord Bonus add-on to normalized score
-        _hlb5_nps_addon = _hlb5_bonus_amounts.get(p, 0.0)
-        if _hlb5_nps_addon > 0.001:
-            final_ns += _hlb5_nps_addon
-            formula_type += f" + HLB({_hlb5_nps_addon:.2f})"
+        # House Lord Bonus add-on REMOVED from normalized score
+        # _hlb5_nps_addon = _hlb5_bonus_amounts.get(p, 0.0)  # removed: HLB no longer in NPS
+        # if _hlb5_nps_addon > 0.001:  # removed
+        #     final_ns += _hlb5_nps_addon  # removed
+        #     formula_type += f" + HLB(...)"  # removed
 
-        _ns_without_khs = final_ns  # capture score before KHS (includes HLB)
+        _ns_without_khs = final_ns  # capture score before KHS
 
         final_ns += _khs_val
         if abs(_khs_val) > 0.001:
