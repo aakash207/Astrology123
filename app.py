@@ -4851,14 +4851,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
         _ml_hr_copy = copy.deepcopy(dict(house_reserves))  # don't affect real reserves
         for _ml_hr_sign in [_ml_moon_sign]:  # only pull from reserve of Moon's own sign
-            if _ml_sim_debt >= -0.001:
-                break
             _ml_hr_sign_dict = _ml_hr_copy.get(_ml_hr_sign, {})
             if not _ml_hr_sign_dict:
                 continue
-            # Debt cap for this sign: use Phase 4 pot_debt_cap_pct if available, else 100%
+            # Receiving cap for this sign: use Phase 4 pot_debt_cap_pct if available, else 100%
             _ml_hr_cap_frac = pot_debt_cap_pct.get(_ml_hr_sign, 1.0)
-            _ml_hr_sign_cap = abs(_ml_sim_debt) * _ml_hr_cap_frac
+            _ml_hr_sign_cap = _ml_gap * _ml_hr_cap_frac  # cap based on gap, not running debt
             # 11th house reserve: restrict to 50% of its total
             if _ml_hr_sign == house_11_sign:
                 _ml_hr_11_total = sum(v for v in _ml_hr_sign_dict.values() if v > 0.001)
@@ -4866,11 +4864,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _ml_hr_sign_taken = 0.0
 
             for _ml_hr_key, _ml_hr_val in sorted(_ml_hr_sign_dict.items(), key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True):
-                if _ml_sim_debt >= -0.001 or _ml_hr_sign_taken >= _ml_hr_sign_cap - 0.001:
+                if _ml_hr_sign_taken >= _ml_hr_sign_cap - 0.001:
                     break
                 if _ml_hr_val <= 0.001:
                     continue
-                _ml_hr_take = min(abs(_ml_sim_debt), _ml_hr_val, _ml_hr_sign_cap - _ml_hr_sign_taken)
+                _ml_hr_take = min(_ml_hr_val, _ml_hr_sign_cap - _ml_hr_sign_taken)  # no debt limit
                 if _ml_hr_take > 0.001:
                     _ml_gained_inv[_ml_hr_key] += _ml_hr_take
                     _ml_sim_debt += _ml_hr_take
@@ -4906,16 +4904,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 'kind': 'clone'
             })
 
-        # Order: malefic first, then benefic
-        _ml_malefic_pots = [p for p in _ml_universe_pots if p['is_malefic']]
-        _ml_benefic_pots = [p for p in _ml_universe_pots if not p['is_malefic']]
-        _ml_ordered_pots = _ml_malefic_pots + _ml_benefic_pots
+        # Order: by closest distance to Moon (not malefic-first)
+        def _ml_pot_dist(p):
+            d = abs(_ml_moon_L - p['L'])
+            return d if d <= 180 else 360 - d
+        _ml_ordered_pots = sorted(_ml_universe_pots, key=_ml_pot_dist)
 
-        # Step C: Pull good AND bad currency from pots (like Lagna sim), with gap-based cap
+        # Step C: Pull good AND bad currency from pots, distance-ordered, no debt check
         for _ml_pot in _ml_ordered_pots:
-            if _ml_sim_debt >= -0.001 and _ml_pot["is_malefic"]:
-                break
-
             _ml_raw_diff = abs(_ml_moon_L - _ml_pot['L'])
             if _ml_raw_diff > 180:
                 _ml_raw_diff = 360 - _ml_raw_diff
@@ -4930,85 +4926,49 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
             # Take all currencies (good and bad), excluding Good Rahu
             _ml_all_currencies = [(k, v) for k, v in _ml_pot['inventory'].items()
-                 if v > 0.001 and k != 'Good Rahu']
+                   if v > 0.001 and k != 'Good Rahu']
 
-            if _ml_pot['is_malefic']:
-                # Malefic pot: interleave good and bad (1 good, 1 bad, 1 good, ...)
-                _ml_good_list = sorted(
-                    [(k, v) for k, v in _ml_all_currencies if is_good_currency(k)],
-                    key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
-                _ml_bad_list = sorted(
-                    [(k, v) for k, v in _ml_all_currencies if not is_good_currency(k)],
-                    key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
-                _ml_sorted_currencies = []
-                _ml_gi, _ml_bi = 0, 0
-                _ml_pick_good = True  # start with good
-                while _ml_gi < len(_ml_good_list) or _ml_bi < len(_ml_bad_list):
-                    if _ml_pick_good and _ml_gi < len(_ml_good_list):
-                        _ml_sorted_currencies.append(_ml_good_list[_ml_gi])
-                        _ml_gi += 1
-                    elif not _ml_pick_good and _ml_bi < len(_ml_bad_list):
-                        _ml_sorted_currencies.append(_ml_bad_list[_ml_bi])
-                        _ml_bi += 1
-                    elif _ml_gi < len(_ml_good_list):
-                        _ml_sorted_currencies.append(_ml_good_list[_ml_gi])
-                        _ml_gi += 1
-                    elif _ml_bi < len(_ml_bad_list):
-                        _ml_sorted_currencies.append(_ml_bad_list[_ml_bi])
-                        _ml_bi += 1
-                    _ml_pick_good = not _ml_pick_good
-            else:
-                # Benefic pot: take all by rank order (unchanged)
-                _ml_sorted_currencies = sorted(
-                    _ml_all_currencies,
-                    key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
+            # Interleave: good, bad, good, bad... by hierarchy rank
+            _ml_good_list = sorted(
+                [(k, v) for k, v in _ml_all_currencies if is_good_currency(k)],
+                key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
+            _ml_bad_list = sorted(
+                [(k, v) for k, v in _ml_all_currencies if not is_good_currency(k)],
+                key=lambda x: get_p5_currency_rank_score(x[0]), reverse=True)
+            _ml_sorted_currencies = []
+            _ml_gi, _ml_bi = 0, 0
+            _ml_pick_good = True  # start with good
+            while _ml_gi < len(_ml_good_list) or _ml_bi < len(_ml_bad_list):
+                if _ml_pick_good and _ml_gi < len(_ml_good_list):
+                    _ml_sorted_currencies.append(_ml_good_list[_ml_gi])
+                    _ml_gi += 1
+                elif not _ml_pick_good and _ml_bi < len(_ml_bad_list):
+                    _ml_sorted_currencies.append(_ml_bad_list[_ml_bi])
+                    _ml_bi += 1
+                elif _ml_gi < len(_ml_good_list):
+                    _ml_sorted_currencies.append(_ml_good_list[_ml_gi])
+                    _ml_gi += 1
+                elif _ml_bi < len(_ml_bad_list):
+                    _ml_sorted_currencies.append(_ml_bad_list[_ml_bi])
+                    _ml_bi += 1
+                _ml_pick_good = not _ml_pick_good
 
-            if _ml_pot['is_malefic']:
-                # Malefic pot: take exactly 1 good + 1 bad, then move to next pot
-                _ml_took_good = False
-                _ml_took_bad = False
-                for c_key, c_avail in _ml_sorted_currencies:
-                    if _ml_remaining_cap <= 0.001:
-                        break
-                    _ml_c_is_good = is_good_currency(c_key)
-                    if _ml_c_is_good and _ml_took_good:
-                        continue  # already took 1 good
-                    if not _ml_c_is_good and _ml_took_bad:
-                        continue  # already took 1 bad
-                    if _ml_took_good and _ml_took_bad:
-                        break  # took 1 of each, move on
-                    needed = c_avail  # malefic: take full available for both good and bad (paired exchange)
-                    take = min(needed, c_avail, _ml_remaining_cap)
-                    if take > 0.001:
-                        _ml_gained_inv[c_key] += take
-                        if _ml_c_is_good:
-                            _ml_sim_debt += take  # good reduces debt
-                        else:
-                            _ml_sim_debt -= take  # bad increases debt
-                        _ml_remaining_cap -= take
-                        _ml_src_label = _ml_pot['name']
-                        _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
-                        if _ml_c_is_good:
-                            _ml_took_good = True
-                        else:
-                            _ml_took_bad = True
-            else:
-                # Benefic pot: take all by rank, good reduces debt, bad increases debt
-                for c_key, c_avail in _ml_sorted_currencies:
-                    if _ml_remaining_cap <= 0.001:  # no debt check — take irrespective of debt
-                        break
-                    _ml_c_is_good = is_good_currency(c_key)
-                    needed = c_avail  # take full available irrespective of debt
-                    take = min(needed, c_avail, _ml_remaining_cap)
-                    if take > 0.001:
-                        _ml_gained_inv[c_key] += take
-                        if _ml_c_is_good:
-                            _ml_sim_debt += take  # good reduces debt
-                        else:
-                            _ml_sim_debt -= take  # bad increases debt
-                        _ml_remaining_cap -= take
-                        _ml_src_label = _ml_pot['name']
-                        _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
+            # Take all currencies in interleaved order up to remaining_cap (no debt check)
+            for c_key, c_avail in _ml_sorted_currencies:
+                if _ml_remaining_cap <= 0.001:
+                    break
+                _ml_c_is_good = is_good_currency(c_key)
+                take = min(c_avail, _ml_remaining_cap)
+                if take > 0.001:
+                    _ml_gained_inv[c_key] += take
+                    if _ml_c_is_good:
+                        _ml_sim_debt += take  # good reduces debt
+                    else:
+                        _ml_sim_debt -= take  # bad increases debt
+                    _ml_remaining_cap -= take
+                    _ml_src_label = _ml_pot['name']
+                    _ml_sources.setdefault(c_key, []).append(f"{_ml_src_label}({take:.2f})")
+
 
 
         # Calculate score: Moon Light = [(good - bad) / volume] × 100  (like Lagna sim)
