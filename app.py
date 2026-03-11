@@ -2326,7 +2326,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     # HOUSE LORD BONUS (Good Currency): Add good currency just before Phase 5 clones.
     # Volume is NOT boosted — only good currency is added here.
     _hlb5_bonus_amounts = {}  # Track bonus amounts per planet for NPS add-on
-    _hlb5_pct_map = {'Uchcham': 20, 'Moolathirigonam': 16, 'Aatchi': 12}
+    _hlb5_pct_map = {'Uchcham': 40, 'Moolathirigonam': 32, 'Aatchi': 24}
     _hlb5_negative_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
     for _hlb5_p in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']:
         _hlb5_sign = phase5_data[_hlb5_p]['sign']
@@ -4130,11 +4130,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ps_lord = get_sign_lord(_ps_sign)
         _lord_st = planet_status_map.get(_ps_lord, '-') if _ps_lord else '-'
         if _lord_st == 'Uchcham':
-            _hl_adj = 20.0
+            _hl_adj = 40.0
         elif _lord_st == 'Moolathirigonam':
-            _hl_adj = 16.0
+            _hl_adj = 32.0
         elif _lord_st == 'Aatchi':
-            _hl_adj = 12.0
+            _hl_adj = 24.0
         elif _lord_st == 'Neecham':
             _hl_adj = -20.0
         else:
