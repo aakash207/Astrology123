@@ -3462,25 +3462,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             if own_key:
                 own_val = clone['inventory'].get(own_key, 0.0)
                 if own_val > 0.001:
-                    # NEW LOGIC: Mars/Saturn check specifically for Enemy House
-                    is_enemy_house = False
-                    if parent in ['Mars', 'Saturn']:
-                         # Special rule: Mars in Leo is never negative for enemy houses
-                         if parent == 'Mars' and planet_data['Mars']['sign'] == 'Leo':
-                             is_enemy_house = False
-                         else:
-                             target_lord = get_sign_lord(target_sign)
-                             relation = check_friendship(parent, target_lord)
-                             if relation == 'Enemy':
-                                 is_enemy_house = True
-                    
-                    if is_enemy_house:
-                        aspect_score[target_sign] -= own_val
-                        aspect_sources[target_sign].append(f"{parent}(Own Good converted to Neg [Enemy House])")
-                    else:
-                        bonus = own_val
-                        aspect_score[target_sign] += bonus
-                        aspect_sources[target_sign].append(f"{parent}(Own Good)")
+                    aspect_score[target_sign] += own_val
+                    aspect_sources[target_sign].append(f"{parent}(Own Good)")
         else:
             good_total = 0.0
             for c_key, c_val in clone['inventory'].items():
