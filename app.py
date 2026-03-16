@@ -129,10 +129,47 @@ maraivu_percentage = {
     'Mercury': {3: 25, 6: 50, 8: 100, 12: 50},
     'Jupiter': {3: 25, 6: 75, 8: 100, 12: 50},
     'Mars':    {3: 25, 6: 75, 8: 100, 12: 50},
-    'Saturn':  {3: 25, 6: 75, 8: 100, 12: 50},
+    'Saturn':  {3: 25, 6: 75, 8: 50, 12: 75},
     'Rahu':    {3: 25, 6: 75, 8: 100, 12: 50},
     'Ketu':    {3: 25, 6: 75, 8: 100, 12: 50},
 }
+
+# Maraivu dignity reduction: planet's dignity lowers effective maraivu.
+# Order: Uchcham → 80% reduction, Moolathirigonam → 70%, Aatchi → 60%, Friendly sign → 50%
+MARAIVU_DIGNITY_REDUCTION = {
+    'Uchcham': 0.80,
+    'Moolathirigonam': 0.70,
+    'Aatchi': 0.60,
+}
+
+# Natural friendships used specifically for maraivu friendly-sign reduction
+MARAIVU_FRIENDSHIPS = {
+    'Sun':     ['Moon', 'Mars', 'Jupiter'],
+    'Moon':    ['Sun', 'Mars', 'Jupiter'],
+    'Mars':    ['Sun', 'Moon', 'Jupiter', 'Venus'],
+    'Mercury': ['Sun', 'Venus', 'Saturn'],
+    'Jupiter': ['Sun', 'Moon', 'Mars'],
+    'Venus':   ['Mercury', 'Saturn'],
+    'Saturn':  ['Mercury', 'Venus'],
+}
+
+def compute_updated_maraivu(base_pct, planet_name, planet_status, planet_sign):
+    """Reduce base maraivu % based on planet dignity.
+    Returns updated maraivu (float). Suchama uses original base_pct."""
+    if base_pct is None or base_pct <= 0:
+        return base_pct
+    updated = float(base_pct)
+    # 1. Dignity-based reduction (Uchcham / Moolatrikona / Aatchi)
+    reduction = MARAIVU_DIGNITY_REDUCTION.get(planet_status, 0)
+    if reduction > 0:
+        updated = updated * (1.0 - reduction)
+    # 2. Friendly sign reduction: house lord (sign lord) is a friend of the planet
+    sign_lord = get_sign_lord(planet_sign) if planet_sign else None
+    if sign_lord and sign_lord != planet_name:
+        friends = MARAIVU_FRIENDSHIPS.get(planet_name, [])
+        if sign_lord in friends:
+            updated = updated * (1.0 - 0.50)
+    return round(updated, 1)
 
 # MODIFICATION 1: Planet to ruled signs mapping
 planet_ruled_signs = {
@@ -671,6 +708,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
         data = planet_data[p]
+        # Maraivu percentage for this planet in its current house
+        _p_house = planet_house_map.get(p, 0)
+        _m_pct = maraivu_percentage.get(p, {}).get(_p_house, None)
+        # Compute updated maraivu (reduced by dignity / friendly sign)
+        _p_eff_status = data.get('updated_status') if data.get('updated_status') not in ('-', '', None) else data.get('status', '-')
+        _m_updated = compute_updated_maraivu(_m_pct, p, _p_eff_status, data['sign'])
+        if _m_pct is not None:
+            _m_display = f"{_m_pct}%" if _m_updated == _m_pct else f"{_m_updated}% (base {_m_pct}%)"
+        else:
+            _m_display = '-'
         rows.append([
             p, f"{data['L']:.2f}", data['sign'], data['nak'], data['pada'], data['ld_sl'], 
             data['vargothuva'],
@@ -681,7 +728,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             data['updated_status'],
             f"{data['volume']:.2f}", 
             data['default_currency'], 
-            data['debt']
+            data['debt'],
+            _m_display
         ])
     
     # NAVAMSA EXCHANGE LOGIC (Phase 1) - MODIFICATION 3: Fixed Malefic Hierarchy
@@ -2326,7 +2374,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     # HOUSE LORD BONUS (Good Currency): Add good currency just before Phase 5 clones.
     # Volume is NOT boosted — only good currency is added here.
     _hlb5_bonus_amounts = {}  # Track bonus amounts per planet for NPS add-on
-    _hlb5_pct_map = {'Uchcham': 40, 'Moolathirigonam': 32, 'Aatchi': 24}
+    _hlb5_pct_map = {'Uchcham': 30, 'Moolathirigonam': 24, 'Aatchi': 18}
     _hlb5_negative_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
     for _hlb5_p in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn']:
         _hlb5_sign = phase5_data[_hlb5_p]['sign']
@@ -2369,6 +2417,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     ASPECT_RULES = {
         'Saturn': {3: 0.25, 7: 1.0, 10: 0.75},
         'Mars': {4: 0.40, 7: 1.0, 8: 0.25},
+        'Sun': {7: 0.50},
         'Jupiter': {5: 1.0, 7: 1.0, 9: 1.0},
         'Venus': {7: 1.0},
         'Mercury': {7: 1.0},
@@ -2402,7 +2451,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     def is_moon_malefic_p5():
         return phase5_data['Moon']['bad_inv'] > 0.001
     
-    PLANET_SEQUENCE = ['Saturn', 'Mars', 'Jupiter', 'Venus', 'Mercury', 'Moon']
+    PLANET_SEQUENCE = ['Saturn', 'Mars', 'Sun', 'Jupiter', 'Venus', 'Mercury', 'Moon']
     _jp_poison_notes = []  # Jupiter Poison diagnostic notes (initialized before loop)
     _jp_poison_case_final = None  # Stores which case caused poison: 'CaseA_Venus' or 'CaseB_Moon'
     all_planet_clones = {}  # stores clones per planet, created simultaneously
@@ -2497,6 +2546,36 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     _mars_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
                     _mars_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
                     clone_debt = (_mars_good_total - _mars_bad_total) * aspect_pct * scaling_factor
+                else:
+                    clone_debt = parent_debt * aspect_pct * scaling_factor
+                clone_type = 'Active'
+                
+            elif current_planet == 'Sun':
+                # Sun (malefic): Good Sun at full value, other good currencies at half
+                good_sum = 0.0
+                for k, v in parent_inv.items():
+                    if is_good_currency(k) and v > 0.001:
+                        if k == 'Good Sun':
+                            good_sum += v
+                        else:
+                            good_sum += v / 2.0
+                
+                clone_value = aspect_pct * good_sum * scaling_factor
+                if clone_value > 0.001:
+                    clone_inventory['Good Sun'] = clone_value
+                
+                # Bad currencies: carry proportionally from parent snapshot
+                for k, v in parent_inv.items():
+                    if 'Bad' in k and v > 0.001:
+                        bad_clone_val = v * aspect_pct * scaling_factor
+                        if bad_clone_val > 0.001:
+                            clone_inventory[k] = bad_clone_val
+                
+                # Neecha/Neechabhangam Sun: debt = net(Good - Bad) from parent snapshot
+                if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+                    _sun_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
+                    _sun_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
+                    clone_debt = (_sun_good_total - _sun_bad_total) * aspect_pct * scaling_factor
                 else:
                     clone_debt = parent_debt * aspect_pct * scaling_factor
                 clone_type = 'Active'
@@ -3240,6 +3319,89 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             ])
             all_leftover_clones.append(clone)
     
+    # ═══════════════════════════════════════════════════════════════════════
+    # SUN HEALING PULL: Sun's real planet pulls directly from real Mars &
+    # Mercury (not clones) if within 22°.  For every 1 unit Sun takes,
+    # the donor planet heals and generates 0.5 "Good <self>" back.
+    # Uses the same absorb-limit cap (mix_dict) and volume-based ceiling.
+    # This runs iteratively until Sun's debt is satisfied or sources dry.
+    # ═══════════════════════════════════════════════════════════════════════
+    _sun_L = phase5_data['Sun']['L']
+    _sun_heal_targets = []          # Mars / Mercury if within 22°
+    for _sh_p in ('Mars', 'Mercury'):
+        _sh_diff = abs(_sun_L - phase5_data[_sh_p]['L'])
+        if _sh_diff > 180:
+            _sh_diff = 360 - _sh_diff
+        _sh_gap = int(_sh_diff)
+        if _sh_gap <= 22:
+            _sun_heal_targets.append((_sh_p, _sh_gap))
+    # Sort by proximity (closest first)
+    _sun_heal_targets.sort(key=lambda x: x[1])
+
+    if _sun_heal_targets and phase5_data['Sun']['p5_current_debt'] < -0.001:
+        _sh_cycle_limit = 500
+        _sh_cycles = 0
+        while _sh_cycles < _sh_cycle_limit:
+            _sh_cycles += 1
+            _sh_did_something = False
+
+            for _sh_p, _sh_gap in _sun_heal_targets:
+                if phase5_data['Sun']['p5_current_debt'] >= -0.001:
+                    break
+
+                _sh_target_vol = phase5_data[_sh_p]['volume']
+                _sh_cap_pct = mix_dict.get(_sh_gap, 0)
+                _sh_max_pull = _sh_target_vol * (_sh_cap_pct / 100.0)
+
+                _sh_tracker = f"sun_heal_pulled_from_{_sh_p}"
+                _sh_already = phase5_data['Sun'].get(_sh_tracker, 0.0)
+                _sh_remaining_cap = _sh_max_pull - _sh_already
+                if _sh_remaining_cap <= 0.001:
+                    continue
+
+                # Collect good currencies from the target planet
+                _sh_inv = phase5_data[_sh_p]['p5_inventory']
+                _sh_avail = []
+                for _shk, _shv in _sh_inv.items():
+                    if _shk == 'Good Rahu':
+                        continue
+                    if _shv > 0.001 and is_good_currency(_shk):
+                        _sh_avail.append((_shk, _shv, get_p5_currency_rank_score(_shk)))
+                _sh_avail.sort(key=lambda x: -x[2])
+
+                for _shk, _shv, _ in _sh_avail:
+                    if phase5_data['Sun']['p5_current_debt'] >= -0.001:
+                        break
+                    if _sh_remaining_cap <= 0.001:
+                        break
+
+                    _sh_curr_val = _sh_inv.get(_shk, 0.0)
+                    if _sh_curr_val <= 0.001:
+                        continue
+
+                    _sh_needed = abs(phase5_data['Sun']['p5_current_debt'])
+                    _sh_take = min(1.0, _sh_needed, _sh_curr_val, _sh_remaining_cap)
+                    if _sh_take > 0.001:
+                        # Sun absorbs
+                        phase5_data[_sh_p]['p5_inventory'][_shk] -= _sh_take
+                        phase5_data[_sh_p]['p5_current_debt'] -= _sh_take
+                        phase5_data['Sun']['p5_inventory'][_shk] = phase5_data['Sun']['p5_inventory'].get(_shk, 0.0) + _sh_take
+                        phase5_data['Sun']['p5_current_debt'] += _sh_take
+
+                        # Healing: donor generates 0.5× Good <self>
+                        _sh_heal_key = f"Good {_sh_p}"
+                        _sh_heal_amt = _sh_take * 0.5
+                        phase5_data[_sh_p]['p5_inventory'][_sh_heal_key] = phase5_data[_sh_p]['p5_inventory'].get(_sh_heal_key, 0.0) + _sh_heal_amt
+                        phase5_data[_sh_p]['p5_current_debt'] += _sh_heal_amt
+
+                        phase5_data['Sun'][_sh_tracker] = _sh_already + _sh_take
+                        _sh_remaining_cap -= _sh_take
+                        _sh_already += _sh_take
+                        _sh_did_something = True
+
+            if not _sh_did_something:
+                break
+
     # ---- JUPITER POISON POST-SHARING DEBT APPLICATION ----
     # Debt multiplier depends on which case caused the poison:
     #   CaseB_Moon  -> -1.0 per unit;  CaseA_Venus -> -0.5 per unit;  default (none) -> 0
@@ -4456,7 +4618,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     df_planets = pd.DataFrame(rows, columns=['Planet','Deg','Sign','Nakshatra','Pada','Ld/SL','Vargothuva',
                                              'Parivardhana',
                                              'Dig Bala (%)','Sthana Bala (%)','Status','Updated Status',
-                                             'Volume', 'Default Currencies', 'Debt'])
+                                             'Volume', 'Default Currencies', 'Debt', 'Maraivu (%)'])
 
     # ---- NAVAMSA (D9) POSITIONS TABLE (using reference formula) ----
     nav_pos_rows = []
@@ -4494,7 +4656,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                            for h in range(1,13)], columns=['House','Sign','Planets'])
 
     lagna_sign = get_sign(lagna_sid)
-    aspects_dict = {'Sun':[7],'Moon':[7],'Mars':[4,7,8],'Mercury':[7],'Jupiter':[5,7,9],'Venus':[7],'Saturn':[3,7,10]}
+    # Sun aspects shown in House Analysis ONLY when Sun is in Kumbha (Aquarius)
+    aspects_dict = {'Moon':[7],'Mars':[4,7,8],'Mercury':[7],'Jupiter':[5,7,9],'Venus':[7],'Saturn':[3,7,10]}
+    if planet_sign_map.get('Sun', '') == 'Aquarius':
+        aspects_dict['Sun'] = [7]
     planet_to_house = {p.capitalize(): get_house(lon_sid[p], lagna_sid) for p in lon_sid}
     house_status = []
     for h in range(1,13):
@@ -5455,6 +5620,10 @@ def generate_dasa_prompt(cd, lords):
                 pari = row.get('Parivardhana', '-')
                 if pari and str(pari) not in ('-', 'nan', ''):
                     parts.append(f"Parivardhana: {pari}")
+                # Maraivu: only if applicable (planet in 3,6,8,12)
+                m_val = row.get('Maraivu (%)', '-')
+                if m_val and str(m_val) not in ('-', 'nan', ''):
+                    parts.append(f"Maraivu: {m_val}")  # shows updated % (base %) when reduced
                 # Normalised Score (with KHS)
                 ns_val = _norm_score_map.get(planet_name, '')
                 if ns_val != '':
