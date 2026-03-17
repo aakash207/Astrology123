@@ -4005,25 +4005,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         # New: Need to capture the Adjusted Score for use in House Points later
         final_adjusted_score = 0.0
 
-        # Compute updated maraivu % (reduced by status) for Adjusted Score only
-        _um_pct = m_pct  # default to raw maraivu %
-        if m_pct is not None and m_pct > 0:
-            _um_status = planet_status_map.get(p, '-')
-            if _um_status == 'Uchcham':
-                _um_pct = m_pct * 0.50
-            elif _um_status == 'Moolathirigonam':
-                _um_pct = m_pct * 0.60
-            elif _um_status == 'Aatchi':
-                _um_pct = m_pct * 0.70
-            else:
-                # Check Friend's House
-                _um_lagna_sign = get_sign(lagna_sid)
-                _um_house_sign = sign_names[(sign_names.index(_um_lagna_sign) + (p_house - 1)) % 12]
-                _um_house_lord = sign_lords[sign_names.index(_um_house_sign)]
-                _um_p_grp = 'A' if p in group_a else 'B'
-                _um_l_grp = 'A' if _um_house_lord in group_a else 'B'
-                if _um_p_grp == _um_l_grp:
-                    _um_pct = m_pct * 0.75
+        # Compute updated maraivu % (reduced by dignity + friendly sign, multiplicative)
+        _um_pct = compute_updated_maraivu(m_pct, p, planet_status_map.get(p, '-'), planet_sign_map.get(p, ''))
 
         if p in benefic_set:
             # Benefic logic
@@ -4372,26 +4355,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ps_rh = phase5_data[_ps_p]['rasi_house']
         _ps_base_maraivu = maraivu_percentage.get(_ps_p, {}).get(_ps_rh, 0)
 
-        _ps_updated_maraivu = _ps_base_maraivu  # start with base
-        if _ps_base_maraivu > 0:
-            # Check status-based reduction (reduce BY x% of the base value)
-            _ps_planet_status = planet_status_map.get(_ps_p, '-')
-            if _ps_planet_status == 'Uchcham':
-                _ps_updated_maraivu = _ps_base_maraivu * 0.50       # reduce by 50%
-            elif _ps_planet_status == 'Moolathirigonam':
-                _ps_updated_maraivu = _ps_base_maraivu * 0.60       # reduce by 40%
-            elif _ps_planet_status == 'Aatchi':
-                _ps_updated_maraivu = _ps_base_maraivu * 0.70       # reduce by 30%
-            else:
-                # Check Friend's House: planet and house lord in same group
-                _ps_fr_group_a = {'Sun', 'Moon', 'Mars', 'Jupiter', 'Ketu'}
-                _ps_fr_group_b = {'Venus', 'Mercury', 'Saturn', 'Rahu'}
-                _ps_house_sign = sign_names[(sign_names.index(get_sign(lagna_sid)) + (_ps_rh - 1)) % 12]
-                _ps_house_lord = sign_lords[sign_names.index(_ps_house_sign)]
-                _ps_p_grp = 'A' if _ps_p in _ps_fr_group_a else 'B'
-                _ps_l_grp = 'A' if _ps_house_lord in _ps_fr_group_a else 'B'
-                if _ps_p_grp == _ps_l_grp:
-                    _ps_updated_maraivu = _ps_base_maraivu * 0.75   # reduce by 25%
+        # Compute updated maraivu % (reduced by dignity + friendly sign, multiplicative)
+        _ps_updated_maraivu = compute_updated_maraivu(_ps_base_maraivu, _ps_p, planet_status_map.get(_ps_p, '-'), planet_sign_map.get(_ps_p, ''))
 
         # Maraivu Adjusted Strength
         _ps_adj_strength = (final / 2.0) + (final * (100 - _ps_updated_maraivu) / 200.0)
