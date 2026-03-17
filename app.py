@@ -3865,6 +3865,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
     nps_rows = []
     _nps_score_dict = {}  # planet -> raw final_ns value for use in Planet Strengths
+    _nps_pred_dict = {}   # planet -> Normalised for Predictions value (capped at 100)
     _suchama_score_dict = {}  # planet -> raw suchama value
     _suchama_notes_dict = {}  # planet -> notes string
     for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
@@ -4202,12 +4203,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _pred_norm = max(0.0, min(100.0, _pred_norm))
         else:
             _pred_norm = (100.0 + final_ns) / 2.0
+        # Cap at 100
+        if _pred_norm > 100.0:
+            _pred_norm = 100.0
         _pred_norm_str = f"{_pred_norm:.2f}"
+        _nps_pred_dict[p] = _pred_norm
 
-        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _pred_norm_str, _cur_pct_str, m_pct_str, adjusted_str, _hap_score_str, _hap_notes_str])
+        nps_rows.append([p, f"{net_score:.2f}", f"{self_bad:.2f}", formula_type, f"{final_ns:.2f}", f"{_ns_without_khs:.2f}", _pred_norm_str, _cur_pct_str, m_pct_str, adjusted_str])
 
     df_normalized_planet_scores = pd.DataFrame(nps_rows,
-        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Normalised for Predictions', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score', 'Happiness Score', 'Happiness Notes'])
+        columns=['Planet', 'Net Score', 'Self Bad', 'Formula Type', 'Final Normalized Score', 'Normalised without KHS', 'Normalised for Predictions', 'Currency %', 'Maraivu %', 'Maraivu Adjusted Score'])
 
     # ---- SUCHAMA SCORES TABLE ----
     _suchama_rows = []
@@ -4411,6 +4416,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _cat_eff = _cat_updated if _cat_updated not in ('-', '', None) else _cat_status
         _cat_db = planet_data[_cat_p].get('dig_bala') or 0
 
+        # Rahu/Ketu have no digbala — force to neutral value
+        if _cat_p in ('Rahu', 'Ketu'):
+            _cat_db = 50  # neutral: won't trigger strong (>91) or weak (<10)
+
         _strong_statuses = {'Uchcham', 'Moolathirigonam', 'Aatchi'}
         _has_strong_status = _cat_status in _strong_statuses
         _has_dig_balam = _cat_db > 91
@@ -4452,16 +4461,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _cat_s_reason_str = 'Neechabhangam'
 
         # --- Step 2: Evaluate Planetary Nature (Benefic / Malefic / Neutral) ---
-        _cat_nps = _nps_score_dict.get(_cat_p, 0.0)
+        _cat_nps = _nps_pred_dict.get(_cat_p, 0.0)
         if _cat_nps > 90:
             _cat_nature = 'Benefic'
-            _cat_n_reason = f'NPS {_cat_nps:.2f} > 90'
+            _cat_n_reason = f'Pred {_cat_nps:.2f} > 90'
         elif _cat_nps < 60:
             _cat_nature = 'Malefic'
-            _cat_n_reason = f'NPS {_cat_nps:.2f} < 60'
+            _cat_n_reason = f'Pred {_cat_nps:.2f} < 60'
         else:
             _cat_nature = 'Neutral'
-            _cat_n_reason = f'NPS {_cat_nps:.2f} (60-90)'
+            _cat_n_reason = f'Pred {_cat_nps:.2f} (60-90)'
 
         # --- Step 3: Assign Final Category ---
         _cat_matrix = {
@@ -4495,8 +4504,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
 
     df_planet_categories = pd.DataFrame(_cat_rows, columns=[
         'Planet', 'Status', 'Effective Status', 'Dig Bala',
-        'Normalized Score', 'Strength', 'Strength Reason',
-        'Nature', 'Nature Reason', 'Category', 'Notes'
+        'Normalised for Predictions', 'Strength', 'Strength Reason',
+        'Nature', 'Nature Reason (Pred)', 'Category', 'Notes'
     ])
     # ---- END PLANET CATEGORY TABLE ----
 
