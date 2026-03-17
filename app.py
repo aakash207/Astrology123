@@ -2423,6 +2423,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'Mercury': {7: 1.0},
         'Moon': {4: 0.25, 6: 0.50, 7: 1.0, 8: 0.50, 10: 0.25}
     }
+    _sun_is_aquarius = (planet_sign_map.get('Sun', '') == 'Aquarius')
     
     P5_MALEFIC_DEBTOR_RANK = ['Rahu', 'Sun', 'Saturn', 'Mars', 'Ketu']
     
@@ -2551,34 +2552,45 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 clone_type = 'Active'
                 
             elif current_planet == 'Sun':
-                # Sun (malefic): Good Sun at full value, other good currencies at half
-                good_sum = 0.0
-                for k, v in parent_inv.items():
-                    if is_good_currency(k) and v > 0.001:
-                        if k == 'Good Sun':
-                            good_sum += v
-                        else:
-                            good_sum += v / 2.0
-                
-                clone_value = aspect_pct * good_sum * scaling_factor
-                if clone_value > 0.001:
-                    clone_inventory['Good Sun'] = clone_value
-                
-                # Bad currencies: carry proportionally from parent snapshot
-                for k, v in parent_inv.items():
-                    if 'Bad' in k and v > 0.001:
-                        bad_clone_val = v * aspect_pct * scaling_factor
-                        if bad_clone_val > 0.001:
-                            clone_inventory[k] = bad_clone_val
-                
-                # Neecha/Neechabhangam Sun: debt = net(Good - Bad) from parent snapshot
-                if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
-                    _sun_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
-                    _sun_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
-                    clone_debt = (_sun_good_total - _sun_bad_total) * aspect_pct * scaling_factor
+                if _sun_is_aquarius:
+                    # AQUARIUS SUN: Normal Active clone (Good Sun + Bad currencies)
+                    good_sum = 0.0
+                    for k, v in parent_inv.items():
+                        if is_good_currency(k) and v > 0.001:
+                            if k == 'Good Sun':
+                                good_sum += v
+                            else:
+                                good_sum += v / 2.0
+                    
+                    clone_value = aspect_pct * good_sum * scaling_factor
+                    if clone_value > 0.001:
+                        clone_inventory['Good Sun'] = clone_value
+                    
+                    # Bad currencies: carry proportionally from parent snapshot
+                    for k, v in parent_inv.items():
+                        if 'Bad' in k and v > 0.001:
+                            bad_clone_val = v * aspect_pct * scaling_factor
+                            if bad_clone_val > 0.001:
+                                clone_inventory[k] = bad_clone_val
+                    
+                    # Neecha/Neechabhangam Sun: debt = net(Good - Bad)
+                    if _cp_status in ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga'):
+                        _sun_good_total = sum(v for k, v in parent_inv.items() if is_good_currency(k) and v > 0.001)
+                        _sun_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
+                        clone_debt = (_sun_good_total - _sun_bad_total) * aspect_pct * scaling_factor
+                    else:
+                        clone_debt = parent_debt * aspect_pct * scaling_factor
+                    clone_type = 'Active'
                 else:
-                    clone_debt = parent_debt * aspect_pct * scaling_factor
-                clone_type = 'Active'
+                    # XSUN: Non-Aquarius Sun — Passive clone carrying ONLY Bad Sun.
+                    # Saturn absorbs this via a dedicated step. No good currencies.
+                    _xsun_bad_total = sum(v for k, v in parent_inv.items() if 'Bad' in k and v > 0.001)
+                    _xsun_val = _xsun_bad_total * aspect_pct * scaling_factor
+                    if _xsun_val > 0.001:
+                        clone_inventory['Bad Sun'] = _xsun_val
+                    clone_debt = 0.0
+                    clone_type = 'Passive'
+                    clone_is_xsun = True  # flag set below
                 
             elif current_planet in ['Jupiter', 'Venus', 'Mercury']:
                 good_sum = 0.0
@@ -2613,6 +2625,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             for k, v in clone_inventory.items():
                 original_inventory[k] = v
             
+            _is_xsun = (current_planet == 'Sun' and not _sun_is_aquarius)
             clone = {
                 'parent': current_planet,
                 'offset': offset,
@@ -2623,7 +2636,8 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 'wasted_inventory': defaultdict(float),
                 'debt': clone_debt,
                 'initial_debt': clone_debt,
-                'type': clone_type
+                'type': clone_type,
+                'is_xsun': _is_xsun
             }
             clones.append(clone)
             all_initial_clones.append({'parent': current_planet, 'offset': offset, 'L': clone_L})
@@ -2720,7 +2734,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     # Formula:  debt = debt * (clone_total_volume / 120)
     # ═══════════════════════════════════════════════════════════════════════
     _neg_debt_statuses = ('Neecham', 'Neechabhangam', 'Neechabhanga Raja Yoga')
-    for _vsp in ('Saturn', 'Mars'):
+    for _vsp in ('Saturn', 'Mars', 'Sun'):
         # Fix: '-' is truthy but means "no status" — fall back to raw status
         _vsp_updated_raw = planet_data[_vsp].get('updated_status', '-')
         _vsp_status = _vsp_updated_raw if _vsp_updated_raw not in ('-', '', None) else planet_data[_vsp].get('status', '')
@@ -3254,6 +3268,32 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                                 already_pulled += take
                                 p5_something_happened = True
             
+                # ── Step 4: Saturn absorbs Bad Sun from XSUN clones ──
+                # XSUN is a Passive Sun clone (non-Aquarius) carrying only Bad Sun.
+                # Saturn's real planet absorbs it, following distance cap rules.
+                if clone.get('is_xsun') and clone['inventory'].get('Bad Sun', 0.0) > 0.001:
+                    _sat_L = phase5_data['Saturn']['L']
+                    _xdiff = abs(_sat_L - clone_L)
+                    if _xdiff > 180: _xdiff = 360 - _xdiff
+                    _xgap = int(_xdiff)
+                    if _xgap <= 22:
+                        _x_total_vol = sum(v for v in clone['original_inventory'].values() if v > 0.001)
+                        _x_cap_pct = mix_dict.get(_xgap, 0)
+                        _x_max_pull = _x_total_vol * (_x_cap_pct / 100.0)
+                        _x_tracker = f"p5_saturn_xsun_{clone['offset']}"
+                        _x_already = phase5_data['Saturn'].get(_x_tracker, 0.0)
+                        _x_remaining = _x_max_pull - _x_already
+                        if _x_remaining > 0.001:
+                            _x_avail = clone['inventory'].get('Bad Sun', 0.0)
+                            _x_take = min(1.0, _x_avail, _x_remaining)
+                            if _x_take > 0.001:
+                                clone['inventory']['Bad Sun'] -= _x_take
+                                phase5_data['Saturn']['p5_inventory']['Bad Sun'] = phase5_data['Saturn']['p5_inventory'].get('Bad Sun', 0.0) + _x_take
+                                phase5_data['Saturn']['p5_current_debt'] -= _x_take
+                                phase5_data['Saturn']['bad_inv'] = phase5_data['Saturn'].get('bad_inv', 0.0) + _x_take
+                                phase5_data['Saturn'][_x_tracker] = _x_already + _x_take
+                                p5_something_happened = True
+
             if not p5_something_happened:
                 break
         
@@ -3308,8 +3348,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             else:
                 init_debt_str = f"{clone['initial_debt']:.2f}"
             
+            _la_source = clone['parent'] + (' (XSUN)' if clone.get('is_xsun') else '')
             leftover_aspects.append([
-                clone['parent'],
+                _la_source,
                 clone['offset'],
                 f"{clone['L']:.2f}",
                 init_inv_str,
@@ -3594,6 +3635,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     )
 
     for clone in all_leftover_clones:
+        # XSUN clones do not contribute to house point aspect scoring
+        if clone.get('is_xsun'):
+            continue
         parent = clone['parent']
         parent_L = phase5_data[parent]['L']
         target_lon = (parent_L + (clone['offset'] - 1) * 30) % 360
