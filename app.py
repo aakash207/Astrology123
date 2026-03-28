@@ -1565,7 +1565,46 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         navamsa_phase3_rows.append([p, inventory_carried_str, gained_currencies_str, debt_str])
     
     df_navamsa_phase3 = pd.DataFrame(navamsa_phase3_rows, columns=['Planet', 'Inventory Carried Over', 'Gained Currencies', 'Debt [Nav Phase 3]'])
-    
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # KETU'S GIFT (Navamsa) — Benefic Strength Boost from Ketu
+    # If Mercury, Venus, or Jupiter share the same navamsa house as Ketu
+    # and are within 22° navamsa-longitude, Ketu gifts a portion of its
+    # volume scaled by mix_dict proximity.  Ketu loses nothing.
+    # The gift is added to navp3_gained_currencies so 20% carry-forwards
+    # to the Rasi chart via the Good Bonus mechanism in Phase 3 init.
+    # ═══════════════════════════════════════════════════════════════════════
+    _kg_nav_benefics = ['Mercury', 'Venus', 'Jupiter']
+    _kg_nav_ketu_house = navamsa_phase3_data['Ketu']['nav_house']
+    _kg_nav_ketu_lon = navamsa_phase2_data['Ketu']['nav_lon']
+    _kg_nav_ketu_vol = navamsa_phase3_data['Ketu']['nav_volume']
+    _ketu_gift_nav = {}  # planet -> gift amount (for diagnostics)
+
+    for _kg_ben in _kg_nav_benefics:
+        # Same navamsa house check
+        _kg_ben_nav_house = navamsa_phase3_data[_kg_ben]['nav_house']
+        if _kg_ben_nav_house != _kg_nav_ketu_house:
+            continue
+        # Degree proximity in navamsa longitude
+        _kg_ben_nav_lon = navamsa_phase2_data[_kg_ben]['nav_lon']
+        _kg_nav_diff = abs(_kg_ben_nav_lon - _kg_nav_ketu_lon)
+        if _kg_nav_diff > 180:
+            _kg_nav_diff = 360 - _kg_nav_diff
+        _kg_nav_gap = int(_kg_nav_diff)
+        if _kg_nav_gap > 22:
+            continue
+        _kg_nav_pct = mix_dict.get(_kg_nav_gap, 0)
+        if _kg_nav_pct <= 0:
+            continue
+        _kg_nav_gift = _kg_nav_ketu_vol * (_kg_nav_pct / 100.0)
+        # Add gift as the benefic's own good currency
+        navamsa_phase3_data[_kg_ben]['navp3_inventory'][_kg_ben] += _kg_nav_gift
+        navamsa_phase3_data[_kg_ben]['navp3_current_debt'] += _kg_nav_gift
+        # Must update navp3_gained_currencies so the 20% carry-forward picks it up
+        navamsa_phase3_data[_kg_ben]['navp3_gained_currencies'][_kg_ben] += _kg_nav_gift
+        _ketu_gift_nav[_kg_ben] = _kg_nav_gift
+        # Ketu's inventory/debt is NOT touched
+
     # PHASE 0 CURRENCY EXCHANGE — Rahu Modification
     _p0_rahu_sign = planet_sign_map.get('Rahu', 'Aries')
     _p0_rahu_house_lord = get_sign_lord(_p0_rahu_sign)
@@ -2403,6 +2442,34 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         phase5_data[_hlb5_p]['p5_inventory'][_hlb5_key] += _hlb5_amount
         phase5_data[_hlb5_p]['p5_current_debt'] += _hlb5_amount  # reduce debt by same amount of good currency added
         _hlb5_bonus_amounts[_hlb5_p] = _hlb5_amount
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # KETU'S GIFT (Rasi Phase 5) — Benefic Strength Boost from Ketu
+    # If Mercury, Venus, or Jupiter are within 22° (rasi longitude) of Ketu,
+    # Ketu gifts a portion of its volume scaled by mix_dict proximity.
+    # Ketu loses nothing.  Placed before the snapshot so clones inherit it.
+    # ═══════════════════════════════════════════════════════════════════════
+    _kg_p5_benefics = ['Mercury', 'Venus', 'Jupiter']
+    _kg_p5_ketu_L = phase5_data['Ketu']['L']
+    _kg_p5_ketu_vol = phase5_data['Ketu']['volume']
+    _ketu_gift_rasi = {}  # planet -> gift amount (for diagnostics)
+
+    for _kg_ben in _kg_p5_benefics:
+        _kg_p5_diff = abs(phase5_data[_kg_ben]['L'] - _kg_p5_ketu_L)
+        if _kg_p5_diff > 180:
+            _kg_p5_diff = 360 - _kg_p5_diff
+        _kg_p5_gap = int(_kg_p5_diff)
+        if _kg_p5_gap > 22:
+            continue
+        _kg_p5_pct = mix_dict.get(_kg_p5_gap, 0)
+        if _kg_p5_pct <= 0:
+            continue
+        _kg_p5_gift = _kg_p5_ketu_vol * (_kg_p5_pct / 100.0)
+        # Add gift as the benefic's own good currency
+        phase5_data[_kg_ben]['p5_inventory'][_kg_ben] += _kg_p5_gift
+        phase5_data[_kg_ben]['p5_current_debt'] += _kg_p5_gift
+        _ketu_gift_rasi[_kg_ben] = _kg_p5_gift
+        # Ketu's inventory/debt is NOT touched
 
     # Snapshot inventories & debts BEFORE any exchange, so all clones are created simultaneously
     _p5_snapshot_inv = {}
@@ -4259,16 +4326,20 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _ps_planets = ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn']
 
     def _ps_own_asp(p_name):
+        """Self Aspect: highest matching aspect clone % × 10 (max 10)."""
         ruled = planet_ruled_signs.get(p_name, [])
         if not ruled:
             return 0.0
         p_L = phase5_data[p_name]['L']
+        best_pct = 0.0
         for cl in all_leftover_clones:
             if cl['parent'] == p_name:
                 t_sign = get_sign((p_L + (cl['offset'] - 1) * 30) % 360)
                 if t_sign in ruled:
-                    return 10.0
-        return 0.0
+                    asp_pct = cl.get('aspect_pct', 0)
+                    if asp_pct > best_pct:
+                        best_pct = asp_pct
+        return best_pct * 10.0  # aspect_pct is 0.0-1.0, so result is 0-10
 
     _overridden_sthana = {}   # track planets whose sthana was overridden
     _planet_maraivu_adj_strengths = {} 
@@ -4326,26 +4397,18 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         if _ps_lord == _ps_p and _hl_adj > 0:
             _hl_adj = 0.0
 
+        # Kendra/Kona bonus: malefics in Kendra (1,4,7,10), benefics in Kona (1,5,9)
         if _hp_is_malefic(_ps_p):
-            # Malefic: Dig 60%, Sthana 40%, Asp 10%, Kendra 5%
-            s_dig = (_db / 100.0) * 60.0
-            if _is_negative:
-                s_sth = (_sb / 100.0) * 40.0
-            else:
-                s_sth = (_sb / 100.0) * 40.0
-            base_total = s_dig + s_sth + _asp_val + _hl_adj
-            s_bonus = 5.0 if _rh in (1, 4, 7, 10) else 0.0
+            s_bonus = 10.0 if _rh in (1, 4, 7, 10) else 0.0
         else:
-            # Benefic: Dig 40%, Sthana 60%, Asp 10%, Kona 5%
-            s_dig = (_db / 100.0) * 40.0
-            if _is_negative:
-                s_sth = (_sb / 100.0) * 60.0
-            else:
-                s_sth = (_sb / 100.0) * 60.0
-            base_total = s_dig + s_sth + _asp_val + _hl_adj
-            s_bonus = 5.0 if _rh in (1, 5, 9) else 0.0
+            s_bonus = 10.0 if _rh in (1, 5, 9) else 0.0
 
-        final = base_total + s_bonus
+        # Unified formula: Sthana 60%, Dig 60%, Self Asp (max 10), HLord, Kendra/Kona 10
+        s_dig = (_db / 100.0) * 60.0
+        s_sth = (_sb / 100.0) * 60.0
+        base_total = s_dig + s_sth + _asp_val + _hl_adj
+
+        final = min(base_total + s_bonus, 100.0)
         planet_final_strengths[_ps_p] = final
         brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f}{_pari_note} + "
                  f"Asp:{_asp_val:.2f} + "
@@ -5608,6 +5671,51 @@ def generate_dasa_prompt(cd, lords):
             _hp_lord_score[h_num] = hr['House Lord Score']
             _hp_sign[h_num] = hr['House Sign']
 
+    # Look-ups for Normalised for Predictions
+    _pred_map = {}     # planet -> Normalised for Predictions
+    if df_normalized_planet_scores is not None:
+        for _, nr in df_normalized_planet_scores.iterrows():
+            _pred_map[str(nr['Planet'])] = nr['Normalised for Predictions']
+
+    # Look-ups for Suchama Score
+    _suchama_map = {}  # planet -> Suchama Score
+    df_suchama_scores = cd.get('df_suchama_scores')
+    if df_suchama_scores is not None:
+        for _, sr in df_suchama_scores.iterrows():
+            _suchama_map[str(sr['Planet'])] = sr['Suchama Score']
+
+    # Maraivu display map from df_planets (only if applicable)
+    _maraivu_map = {}  # planet -> display string e.g. "25% (base 100%)"
+    if df_planets is not None:
+        for _, row in df_planets.iterrows():
+            _m_p = str(row['Planet'])
+            _m_val = row.get('Maraivu (%)', '-')
+            if _m_val and str(_m_val) not in ('-', 'nan', ''):
+                _maraivu_map[_m_p] = str(_m_val)
+
+    # AG Bonus (chart-level score from Lagna Analysis)
+    _ag_bonus_val = ''
+    df_lagna_analysis = cd.get('df_lagna_analysis')
+    if df_lagna_analysis is not None:
+        _ag_row = df_lagna_analysis[df_lagna_analysis['Metric'] == 'AG Bonus']
+        if not _ag_row.empty:
+            _ag_bonus_val = str(_ag_row.iloc[0]['Score (out of 100)'])
+
+    # Aspect rules for house detail aspect percentages (mirrors ASPECT_RULES in compute_chart)
+    _PROMPT_ASPECT_RULES = {
+        'Saturn': {3: 25, 7: 100, 10: 75},
+        'Mars':   {4: 40, 7: 100, 8: 25},
+        'Sun':    {7: 50},
+        'Jupiter':{5: 100, 7: 100, 9: 100},
+        'Venus':  {7: 100},
+        'Mercury':{7: 100},
+        'Moon':   {4: 25, 6: 50, 7: 100, 8: 50, 10: 25},
+    }
+    # Planet-to-house map for computing aspect offsets
+    _planet_house_prompt = {}
+    for _php_name, _php_info in _pw.items():
+        _planet_house_prompt[_php_name] = _php_info.get('house', 0)
+
     # Vedic house names
     _HOUSE_NAMES = {
         1: 'Tanu', 2: 'Dhana', 3: 'Sahaja', 4: 'Sukha',
@@ -5642,16 +5750,23 @@ def generate_dasa_prompt(cd, lords):
                 m_val = row.get('Maraivu (%)', '-')
                 if m_val and str(m_val) not in ('-', 'nan', ''):
                     parts.append(f"Maraivu: {m_val}")  # shows updated % (base %) when reduced
-                # Normalised Score (with KHS)
-                ns_val = _norm_score_map.get(planet_name, '')
-                if ns_val != '':
-                    parts.append(f"Normalised Score: {ns_val}")
+                # Suchama Score (only if non-zero)
+                such_val = _suchama_map.get(planet_name, '')
+                if such_val != '' and float(such_val) > 0:
+                    parts.append(f"Suchama: {such_val}")
+                # NPS (Predictions) — replaces Normalised Score
+                pred_val = _pred_map.get(planet_name, '')
+                if pred_val != '':
+                    parts.append(f"NPS (Predictions): {pred_val}")
                 # Planet Strength
                 ps_val = _strength_map.get(planet_name, '')
                 if ps_val != '':
                     parts.append(f"Strength: {ps_val}")
             pp_lines.append(f"{planet_name}: {' | '.join(parts)}")
     planetary_positions = '\n'.join(pp_lines)
+    # Append chart-level AG Bonus
+    if _ag_bonus_val:
+        planetary_positions += f"\nAG Bonus: {_ag_bonus_val}"
 
     # ── 2. House Details ──────────────────────────────────────
     # Read directly from df_house_status (the House Analysis table)
@@ -5671,14 +5786,26 @@ def generate_dasa_prompt(cd, lords):
             else:
                 contains_str = 'Empty'
 
-            # Aspects from (already correctly computed in the table)
+            # Aspects from — with percentage from ASPECT_RULES
             asp_raw = str(row['Aspects from']).strip()
             if asp_raw and asp_raw != 'None':
                 asp_list = [a.strip() for a in asp_raw.split(',')]
-                if len(asp_list) > 1:
-                    aspects_str = 'Aspects from ' + ', '.join(asp_list)
+                asp_with_pct = []
+                for _asp_p in asp_list:
+                    _asp_p_house = _planet_house_prompt.get(_asp_p, 0)
+                    if _asp_p_house > 0:
+                        _asp_offset = ((h_num - _asp_p_house) % 12) + 1
+                        _asp_pct = _PROMPT_ASPECT_RULES.get(_asp_p, {}).get(_asp_offset, None)
+                        if _asp_pct is not None:
+                            asp_with_pct.append(f"{_asp_p}({_asp_pct}%)")
+                        else:
+                            asp_with_pct.append(_asp_p)
+                    else:
+                        asp_with_pct.append(_asp_p)
+                if len(asp_with_pct) > 1:
+                    aspects_str = 'Aspects from ' + ', '.join(asp_with_pct)
                 else:
-                    aspects_str = 'Aspect from ' + asp_list[0]
+                    aspects_str = 'Aspect from ' + asp_with_pct[0]
             else:
                 aspects_str = 'No Aspects'
 
@@ -5785,7 +5912,6 @@ def generate_dasa_prompt(cd, lords):
         status = info.get('status', '-')
         dig_bala = info.get('dig_bala', 0)
         sthana_bala = info.get('sthana_bala', 0)
-        vargothuva = info.get('vargothuva', 'No')
         ruled_houses = info.get('ruled_houses', [])
         co_occupants = info.get('co_occupants', [])
         aspected_by = info.get('aspected_by', [])
@@ -5804,9 +5930,26 @@ def generate_dasa_prompt(cd, lords):
         strength_parts = []
         if status and status != '-':
             strength_parts.append(f"Status: {status}")
-        strength_parts.append(f"Dig Bala: {dig_bala}%")
+        # Skip Dig Bala for Rahu and Ketu (shadow planets)
+        if lord not in ('Rahu', 'Ketu'):
+            strength_parts.append(f"Dig Bala: {dig_bala}%")
         strength_parts.append(f"Sthana Bala: {sthana_bala}%")
-        strength_parts.append(f"Vargothuva: {vargothuva}")
+        # NPS (Predictions)
+        _lord_pred = _pred_map.get(lord, '')
+        if _lord_pred != '':
+            strength_parts.append(f"NPS (Predictions): {_lord_pred}")
+        # Strength
+        _lord_str = _strength_map.get(lord, '')
+        if _lord_str != '':
+            strength_parts.append(f"Strength: {_lord_str}")
+        # Suchama (only if non-zero)
+        _lord_such = _suchama_map.get(lord, '')
+        if _lord_such != '' and float(_lord_such) > 0:
+            strength_parts.append(f"Suchama: {_lord_such}")
+        # Maraivu (only if applicable)
+        _lord_mar = _maraivu_map.get(lord, '')
+        if _lord_mar:
+            strength_parts.append(f"Maraivu: {_lord_mar}")
         prompt_lines.append(f"Status & Strength: {' | '.join(strength_parts)}\n")
 
         prompt_lines.append(f"Houses Ruled by {lord}: {_ruled_str(ruled_houses)}.\n")
@@ -5832,9 +5975,26 @@ def generate_dasa_prompt(cd, lords):
                 co_st = co_info.get('status', '-')
                 if co_st and co_st != '-':
                     co_parts.append(f"Status: {co_st}")
-                co_parts.append(f"Dig Bala: {co_info.get('dig_bala', 0)}%")
+                # Skip Dig Bala for Rahu and Ketu (shadow planets)
+                if co_name not in ('Rahu', 'Ketu'):
+                    co_parts.append(f"Dig Bala: {co_info.get('dig_bala', 0)}%")
                 co_parts.append(f"Sthana Bala: {co_info.get('sthana_bala', 0)}%")
-                co_parts.append(f"Vargothuva: {co_info.get('vargothuva', 'No')}")
+                # NPS (Predictions) for co-occupant
+                _co_pred = _pred_map.get(co_name, '')
+                if _co_pred != '':
+                    co_parts.append(f"NPS (Predictions): {_co_pred}")
+                # Strength for co-occupant
+                _co_str = _strength_map.get(co_name, '')
+                if _co_str != '':
+                    co_parts.append(f"Strength: {_co_str}")
+                # Suchama for co-occupant (only if non-zero)
+                _co_such = _suchama_map.get(co_name, '')
+                if _co_such != '' and float(_co_such) > 0:
+                    co_parts.append(f"Suchama: {_co_such}")
+                # Maraivu for co-occupant (only if applicable)
+                _co_mar = _maraivu_map.get(co_name, '')
+                if _co_mar:
+                    co_parts.append(f"Maraivu: {_co_mar}")
                 prompt_lines.append(f"  {co_name}: {' | '.join(co_parts)}\n")
         else:
             prompt_lines.append(f"Co-occupants: None. ({lord} is placed alone).\n")
