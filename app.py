@@ -6159,7 +6159,7 @@ def build_chart_summary_text(cd, lords=None):
 
     # Auto-detect current lords if not provided
     if lords is None:
-        _ex_now = cd.get('utc_dt', _dt.utcnow())
+        _ex_now = _dt.utcnow()
         _ex_dasa = cd.get('dasa_periods_filtered', [])
         lords = []
         _ex_level = _ex_dasa
