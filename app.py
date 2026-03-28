@@ -3752,16 +3752,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 own_val = clone['inventory'].get(own_key, 0.0)
                 if own_val > 0.001:
                     aspect_score[target_sign] += own_val
-                    # Net malefic good against bad: subtract own_val from aspect_bad instead of adding to aspect_good
+                    # Add malefic good to Total Good
+                    aspect_good[target_sign] += own_val
+                    aspect_good_src[target_sign].append(f"{parent}(OwnGood)[{own_val:.2f}]")
+                    # Also subtract malefic good from Total Bad (netting)
                     _mal_net_reduce = min(own_val, aspect_bad[target_sign])
                     if _mal_net_reduce > 0.001:
                         aspect_bad[target_sign] -= _mal_net_reduce
                         aspect_bad_src[target_sign].append(f"{parent}(OwnGood nets -)[{_mal_net_reduce:.2f}]")
-                    # Any excess good beyond bad goes to aspect_good
-                    _mal_excess_good = own_val - _mal_net_reduce
-                    if _mal_excess_good > 0.001:
-                        aspect_good[target_sign] += _mal_excess_good
-                        aspect_good_src[target_sign].append(f"{parent}(OwnGood excess)[{_mal_excess_good:.2f}]")
                     aspect_sources[target_sign].append(f"{parent}(Own Good)")
         else:
             good_total = 0.0
@@ -3920,28 +3918,28 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    # Net malefic good against bad
+                    # Add malefic good to Total Good
+                    if total_good > 0.001:
+                        occupant_good[s] += total_good
+                        occupant_good_src[s].append(f"{occ}(Good)[{total_good:.2f}]")
+                    # Net malefic good against bad, then add remainder to Total Bad
                     _occ_net_bad = max(total_bad - total_good, 0.0)
-                    _occ_excess_good = max(total_good - total_bad, 0.0)
                     if _occ_net_bad > 0.001:
                         occupant_bad[s] += _occ_net_bad
                         occupant_bad_src[s].append(f"{occ}(Bad/2 {total_bad:.2f}-Good {total_good:.2f})[{_occ_net_bad:.2f}]")
-                    if _occ_excess_good > 0.001:
-                        occupant_good[s] += _occ_excess_good
-                        occupant_good_src[s].append(f"{occ}(Good excess over Bad/2)[{_occ_excess_good:.2f}]")
                     occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
                 else:
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    # Net malefic good against bad
+                    # Add malefic good to Total Good
+                    if total_good > 0.001:
+                        occupant_good[s] += total_good
+                        occupant_good_src[s].append(f"{occ}(Good)[{total_good:.2f}]")
+                    # Net malefic good against bad, then add remainder to Total Bad
                     _occ_net_bad = max(total_bad - total_good, 0.0)
-                    _occ_excess_good = max(total_good - total_bad, 0.0)
                     if _occ_net_bad > 0.001:
                         occupant_bad[s] += _occ_net_bad
                         occupant_bad_src[s].append(f"{occ}(Bad {total_bad:.2f}-Good {total_good:.2f})[{_occ_net_bad:.2f}]")
-                    if _occ_excess_good > 0.001:
-                        occupant_good[s] += _occ_excess_good
-                        occupant_good_src[s].append(f"{occ}(Good excess over Bad)[{_occ_excess_good:.2f}]")
                     occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
@@ -5392,9 +5390,9 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             return -100.0
         return score
 
-    # Moon input for AG/Bhuvi: 50% Moon Light + 50% Moon Strength (not maraivu adjusted)
-    _moon_sthana_raw   = planet_data['Moon']['sthana']
-    _c_moon_score      = _la_cap_100((_la_moon_score * 0.5) + (_moon_sthana_raw * 0.5))
+    # Moon input for AG/Bhuvi: 50% Moon Light + 50% Moon Total Strength (from Planet Strengths table)
+    _moon_strength_raw = planet_final_strengths.get('Moon', 0.0)
+    _c_moon_score      = _la_cap_100((_la_moon_score * 0.5) + (_moon_strength_raw * 0.5))
     _c_ll_score        = _la_cap_100(_la_ll_score)
     _c_ll_str_score    = _la_cap_100(_la_ll_str_score)
     _c_ll_suchama_score= _la_cap_100(_la_ll_suchama_score)
@@ -5412,7 +5410,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _ag_lp     = _c_lagna_pt_score * 10.0 / 100.0
     _ag_nav    = _c_nav_score * 10.0 / 100.0
     _ag_total  = _ag_moon + _ag_ll + _ag_ll_str + _ag_h1 + _ag_lp + _ag_nav
-    _ag_notes  = (f"Moon[Light({_la_moon_score:.2f})*50%+Str({_moon_sthana_raw:.2f})*50%={_c_moon_score:.2f}]*20%={_ag_moon:.2f} + "
+    _ag_notes  = (f"Moon[Light({_la_moon_score:.2f})*50%+TotalStr({_moon_strength_raw:.2f})*50%={_c_moon_score:.2f}]*20%={_ag_moon:.2f} + "
                   f"LL({_c_ll_score:.2f}*15%)={_ag_ll:.2f} + "
                   f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_ag_ll_str_combined:.2f}*15%)={_ag_ll_str:.2f} + "
                   f"H1({_c_h1_score:.2f}*40%)={_ag_h1:.2f} + "
@@ -5430,7 +5428,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     _bv_sun    = _c_sun_score * 10.0 / 100.0
     _bv_h9     = _c_h9_score * 10.0 / 100.0
     _bv_total  = _bv_moon + _bv_ll + _bv_ll_str + _bv_h1 + _bv_lp + _bv_nav + _bv_sun + _bv_h9
-    _bv_notes  = (f"Moon[Light({_la_moon_score:.2f})*50%+Str({_moon_sthana_raw:.2f})*50%={_c_moon_score:.2f}]*20%={_bv_moon:.2f} + "
+    _bv_notes  = (f"Moon[Light({_la_moon_score:.2f})*50%+TotalStr({_moon_strength_raw:.2f})*50%={_c_moon_score:.2f}]*20%={_bv_moon:.2f} + "
                   f"LL({_c_ll_score:.2f}*10%)={_bv_ll:.2f} + "
                   f"LLStr+Suchama({_c_ll_str_score:.2f}+{_c_ll_suchama_score:.2f}={_bv_ll_str_combined:.2f}*10%)={_bv_ll_str:.2f} + "
                   f"H1({_c_h1_score:.2f}*30%)={_bv_h1:.2f} + "
@@ -5738,12 +5736,16 @@ def generate_dasa_prompt(cd, lords):
     # House planetary / lord score look-ups from df_house_points
     _hp_planetary_score = {}  # house_num (int) -> House Planetary Score
     _hp_lord_score = {}       # house_num (int) -> House Lord Score
+    _hp_total_good = {}       # house_num (int) -> Total Good
+    _hp_total_bad = {}        # house_num (int) -> Total Bad
     _hp_sign = {}             # house_num (int) -> House Sign
     if df_house_points is not None:
         for _, hr in df_house_points.iterrows():
             h_num = hr['House']
             _hp_planetary_score[h_num] = hr['House Planetary Score']
             _hp_lord_score[h_num] = hr['House Lord Score']
+            _hp_total_good[h_num] = hr['Total Good']
+            _hp_total_bad[h_num] = hr['Total Bad']
             _hp_sign[h_num] = hr['House Sign']
 
     # Look-ups for Normalised for Predictions
@@ -5889,9 +5891,15 @@ def generate_dasa_prompt(cd, lords):
             lord_in = str(row['Lord in']).strip()         # "House 5" etc.
             lord_str = f"Lord: {h_lord} (placed in {lord_in})" if h_lord else ''
 
+            # Scores
+            _tg = _hp_total_good.get(h_num, 0.0)
+            _tb = _hp_total_bad.get(h_num, 0.0)
+            _ls = _hp_lord_score.get(h_num, 0.0)
+            score_str = f"Total Good: {float(_tg):.2f} | Total Bad: {float(_tb):.2f} | Lord Score: {float(_ls):.2f}"
+
             hd_lines.append(
                 f"{h_label} ({h_sign}): {contains_str} | "
-                f"{aspects_str} | {lord_str}"
+                f"{aspects_str} | {lord_str} | {score_str}"
             )
     house_details = '\n\n'.join(hd_lines)
 
@@ -6117,11 +6125,92 @@ def generate_dasa_prompt(cd, lords):
 
     prompt_text = '\n'.join(prompt_lines)
 
+    # Structured house scores for API consumers
+    _house_scores = []
+    for _hs_h in range(1, 13):
+        _house_scores.append({
+            'house': _hs_h,
+            'sign': _hp_sign.get(_hs_h, ''),
+            'total_good': float(_hp_total_good.get(_hs_h, 0.0)),
+            'total_bad': float(_hp_total_bad.get(_hs_h, 0.0)),
+            'lord_score': float(_hp_lord_score.get(_hs_h, 0.0)),
+        })
+
     return {
         "planetary_positions": planetary_positions,
         "house_details": house_details,
         "prompt_text": prompt_text,
         "period_dates": period_dates,
+        "house_scores": _house_scores,
+    }
+
+
+# ── Build chart summary text (single source of truth for API + Streamlit) ──
+def build_chart_summary_text(cd, lords=None):
+    """Produce the full chart-data text identical to AI.html's buildChartSummaryText.
+
+    If *lords* is None the function auto-detects the current Dasa→Bhukti→Antara
+    by walking the dasa tree at the chart's UTC timestamp.
+
+    Returns:
+        dict with keys: text, lords, planetary_positions, house_details, prompt_text
+    """
+    from datetime import datetime as _dt
+
+    # Auto-detect current lords if not provided
+    if lords is None:
+        _ex_now = cd.get('utc_dt', _dt.utcnow())
+        _ex_dasa = cd.get('dasa_periods_filtered', [])
+        lords = []
+        _ex_level = _ex_dasa
+        for _ in range(3):
+            _found = False
+            for _ep in _ex_level:
+                if _ep[1] <= _ex_now <= _ep[2]:
+                    lords.append(_ep[0])
+                    _ex_level = _ep[3] if len(_ep) > 3 else []
+                    _found = True
+                    break
+            if not _found:
+                break
+        if not lords and _ex_dasa:
+            lords = [_ex_dasa[0][0]]
+
+    result = generate_dasa_prompt(cd, lords)
+    pp = result.get('planetary_positions', '')
+    hd = result.get('house_details', '')
+    prompt = result.get('prompt_text', '')
+    period_str = ' \u2192 '.join(lords)  # →
+
+    name = cd.get('name', 'Chart')
+    asc = cd.get('lagna_sign', '')
+    dob = cd.get('_birth_dob', '')
+    if not dob:
+        _utc = cd.get('utc_dt')
+        dob = str(_utc.date()) if _utc and hasattr(_utc, 'date') else ''
+    time_str = cd.get('_birth_time', '')
+    place = cd.get('_birth_place', '')
+
+    t = f"=== CHART DATA: {name} ===\n"
+    t += f"Name: {name}\nDOB: {dob}\nTime: {time_str}\nPlace: {place}\n"
+    t += f"Ascendant: {asc}\n"
+    if lords:
+        t += f"Current Period: {period_str}\n"
+    t += '\n'
+    if pp:
+        t += f"=== PLANETARY POSITIONS ===\n{pp}\n\n"
+    if hd:
+        t += f"=== HOUSE DETAILS ===\n{hd}\n\n"
+    if prompt:
+        t += f"=== Current DASA-BHUKTI ANALYSIS ===\n{prompt}\n\n"
+
+    return {
+        'text': t,
+        'lords': lords,
+        'planetary_positions': pp,
+        'house_details': hd,
+        'prompt_text': prompt,
+        'house_scores': result.get('house_scores', []),
     }
 
 
@@ -6589,29 +6678,6 @@ if st.session_state.chart_data:
                             st.dataframe(pd.DataFrame(tbl), hide_index=True, use_container_width=True)
                 except Exception as e: st.error(f"Error: {e}")
 
-    # ====== EXPORT ALL DATA AS JSON ======
-    st.markdown("---")
-    st.subheader("Export All Data as JSON")
-    st.caption("Excludes: Phase 1-4 Currency Exchange & Navamsa Phase 1-3. Includes everything else + full Dasa/Bhukti/Antara hierarchy.")
-    if st.button("Generate JSON", use_container_width=True, key="gen_json_btn"):
-        export_data = build_export_json(cd)
-        json_str = json.dumps(export_data, indent=2, ensure_ascii=False)
-        st.session_state['export_json'] = json_str
-
-    if 'export_json' in st.session_state and st.session_state['export_json']:
-        json_str = st.session_state['export_json']
-
-        st.download_button(
-            label="Download JSON File",
-            data=json_str,
-            file_name=f"{cd['name'].replace(' ', '_')}_chart_data.json",
-            mime="application/json",
-            use_container_width=True
-        )
-
-        with st.expander("View / Copy JSON", expanded=False):
-            st.code(json_str, language="json")
-
     # ====== DASA-BHUKTI ANALYSIS PROMPT ======
     if not _is_bc and cd['max_depth'] >= 1:
         st.markdown("---")
@@ -6678,6 +6744,27 @@ if st.session_state.chart_data:
 
         if 'db_prompt_text' in st.session_state and st.session_state['db_prompt_text']:
             st.code(st.session_state['db_prompt_text'], language=None)
+
+    # ====== EXPORT CHART DATA (API-style text) ======
+    st.markdown("---")
+    st.subheader("Export Chart Data")
+    st.caption("Downloads the same chart + dasa-bhukti text the API returns (planetary positions, house details, current period analysis).")
+    if st.button("Generate Export", use_container_width=True, key="gen_export_btn"):
+        _ex = build_chart_summary_text(cd)
+        st.session_state['export_chart_text'] = _ex['text']
+
+    if 'export_chart_text' in st.session_state and st.session_state['export_chart_text']:
+        _ex_txt = st.session_state['export_chart_text']
+        _ex_fname = cd.get('name', 'chart').replace(' ', '_')
+        st.download_button(
+            label="Download Chart Data",
+            data=_ex_txt,
+            file_name=f"{_ex_fname}_chart_data.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+        with st.expander("View / Copy Chart Data", expanded=False):
+            st.code(_ex_txt, language=None)
 
 else: st.info("Enter birth details above and click 'Generate Chart' to begin")
 
