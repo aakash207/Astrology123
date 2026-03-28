@@ -3912,22 +3912,24 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    occupant_good[s] += total_good
-                    occupant_bad[s] += total_bad
-                    if total_good > 0.001:
-                        occupant_good_src[s].append(f"{occ}(Good)[{total_good:.2f}]")
-                    if total_bad > 0.001:
-                        occupant_bad_src[s].append(f"{occ}(Bad/2 LL)[{total_bad:.2f}]")
+                    if net >= 0:
+                        occupant_good[s] += net
+                        if net > 0.001:
+                            occupant_good_src[s].append(f"{occ}(Net Good: G{total_good:.2f}-B/2 {total_bad:.2f})[{net:.2f}]")
+                    else:
+                        occupant_bad[s] += abs(net)
+                        occupant_bad_src[s].append(f"{occ}(Net Bad/2 LL: B/2 {total_bad:.2f}-G{total_good:.2f})[{abs(net):.2f}]")
                     occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
                 else:
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    occupant_good[s] += total_good
-                    occupant_bad[s] += total_bad
-                    if total_good > 0.001:
-                        occupant_good_src[s].append(f"{occ}(Good)[{total_good:.2f}]")
-                    if total_bad > 0.001:
-                        occupant_bad_src[s].append(f"{occ}(Bad)[{total_bad:.2f}]")
+                    if net >= 0:
+                        occupant_good[s] += net
+                        if net > 0.001:
+                            occupant_good_src[s].append(f"{occ}(Net Good: G{total_good:.2f}-B{total_bad:.2f})[{net:.2f}]")
+                    else:
+                        occupant_bad[s] += abs(net)
+                        occupant_bad_src[s].append(f"{occ}(Net Bad: B{total_bad:.2f}-G{total_good:.2f})[{abs(net):.2f}]")
                     occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
