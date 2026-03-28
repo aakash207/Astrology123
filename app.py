@@ -3752,8 +3752,16 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 own_val = clone['inventory'].get(own_key, 0.0)
                 if own_val > 0.001:
                     aspect_score[target_sign] += own_val
-                    aspect_good[target_sign] += own_val
-                    aspect_good_src[target_sign].append(f"{parent}(OwnGood)[{own_val:.2f}]")
+                    # Net malefic good against bad: subtract own_val from aspect_bad instead of adding to aspect_good
+                    _mal_net_reduce = min(own_val, aspect_bad[target_sign])
+                    if _mal_net_reduce > 0.001:
+                        aspect_bad[target_sign] -= _mal_net_reduce
+                        aspect_bad_src[target_sign].append(f"{parent}(OwnGood nets -)[{_mal_net_reduce:.2f}]")
+                    # Any excess good beyond bad goes to aspect_good
+                    _mal_excess_good = own_val - _mal_net_reduce
+                    if _mal_excess_good > 0.001:
+                        aspect_good[target_sign] += _mal_excess_good
+                        aspect_good_src[target_sign].append(f"{parent}(OwnGood excess)[{_mal_excess_good:.2f}]")
                     aspect_sources[target_sign].append(f"{parent}(Own Good)")
         else:
             good_total = 0.0
@@ -3912,24 +3920,28 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    if net >= 0:
-                        occupant_good[s] += net
-                        if net > 0.001:
-                            occupant_good_src[s].append(f"{occ}(Net Good: G{total_good:.2f}-B/2 {total_bad:.2f})[{net:.2f}]")
-                    else:
-                        occupant_bad[s] += abs(net)
-                        occupant_bad_src[s].append(f"{occ}(Net Bad/2 LL: B/2 {total_bad:.2f}-G{total_good:.2f})[{abs(net):.2f}]")
+                    # Net malefic good against bad
+                    _occ_net_bad = max(total_bad - total_good, 0.0)
+                    _occ_excess_good = max(total_good - total_bad, 0.0)
+                    if _occ_net_bad > 0.001:
+                        occupant_bad[s] += _occ_net_bad
+                        occupant_bad_src[s].append(f"{occ}(Bad/2 {total_bad:.2f}-Good {total_good:.2f})[{_occ_net_bad:.2f}]")
+                    if _occ_excess_good > 0.001:
+                        occupant_good[s] += _occ_excess_good
+                        occupant_good_src[s].append(f"{occ}(Good excess over Bad/2)[{_occ_excess_good:.2f}]")
                     occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
                 else:
                     net = total_good - total_bad
                     occupant_score[s] += net
-                    if net >= 0:
-                        occupant_good[s] += net
-                        if net > 0.001:
-                            occupant_good_src[s].append(f"{occ}(Net Good: G{total_good:.2f}-B{total_bad:.2f})[{net:.2f}]")
-                    else:
-                        occupant_bad[s] += abs(net)
-                        occupant_bad_src[s].append(f"{occ}(Net Bad: B{total_bad:.2f}-G{total_good:.2f})[{abs(net):.2f}]")
+                    # Net malefic good against bad
+                    _occ_net_bad = max(total_bad - total_good, 0.0)
+                    _occ_excess_good = max(total_good - total_bad, 0.0)
+                    if _occ_net_bad > 0.001:
+                        occupant_bad[s] += _occ_net_bad
+                        occupant_bad_src[s].append(f"{occ}(Bad {total_bad:.2f}-Good {total_good:.2f})[{_occ_net_bad:.2f}]")
+                    if _occ_excess_good > 0.001:
+                        occupant_good[s] += _occ_excess_good
+                        occupant_good_src[s].append(f"{occ}(Good excess over Bad)[{_occ_excess_good:.2f}]")
                     occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
