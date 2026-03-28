@@ -3649,6 +3649,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     aspect_sources = {s: [] for s in sign_names}
     occupant_score = {s: 0.0 for s in sign_names}
     occupant_notes = {s: [] for s in sign_names}
+    # Good/Bad breakdown accumulators
+    aspect_good    = {s: 0.0 for s in sign_names}
+    aspect_bad     = {s: 0.0 for s in sign_names}
+    occupant_good  = {s: 0.0 for s in sign_names}
+    occupant_bad   = {s: 0.0 for s in sign_names}
 
     # ---- NATURAL PLANETARY RELATIONSHIPS (Moved here for use in Aspect Logic) ----
     NATURAL_FRIENDSHIPS = {
@@ -3721,21 +3726,25 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                         _mars_other_bad += v
                 if _mars_other_bad > 0.001:
                     aspect_score[target_sign] -= _mars_other_bad
+                    aspect_bad[target_sign] += _mars_other_bad
                     aspect_sources[target_sign].append(f"{parent}(Other Bad [Leo, excl SelfBad])")
             elif clone['debt'] < -0.001:
                 if parent == lagna_lord and is_malefic_lagna_lord and target_sign == lagna_sign_hp:
                     penalty = abs(clone['debt']) / 2.0
                     aspect_score[target_sign] -= penalty
+                    aspect_bad[target_sign] += penalty
                     aspect_sources[target_sign].append(f"{parent}(Lagna Lord Debt/2 [Lagna])")
                 else:
                     penalty = abs(clone['debt'])
                     aspect_score[target_sign] -= penalty
+                    aspect_bad[target_sign] += penalty
                     aspect_sources[target_sign].append(f"{parent}(Malefic Debt)")
             own_key = _own_good_key.get(parent)
             if own_key:
                 own_val = clone['inventory'].get(own_key, 0.0)
                 if own_val > 0.001:
                     aspect_score[target_sign] += own_val
+                    aspect_good[target_sign] += own_val
                     aspect_sources[target_sign].append(f"{parent}(Own Good)")
         else:
             good_total = 0.0
@@ -3748,10 +3757,12 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                 good_total -= _hp_cl_poison  # remove poison from good
             if good_total > 0.001:
                 aspect_score[target_sign] += good_total
+                aspect_good[target_sign] += good_total
                 aspect_sources[target_sign].append(f"{parent}(Benefic Bonus)")
             # Subtract Jupiter Poison as a penalty (poisonpenality - 1 extra beyond removal)
             if _hp_cl_poison > 0.001:
                 aspect_score[target_sign] -= (poisonpenality - 1) * _hp_cl_poison
+                aspect_bad[target_sign] += (poisonpenality - 1) * _hp_cl_poison
                 aspect_sources[target_sign].append(f"{parent}(Jupiter Poison Penalty x{poisonpenality})")
 
     sign_occupants = defaultdict(list)
@@ -3802,6 +3813,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             if _kad_mf:
                 _kad_results[_kad_planet] = _kad_target
                 occupant_score[_kad_target] += _kad_penalty
+                occupant_bad[_kad_target] += abs(_kad_penalty)
                 occupant_notes[_kad_target].append(f"{_kad_planet}({_kad_penalty:.0f} Kendraadhibathya Dosha)")
 
     # ---- KONA DOSHA CHECK ----
@@ -3864,6 +3876,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         if _kona_pass:
             _kona_dosha_active = True
             occupant_score['Pisces'] += -100.0
+            occupant_bad['Pisces'] += 100.0
             occupant_notes['Pisces'].append("Jupiter(-100 Kona Dosha)")
 
     for s in sign_names:
@@ -3885,10 +3898,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     total_bad = total_bad / 2.0
                     net = total_good - total_bad
                     occupant_score[s] += net
+                    occupant_good[s] += total_good
+                    occupant_bad[s] += total_bad
                     occupant_notes[s].append(f"{occ}(Good-Bad/2 [LL in Lagna])")
                 else:
                     net = total_good - total_bad
                     occupant_score[s] += net
+                    occupant_good[s] += total_good
+                    occupant_bad[s] += total_bad
                     occupant_notes[s].append(f"{occ}(Good-Bad)")
             else:
                 total_good = sum(v for k, v in inv.items() if v > 0.001 and is_good_currency(k))
@@ -3898,9 +3915,11 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
                     total_good -= _hp_occ_poison_b
                 if total_good > 0.001:
                     occupant_score[s] += total_good
+                    occupant_good[s] += total_good
                     occupant_notes[s].append(f"{occ}(Benefic Sum)")
                 if _hp_occ_poison_b > 0.001:
                     occupant_score[s] -= (poisonpenality - 1) * _hp_occ_poison_b
+                    occupant_bad[s] += (poisonpenality - 1) * _hp_occ_poison_b
                     occupant_notes[s].append(f"{occ}(Jupiter Poison Penalty x{poisonpenality})")
 
     hp_gift_pot_config = {
@@ -3920,6 +3939,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         used_amount = original_pot - unused_reserve
         if used_amount > 0.001:
             occupant_score[gift_sign] -= used_amount
+            occupant_bad[gift_sign] += used_amount
             occupant_notes[gift_sign].append(f"Less Used Bonus[-{used_amount:.2f}]")
 
     # ---- NORMALIZED PLANET SCORES ----
@@ -4684,14 +4704,23 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _hh_score_str = str(_hh_score)
         _hh_notes_str = " | ".join(_hh_notes) if _hh_notes else "-"
 
+        # Good / Bad breakdown
+        _hp_total_good = aspect_good[s] + occupant_good[s]
+        _hp_total_bad  = aspect_bad[s] + occupant_bad[s]
+        _hp_good_notes = f"AspG({aspect_good[s]:.2f}) + OccG({occupant_good[s]:.2f})"
+        _hp_bad_notes  = f"AspB({aspect_bad[s]:.2f}) + OccB({occupant_bad[s]:.2f})"
+
         hp_rows.append([h_num, s, f"{aspect_score[s]:.2f}", a_src, f"{occupant_score[s]:.2f}", o_src,
                         f"{house_planetary_score:.2f}",
+                        f"{_hp_total_good:.2f}", _hp_good_notes,
+                        f"{_hp_total_bad:.2f}", _hp_bad_notes,
                         f"{hl_score:.2f}", hl_notes,
                         f"{total_hp:.2f}", total_hp_notes, _hh_score_str, _hh_notes_str])
 
     df_house_points = pd.DataFrame(hp_rows,
         columns=['House', 'House Sign', 'Aspect Score', 'Aspect Sources', 'Occupant Score', 'Occupant Notes',
                  'House Planetary Score',
+                 'Total Good', 'Total Good Notes', 'Total Bad', 'Total Bad Notes',
                  'House Lord Score', 'House Lord Score Notes',
                  'Total House Points', 'Total House Points Notes', 'Happiness Score', 'Happiness Notes'])
     # ---- END HOUSE POINTS ----
