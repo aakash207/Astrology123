@@ -5644,7 +5644,1088 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'chart_house_wise': _ca_house_wise,
         'chart_planet_wise': _ca_planet_wise,
         'chart_bhava_chalit': _ca_bhava_chalit,
+        'day_nps_top5': compute_day_nps(lon_sid, moon_lon, sun_lon),
     }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# compute_day_nps: Top-5 planets by Day NPS (house/navamsa/ascendant-free)
+# ═══════════════════════════════════════════════════════════════════════════
+def compute_day_nps(lon_sid_in, moon_lon_in, sun_lon_in):
+    """
+    Stripped-down currency-exchange pipeline that depends ONLY on planetary
+    longitudes (sign / degree).  No houses, navamsa, dig-bala, maraivu,
+    suchama, or KHS.  Returns the top-5 planets sorted by Day NPS descending.
+
+    Parameters
+    ----------
+    lon_sid_in : dict   – {'sun': float, 'moon': float, ..., 'ketu': float}
+    moon_lon_in : float – sidereal Moon longitude
+    sun_lon_in  : float – sidereal Sun longitude
+
+    Returns
+    -------
+    list[dict]  – [{'planet': str, 'day_nps': float}, ...] (up to 5)
+    """
+    from collections import defaultdict
+
+    # ── Moon phase / paksha ──────────────────────────────────────────────
+    _d_diff = (moon_lon_in - sun_lon_in) % 360
+    if _d_diff < 180:
+        paksha = 'Shukla'
+    else:
+        paksha = 'Krishna'
+    tithi_fraction = _d_diff / 12
+    tithi = int(tithi_fraction) + 1
+    if tithi > 30: tithi = 30
+    if paksha == 'Shukla':
+        tithi_idx = tithi - 1
+        if tithi_idx > 14: tithi_idx = 14
+        moon_phase_name = shukla_tithi_names[tithi_idx]
+    else:
+        tithi_idx = tithi - 16
+        if tithi_idx < 0: tithi_idx = 0
+        if tithi_idx > 14: tithi_idx = 14
+        moon_phase_name = krishna_tithi_names[tithi_idx]
+
+    # ── Planet sign / status maps (NO house) ─────────────────────────────
+    d_planet_sign_map = {}
+    d_planet_status_map = {}
+    for p in ['sun','moon','mars','mercury','jupiter','venus','saturn','rahu','ketu']:
+        L = lon_sid_in[p]
+        sign = get_sign(L)
+        pc = p.capitalize()
+        d_planet_sign_map[pc] = sign
+        status = '-'
+        if pc in status_data:
+            m = status_data[pc]
+            if sign == m['Uchcham']:           status = 'Uchcham'
+            elif sign == m['Neecham']:         status = 'Neecham'
+            elif sign == m['Moolathirigonam']: status = 'Moolathirigonam'
+            elif sign == m['Aatchi']:          status = 'Aatchi'
+        d_planet_status_map[pc] = status
+
+    # Uchcham-ruled signs (+10 % volume boost for occupants)
+    d_uchcham_ruled = set()
+    for pc, st in d_planet_status_map.items():
+        if st == 'Uchcham' and pc in planet_ruled_signs:
+            for rs in planet_ruled_signs[pc]:
+                d_uchcham_ruled.add(rs)
+
+    # Parivardhana (sign-based mutual exchange)
+    d_parivardhana_map = {}
+    for pa in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn']:
+        sa = d_planet_sign_map[pa]
+        la = get_sign_lord(sa)
+        if la in d_planet_sign_map:
+            sl = d_planet_sign_map[la]
+            ll = get_sign_lord(sl)
+            if ll == pa and pa != la:
+                d_parivardhana_map[pa] = la
+
+    # ── Per-planet initial data ──────────────────────────────────────────
+    d_planet_data = {}
+    for p in ['sun','moon','mars','mercury','jupiter','venus','saturn','rahu','ketu']:
+        L = lon_sid_in[p]; sign = get_sign(L); pc = p.capitalize()
+        sthana = sthana_bala_dict.get(pc, [0]*12)[sign_names.index(sign)]
+        # NO kendra/kona +10 boost (house-dependent)
+        capacity = capacity_dict.get(pc, 100)
+        volume = capacity * sthana / 100.0
+        if sign in d_uchcham_ruled:
+            volume *= 1.10
+        status = d_planet_status_map[pc]
+
+        # Good / bad percentages
+        moon_good_pct = 0; moon_bad_pct = 0
+        if pc == 'Moon':
+            if paksha == 'Shukla':
+                good_pct = shukla_good[tithi_idx]; bad_pct = shukla_bad[tithi_idx]
+            else:
+                good_pct = krishna_good[tithi_idx]; bad_pct = krishna_bad[tithi_idx]
+            # Amavasya override
+            sep = (moon_lon_in - sun_lon_in) % 360
+            if sep >= 348 or sep < 12:
+                good_pct = 0; bad_pct = 100
+            moon_good_pct = good_pct; moon_bad_pct = bad_pct
+        else:
+            good_pct = good_capacity_dict.get(pc, 0)
+            bad_pct  = bad_capacity_dict.get(pc, 0)
+
+        good_val = volume * (good_pct / 100.0)
+        bad_val  = volume * (bad_pct / 100.0)
+
+        total_debt = 0.0; has_debt = False
+        updated_status = '-'; is_neechabhangam = False
+        is_healthy_neecham_moon = False
+        neechabhangam_good_add = 0.0; neechabhangam_bad_add = 0.0
+
+        if status == 'Neecham':
+            if pc == 'Moon' and paksha == 'Shukla' and bad_val == 0:
+                is_healthy_neecham_moon = True
+            # Dispositor check
+            house_lord = get_sign_lord(sign)
+            hl_status = d_planet_status_map.get(house_lord, '-')
+            if hl_status in ['Uchcham','Moolathirigonam','Aatchi']:
+                updated_status = 'Neechabhangam'; is_neechabhangam = True
+                nb_base = capacity * 0.40
+                if pc in ['Saturn','Mars']:
+                    neechabhangam_good_add = nb_base
+                else:
+                    neechabhangam_good_add = nb_base * (good_pct / 100.0)
+                    neechabhangam_bad_add  = nb_base * (bad_pct / 100.0)
+                good_val += neechabhangam_good_add
+                bad_val  += neechabhangam_bad_add
+            else:
+                # Co-occupant check (SAME SIGN instead of same house)
+                for other in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+                    if other != pc and d_planet_sign_map.get(other,'') == sign:
+                        ost = d_planet_status_map.get(other, '-')
+                        if ost in ['Uchcham','Moolathirigonam']:
+                            updated_status = 'Neechabhangam'; is_neechabhangam = True
+                            break
+
+            if is_healthy_neecham_moon:
+                gc = capacity * (good_pct / 100.0)
+                total_debt = -((1.2 * gc) - good_val); has_debt = True
+            else:
+                total_debt = -((1.2 * capacity) - good_val); has_debt = True
+            if is_neechabhangam and pc in ['Saturn','Mars']:
+                total_debt += neechabhangam_good_add
+        else:
+            if bad_val > 0:
+                total_debt = -bad_val; has_debt = True
+
+        d_planet_data[pc] = {
+            'sthana': sthana, 'volume': volume, 'L': L, 'sign': sign,
+            'status': status, 'updated_status': updated_status,
+            'good_inv': good_val, 'bad_inv': bad_val,
+            'current_debt': total_debt,
+            'final_inventory': defaultdict(float),
+            'moon_phase': moon_phase_name if pc == 'Moon' else None,
+            'moon_bad_pct': moon_bad_pct if pc == 'Moon' else 0,
+            'moon_good_pct': moon_good_pct if pc == 'Moon' else 0,
+        }
+
+        # Seed inventory
+        if pc in ['Jupiter','Venus','Mercury']:
+            if good_val > 0: d_planet_data[pc]['final_inventory'][pc] = good_val
+        elif pc in ['Saturn','Rahu']:
+            if is_neechabhangam and good_val > 0:
+                d_planet_data[pc]['final_inventory'][f"Good {pc}"] = good_val
+            if bad_val > 0: d_planet_data[pc]['final_inventory'][f"Bad {pc}"] = bad_val
+        elif pc == 'Ketu':
+            if good_val > 0: d_planet_data[pc]['final_inventory'][f"Good {pc}"] = good_val
+            if bad_val > 0: d_planet_data[pc]['final_inventory'][f"Bad {pc}"] = bad_val
+        else:
+            if good_val > 0:
+                key = f"Good {pc}" if pc != 'Moon' else "Good Moon"
+                d_planet_data[pc]['final_inventory'][key] = good_val
+            if bad_val > 0:
+                key = f"Bad {pc}" if pc != 'Moon' else "Bad Moon"
+                d_planet_data[pc]['final_inventory'][key] = bad_val
+
+    # Mars in Leo
+    if d_planet_data['Mars']['sign'] == 'Leo':
+        _mg = d_planet_data['Mars']['final_inventory'].get('Good Mars', 0.0)
+        _mb = d_planet_data['Mars']['final_inventory'].get('Bad Mars', 0.0)
+        _mt = _mg + _mb
+        d_planet_data['Mars']['final_inventory']['Good Mars'] = _mt * 0.75
+        d_planet_data['Mars']['final_inventory']['Bad Mars']  = _mt * 0.25
+        d_planet_data['Mars']['current_debt'] = -(_mt * 0.25)
+
+    # ══════════ PHASE 0 — Rahu (Steps 1-2 only, skip Step 3) ════════════
+    _p0_rahu_sign = d_planet_sign_map.get('Rahu','Aries')
+    _p0_hl = get_sign_lord(_p0_rahu_sign)
+    _p0_hl_st = d_planet_status_map.get(_p0_hl, '-')
+    _p0_good = 0.0
+    if _p0_hl_st == 'Uchcham':    _p0_good += 80.0
+    elif _p0_hl_st == 'Moolathirigonam': _p0_good += 48.0
+    elif _p0_hl_st == 'Aatchi':   _p0_good += 36.0
+    d_planet_data['Rahu']['current_debt'] += _p0_good
+    _p0_fav = {'Aries','Taurus','Cancer','Virgo','Libra','Sagittarius','Capricorn','Pisces'}
+    if _p0_rahu_sign in _p0_fav:
+        _p0_good += 30.0
+        d_planet_data['Rahu']['current_debt'] += 30.0
+    if _p0_good > 0:
+        d_planet_data['Rahu']['final_inventory']['Good Rahu'] = d_planet_data['Rahu']['final_inventory'].get('Good Rahu', 0.0) + _p0_good
+
+    # ══════════ PHASE 1 — Malefic Exchange ══════════════════════════════
+    d_debtor_rank = []
+    d_debtor_rank.append('Rahu'); d_debtor_rank.append('Sun'); d_debtor_rank.append('Saturn')
+    _d_mp = d_planet_data['Moon']
+    _d_waning = (paksha == 'Krishna')
+    _d_bad_pct_moon = _d_mp['moon_bad_pct']
+    _d_moon_in = False
+    if _d_waning and _d_mp['moon_phase'] == 'Amavasya':
+        d_debtor_rank.append('Moon'); _d_moon_in = True
+    d_debtor_rank.append('Mars')
+    if _d_waning and not _d_moon_in:
+        if _d_bad_pct_moon > 25:
+            d_debtor_rank.append('Moon')
+        else:
+            d_debtor_rank.append('Moon')
+    d_debtor_rank.append('Ketu')
+
+    def _d_rank_score(p_name, c_key):
+        if p_name == 'Moon':
+            phase = d_planet_data['Moon']['moon_phase']
+            if phase == 'Purnima': return 1000
+            if 'Good' in c_key or c_key == 'Moon':
+                if paksha == 'Shukla': return 500 + shukla_good[tithi_idx]*4
+                else: return 500 + krishna_good[tithi_idx]*4
+        if c_key == 'Jupiter': return 990
+        if c_key == 'Venus': return 980
+        if c_key == 'Mercury': return 970
+        if c_key == 'Good Mars': return 800
+        if c_key == 'Good Sun': return 700
+        if c_key == 'Good Ketu': return 700
+        if c_key == 'Good Rahu': return 100
+        if p_name == 'Moon' and 'Bad' in c_key:
+            return 400 - d_planet_data['Moon']['moon_bad_pct']*3
+        if c_key == 'Bad Mars': return 325
+        if c_key == 'Bad Sun': return 250
+        if c_key == 'Bad Saturn': return 100
+        if c_key == 'Bad Rahu': return 100
+        if c_key == 'Bad Ketu': return 150
+        return 0
+
+    _d1_active = True; _d1_cyc = 0
+    while _d1_active and _d1_cyc < 200:
+        _d1_cyc += 1; _d1_hap = False
+        for debtor in d_debtor_rank:
+            if d_planet_data[debtor]['current_debt'] >= -0.001: continue
+            deb_mal = debtor in malefic_planets
+            deb_mrank = navamsa_malefic_hierarchy.get(debtor, 99)
+            ptgts = []
+            for tn in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+                if tn == debtor: continue
+                if debtor == 'Ketu' and tn not in ['Sun','Moon']: continue
+                tn_mal = tn in malefic_planets
+                if deb_mal and tn_mal:
+                    if deb_mrank >= navamsa_malefic_hierarchy.get(tn, 99): continue
+                else:
+                    di = d_debtor_rank.index(debtor) if debtor in d_debtor_rank else 99
+                    ti = d_debtor_rank.index(tn) if tn in d_debtor_rank else 99
+                    if di > ti: continue
+                inv = d_planet_data[tn]['final_inventory']
+                for key, val in inv.items():
+                    if key == 'Good Rahu': continue
+                    if 'Bad' in key and key != f"Bad {tn}": continue
+                    if val > 0.001:
+                        L1 = d_planet_data[debtor]['L']; L2 = d_planet_data[tn]['L']
+                        diff = abs(L1-L2)
+                        if diff > 180: diff = 360-diff
+                        gap = int(diff)
+                        if gap > 22: continue
+                        cpct = mix_dict.get(gap, 0)
+                        mp = d_planet_data[tn]['volume'] * (cpct/100.0)
+                        tk = f"pulled_from_{tn}"
+                        pl = d_planet_data[debtor].get(tk, 0.0)
+                        if pl < mp:
+                            sc = _d_rank_score(tn, key)
+                            ig = is_good_currency(key)
+                            ptgts.append({'planet':tn,'key':key,'score':sc,'gap':gap,'max_pull':mp,'is_good':ig})
+            if deb_mal:
+                ptgts.sort(key=lambda x: (-int(x['is_good']), -x['score'], x['gap']))
+            else:
+                ptgts.sort(key=lambda x: (-x['score'], x['gap']))
+            ga = any(t['is_good'] and d_planet_data[t['planet']]['final_inventory'].get(t['key'],0)>0 for t in ptgts)
+            for tgt in ptgts:
+                if d_planet_data[debtor]['current_debt'] >= -0.001: break
+                own_bad = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                if tgt['key'] == own_bad: continue
+                if debtor == 'Sun' and tgt['key'] == 'Bad Moon': continue
+                if deb_mal and not tgt['is_good'] and ga: continue
+                av = d_planet_data[tgt['planet']]['final_inventory'][tgt['key']]
+                if av <= 0: continue
+                tk = f"pulled_from_{tgt['planet']}"
+                pl = d_planet_data[debtor].get(tk, 0.0)
+                cs = tgt['max_pull'] - pl
+                if cs <= 0: continue
+                take = min(1.0, av, cs)
+                if take > 0:
+                    d_planet_data[tgt['planet']]['final_inventory'][tgt['key']] -= take
+                    d_planet_data[tgt['planet']]['current_debt'] -= take
+                    ik = tgt['key'] == 'Bad Ketu' or tgt['key'] == 'Good Ketu'
+                    ism = debtor in ['Sun','Moon']
+                    if ik and not ism:
+                        d_planet_data[debtor]['final_inventory']['Good Ketu'] += take
+                        d_planet_data[debtor]['current_debt'] += take
+                    elif debtor == 'Rahu' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                        d_planet_data[debtor]['final_inventory']['Bad Saturn'] += take
+                        d_planet_data[debtor]['current_debt'] -= take
+                    elif debtor == 'Sun' and tgt['planet'] == 'Saturn' and tgt['key'] == 'Good Saturn':
+                        d_planet_data[debtor]['final_inventory']['Bad Saturn'] += take
+                        d_planet_data[debtor]['current_debt'] -= take
+                    else:
+                        d_planet_data[debtor]['final_inventory'][tgt['key']] += take
+                        ibf = 'Bad' in tgt['key'] or tgt['key'] in ['Amavasya','Bad Saturn','Bad Rahu']
+                        if tgt['planet'] in ['Saturn','Rahu'] and 'Bad' in tgt['key']: ibf = True
+                        if tgt['planet'] == 'Moon' and 'Bad' in tgt['key']: ibf = True
+                        if debtor == 'Ketu' and is_sun_or_moon_currency(tgt['key']):
+                            d_planet_data[debtor]['current_debt'] -= take
+                        elif ibf:
+                            d_planet_data[debtor]['current_debt'] -= take
+                        else:
+                            d_planet_data[debtor]['current_debt'] += take
+                    d_planet_data[debtor][tk] = pl + take
+                    _d1_hap = True
+                    # Infection
+                    _ttn = tgt['planet']
+                    _tt_mal = _ttn in malefic_planets or (_ttn == 'Moon' and d_planet_data['Moon'].get('moon_bad_pct',0)>0)
+                    if deb_mal and _tt_mal:
+                        _ik = f"Bad {debtor}" if debtor != 'Moon' else "Bad Moon"
+                        d_planet_data[_ttn]['final_inventory'][_ik] += take
+                    ga = any(t['is_good'] and d_planet_data[t['planet']]['final_inventory'].get(t['key'],0)>0 for t in ptgts)
+        if not _d1_hap: _d1_active = False
+
+    # ══════════ PHASE 2 — Benefic Exchange ══════════════════════════════
+    _d2_moon_ben = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
+    _d2_core = ['Jupiter','Venus','Mercury']
+    if _d2_moon_ben: _d2_core.append('Moon')
+
+    d_p2 = {}
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        d_p2[p] = {'inv': defaultdict(float), 'debt': d_planet_data[p]['current_debt'],
+                    'vol': d_planet_data[p]['volume'], 'L': d_planet_data[p]['L']}
+        for k,v in d_planet_data[p]['final_inventory'].items():
+            d_p2[p]['inv'][k] = v
+
+    _d2_ketu_sm = False
+    for k in d_p2['Ketu']['inv']:
+        if is_sun_or_moon_currency(k) and d_p2['Ketu']['inv'][k] > 0.001:
+            _d2_ketu_sm = True; break
+    bkr = d_p2['Ketu']['inv'].get('Bad Ketu', 0.0)
+    if bkr > 0 and not _d2_ketu_sm:
+        d_p2['Ketu']['inv']['Good Ketu'] = d_p2['Ketu']['inv'].get('Good Ketu',0.0) + bkr
+        d_p2['Ketu']['inv']['Bad Ketu'] = 0.0
+        d_p2['Ketu']['debt'] += bkr
+    if not _d2_ketu_sm:
+        _d2_core.append('Ketu')
+
+    _d2_dpct = {}
+    for pp in _d2_core:
+        vol = d_p2[pp]['vol']; dbt = abs(d_p2[pp]['debt'])
+        _d2_dpct[pp] = (dbt/vol*100) if vol > 0 else 0.0
+    _d2_sorted = sorted(_d2_core, key=lambda x: -_d2_dpct[x])
+
+    def _d2_rs(pn, ck):
+        if ck == 'Jupiter': return 1000
+        if ck == 'Good Moon' or (pn == 'Moon' and 'Good' in ck): return 995
+        if ck == 'Venus': return 980
+        if ck == 'Mercury': return 970
+        if ck == 'Good Ketu': return 700
+        return 0
+
+    _d2a = True; _d2c = 0
+    while _d2a and _d2c < 200:
+        _d2c += 1; _d2h = False
+        for puller in _d2_sorted:
+            if d_p2[puller]['debt'] >= -0.001: continue
+            pt = []
+            for tgt in _d2_core:
+                if tgt == puller: continue
+                if puller == 'Ketu' and tgt == 'Moon': continue
+                if puller == 'Moon' and tgt == 'Ketu': continue
+                if _d2_dpct.get(tgt,0) >= _d2_dpct[puller]: continue
+                L1=d_p2[puller]['L']; L2=d_p2[tgt]['L']
+                diff=abs(L1-L2)
+                if diff>180: diff=360-diff
+                gap=int(diff)
+                if gap>22: continue
+                inv=d_p2[tgt]['inv']
+                for key,val in inv.items():
+                    if key=='Good Rahu': continue
+                    if 'Bad' in key: continue
+                    if val > 0.001:
+                        cpct=mix_dict.get(gap,0)
+                        mp=d_p2[tgt]['vol']*(cpct/100.0)
+                        tk=f"p2_pulled_from_{tgt}"
+                        pl=d_p2[puller].get(tk,0.0)
+                        if pl<mp:
+                            sc=_d2_rs(tgt,key)
+                            pt.append({'planet':tgt,'key':key,'score':sc,'gap':gap,'max_pull':mp})
+            pt.sort(key=lambda x: (-x['score'], x['gap']))
+            for tg in pt:
+                if d_p2[puller]['debt'] >= -0.001: break
+                av=d_p2[tg['planet']]['inv'][tg['key']]
+                if av<=0: continue
+                tk=f"p2_pulled_from_{tg['planet']}"
+                pl=d_p2[puller].get(tk,0.0)
+                cs=tg['max_pull']-pl
+                if cs<=0: continue
+                take=min(1.0,av,cs)
+                if take>0:
+                    d_p2[tg['planet']]['inv'][tg['key']] -= take
+                    d_p2[tg['planet']]['debt'] -= take
+                    d_p2[puller]['inv'][tg['key']] += take
+                    d_p2[puller]['debt'] += take
+                    d_p2[puller][tk] = pl + take
+                    _d2h = True
+                    for bn in _d2_core:
+                        vl=d_p2[bn]['vol']; db=abs(d_p2[bn]['debt'])
+                        _d2_dpct[bn]=(db/vl*100) if vl>0 else 0.0
+        if not _d2h: _d2a = False
+
+    # Copy Phase 2 results back
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        d_planet_data[p]['current_debt'] = d_p2[p]['debt']
+        d_planet_data[p]['final_inventory'] = d_p2[p]['inv']
+
+    # ══════════ SKIP PHASE 3 (11th house pot + navamsa gift) ═════════════
+
+    # ══════════ PHASE 4 — Gift Pots (sign-based) ════════════════════════
+    d_p4 = {}
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        d_p4[p] = {'inv': defaultdict(float), 'debt': d_planet_data[p]['current_debt'],
+                    'vol': d_planet_data[p]['volume'], 'L': d_planet_data[p]['L'],
+                    'sign': d_planet_sign_map[p]}
+        for k,v in d_planet_data[p]['final_inventory'].items():
+            d_p4[p]['inv'][k] = v
+
+    d_gift_cfg = {
+        'Sagittarius': ('Jupiter', 100, 1.00),
+        'Pisces':      ('Jupiter',  80, 0.80),
+        'Libra':       ('Venus',    80, 0.80),
+        'Taurus':      ('Venus',    60, 0.60),
+    }
+    for ts, (gifter, mult, cap_pct) in d_gift_cfg.items():
+        gs = d_planet_data[gifter]['sthana']
+        pot = mult * (gs / 100.0)
+        if pot <= 0.001: continue
+        pis = [pp for pp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu'] if d_p4[pp]['sign'] == ts]
+        if not pis: continue
+        _pg_cap = {}; _pg_done = {}
+        for pp in pis:
+            id = abs(d_p4[pp]['debt']) if d_p4[pp]['debt'] < -0.001 else 0.0
+            _pg_cap[pp] = id * cap_pct; _pg_done[pp] = 0.0
+        _p4_mal_list = ['Saturn','Rahu','Ketu','Mars','Sun']
+        _p4_mal_order = ['Rahu','Sun','Saturn','Mars','Ketu']
+        _p4_ben_list = ['Jupiter','Venus','Mercury']
+        c4 = 0
+        while c4 < 200:
+            c4 += 1; h4 = False
+            if pot <= 0.001: break
+            _bm = d_p4['Moon']['inv'].get('Bad Moon',0.0)
+            _mm = _bm > 0.001
+            sm = [pp for pp in pis if pp in _p4_mal_list or (pp == 'Moon' and _mm)]
+            sb = [pp for pp in pis if pp in _p4_ben_list or (pp == 'Moon' and not _mm)]
+            def _mr(pp):
+                if pp == 'Moon':
+                    vl = d_p4['Moon']['vol']
+                    bp = (_bm/vl*100) if vl > 0 else 0
+                    return 2.5 if bp > 25 else 3.5
+                return _p4_mal_order.index(pp) if pp in _p4_mal_order else 99
+            sm.sort(key=_mr)
+            sb.sort(key=lambda pp: -(abs(d_p4[pp]['debt'])/d_p4[pp]['vol']*100 if d_p4[pp]['vol']>0 else 0))
+            for ml in sm:
+                if pot <= 0.001: break
+                if d_p4[ml]['debt'] >= -0.001: continue
+                rc = _pg_cap[ml] - _pg_done[ml]
+                if rc <= 0.001: continue
+                take = min(1.0, abs(d_p4[ml]['debt']), pot, rc)
+                if take > 0.001:
+                    pot -= take; d_p4[ml]['inv'][gifter] += take; d_p4[ml]['debt'] += take
+                    _pg_done[ml] += take; h4 = True
+            amc = all(d_p4[mm]['debt'] >= -0.001 for mm in sm) if sm else True
+            if amc:
+                for bl in sb:
+                    if pot <= 0.001: break
+                    if d_p4[bl]['debt'] >= -0.001: continue
+                    rc = _pg_cap[bl] - _pg_done[bl]
+                    if rc <= 0.001: continue
+                    take = min(1.0, abs(d_p4[bl]['debt']), pot, rc)
+                    if take > 0.001:
+                        pot -= take; d_p4[bl]['inv'][gifter] += take; d_p4[bl]['debt'] += take
+                        _pg_done[bl] += take; h4 = True
+            if not h4: break
+
+    # Copy Phase 4 results
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        d_planet_data[p]['current_debt'] = d_p4[p]['debt']
+        d_planet_data[p]['final_inventory'] = d_p4[p]['inv']
+
+    # ══════════ PHASE 5 — Virtual Aspect Clones ═════════════════════════
+    d_p5 = {}
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        d_p5[p] = {
+            'inv': defaultdict(float), 'debt': d_planet_data[p]['current_debt'],
+            'vol': d_planet_data[p]['volume'], 'L': d_planet_data[p]['L'],
+            'sign': d_planet_sign_map[p], 'bad_inv': 0.0,
+        }
+        for k,v in d_planet_data[p]['final_inventory'].items():
+            d_p5[p]['inv'][k] = v
+            if 'Bad' in k: d_p5[p]['bad_inv'] += v
+
+    # HLB (House Lord Bonus)
+    _d5_hlb_map = {'Uchcham':30,'Moolathirigonam':24,'Aatchi':18}
+    _d5_neg = ('Neecham','Neechabhangam','Neechabhanga Raja Yoga')
+    for hp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn']:
+        hs = d_p5[hp]['sign']; hl = get_sign_lord(hs)
+        if hl == hp: continue
+        hst = d_planet_status_map.get(hp,'-')
+        hup = d_planet_data[hp].get('updated_status','-')
+        hef = hup if hup not in ('-','',None) else hst
+        if hef in _d5_neg: continue
+        lls = d_planet_status_map.get(hl,'-')
+        pct = _d5_hlb_map.get(lls,0)
+        if pct <= 0: continue
+        cap = capacity_dict.get(hp,100)
+        amt = pct/100.0 * cap
+        if hp in ['Jupiter','Venus','Mercury']: gk = hp
+        else: gk = f"Good {hp}"
+        d_p5[hp]['inv'][gk] += amt; d_p5[hp]['debt'] += amt
+
+    # Ketu's Gift
+    _kg_kL = d_p5['Ketu']['L']; _kg_kV = d_p5['Ketu']['vol']
+    for _kb in ['Mercury','Venus','Jupiter']:
+        _kd = abs(d_p5[_kb]['L'] - _kg_kL)
+        if _kd > 180: _kd = 360-_kd
+        _kg = int(_kd)
+        if _kg > 22: continue
+        _kp = mix_dict.get(_kg,0)
+        if _kp <= 0: continue
+        _kgift = _kg_kV * (_kp/100.0)
+        d_p5[_kb]['inv'][_kb] += _kgift; d_p5[_kb]['debt'] += _kgift
+
+    # Snapshot
+    _d5_snap_inv = {}; _d5_snap_debt = {}
+    for sp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        _d5_snap_inv[sp] = dict(d_p5[sp]['inv']); _d5_snap_debt[sp] = d_p5[sp]['debt']
+
+    D5_MALEFICS = ['Saturn','Mars','Sun','Rahu','Ketu']
+    D5_BENEFICS = ['Jupiter','Venus','Mercury']
+    D5_MAL_RANK = ['Rahu','Sun','Saturn','Mars','Ketu']
+    D5_ASPECT = {
+        'Saturn': {3:0.25,7:1.0,10:0.75}, 'Mars': {4:0.40,7:1.0,8:0.25},
+        'Sun': {7:0.50}, 'Jupiter': {5:1.0,7:1.0,9:1.0},
+        'Venus': {7:1.0}, 'Mercury': {7:1.0},
+        'Moon': {4:0.25,6:0.50,7:1.0,8:0.50,10:0.25},
+    }
+    _d5_sun_aq = (d_planet_sign_map.get('Sun','') == 'Aquarius')
+    D5_SEQ = ['Saturn','Mars','Sun','Jupiter','Venus','Mercury','Moon']
+
+    def _d5_crs(ck):
+        if ck == 'Jupiter': return 990
+        if ck == 'Jupiter Poison': return 990
+        if ck == 'Venus': return 980
+        if ck == 'Mercury': return 970
+        if ck == 'Good Moon': return 950
+        if ck == 'Good Saturn': return 780
+        if ck == 'Good Mars': return 770
+        if ck == 'Good Sun': return 760
+        if ck == 'Good Ketu': return 700
+        if ck == 'Bad Moon': return 300
+        if ck == 'Bad Mars': return 250
+        if ck == 'Bad Sun': return 200
+        if ck == 'Bad Saturn': return 100
+        if ck == 'Bad Rahu': return 100
+        if ck == 'Bad Ketu': return 150
+        return 0
+
+    def _d5_moon_mal():
+        return d_p5['Moon']['bad_inv'] > 0.001
+
+    _d5_jp_case = None
+    _d5_all_lo = []  # leftover clones
+    _d5_all_pc = {}  # planet->clones
+
+    # PASS 1: Create all clones simultaneously from snapshot
+    for cp in D5_SEQ:
+        if cp not in D5_ASPECT: continue
+        aoffs = D5_ASPECT[cp]
+        pL = d_p5[cp]['L']; pDebt = _d5_snap_debt[cp]
+        _cp_mal = cp in ('Saturn','Mars','Sun','Rahu','Ketu') or (cp == 'Moon' and d_p5['Moon']['bad_inv']>0.001)
+        _cp_ur = d_planet_data[cp].get('updated_status','-')
+        _cp_st = _cp_ur if _cp_ur not in ('-','',None) else d_planet_data[cp].get('status','')
+        if _cp_mal and _cp_st in ('Neecham','Neechabhangam','Neechabhanga Raja Yoga'):
+            sf = d_planet_data[cp]['sthana'] / 120.0
+        else:
+            sf = 1.0
+        clones = []
+        for off, apct in aoffs.items():
+            cL = (pL + (off-1)*30) % 360
+            pInv = _d5_snap_inv[cp]
+            ci = defaultdict(float); cd = 0.0; ct = 'Passive'
+            if cp == 'Saturn':
+                gs = sum(v/2.0 for k,v in pInv.items() if is_good_currency(k) and v>0.001)
+                cv = apct * gs * sf
+                if cv > 0.001: ci['Good Saturn'] = cv
+                for k,v in pInv.items():
+                    if 'Bad' in k and v>0.001:
+                        bv = v*apct*sf
+                        if bv>0.001: ci[k] = bv
+                if _cp_st in ('Neecham','Neechabhangam','Neechabhanga Raja Yoga'):
+                    gt=sum(v for k,v in pInv.items() if is_good_currency(k) and v>0.001)
+                    bt=sum(v for k,v in pInv.items() if 'Bad' in k and v>0.001)
+                    cd=(gt-bt)*apct*sf
+                else: cd=pDebt*apct*sf
+                ct='Active'
+            elif cp == 'Mars':
+                gs=0.0
+                for k,v in pInv.items():
+                    if is_good_currency(k) and v>0.001:
+                        gs += v if k=='Good Mars' else v/2.0
+                cv=apct*gs*sf
+                if cv>0.001: ci['Good Mars']=cv
+                for k,v in pInv.items():
+                    if 'Bad' in k and v>0.001:
+                        bv=v*apct*sf
+                        if bv>0.001: ci[k]=bv
+                if _cp_st in ('Neecham','Neechabhangam','Neechabhanga Raja Yoga'):
+                    gt=sum(v for k,v in pInv.items() if is_good_currency(k) and v>0.001)
+                    bt=sum(v for k,v in pInv.items() if 'Bad' in k and v>0.001)
+                    cd=(gt-bt)*apct*sf
+                else: cd=pDebt*apct*sf
+                ct='Active'
+            elif cp == 'Sun':
+                if _d5_sun_aq:
+                    gs=0.0
+                    for k,v in pInv.items():
+                        if is_good_currency(k) and v>0.001:
+                            gs += v if k=='Good Sun' else v/2.0
+                    cv=apct*gs*sf
+                    if cv>0.001: ci['Good Sun']=cv
+                    for k,v in pInv.items():
+                        if 'Bad' in k and v>0.001:
+                            bv=v*apct*sf
+                            if bv>0.001: ci[k]=bv
+                    if _cp_st in ('Neecham','Neechabhangam','Neechabhanga Raja Yoga'):
+                        gt=sum(v for k,v in pInv.items() if is_good_currency(k) and v>0.001)
+                        bt=sum(v for k,v in pInv.items() if 'Bad' in k and v>0.001)
+                        cd=(gt-bt)*apct*sf
+                    else: cd=pDebt*apct*sf
+                    ct='Active'
+                else:
+                    bt=sum(v for k,v in pInv.items() if 'Bad' in k and v>0.001)
+                    xv=bt*apct*sf
+                    if xv>0.001: ci['Bad Sun']=xv
+                    cd=0.0; ct='Passive'
+            elif cp in ['Jupiter','Venus','Mercury']:
+                gs=sum(v for k,v in pInv.items() if is_good_currency(k) and v>0.001)
+                cv=apct*gs*sf
+                if cv>0.001: ci[cp]=cv
+                cd=0.0; ct='Passive'
+            elif cp == 'Moon':
+                gm=pInv.get('Good Moon',0.0)
+                og=sum(v for k,v in pInv.items() if is_good_currency(k) and k!='Good Moon' and v>0.001)
+                tv=gm+(og/2.0); cv=apct*tv*sf
+                if cv>0.001: ci['Good Moon']=cv
+                cd=0.0; ct='Passive'
+            oi = defaultdict(float)
+            for k,v in ci.items(): oi[k]=v
+            _xsun = (cp=='Sun' and not _d5_sun_aq)
+            clone = {'parent':cp,'offset':off,'aspect_pct':apct,'L':cL,
+                     'inventory':ci,'original_inventory':oi,
+                     'wasted_inventory':defaultdict(float),
+                     'debt':cd,'initial_debt':cd,'type':ct,'is_xsun':_xsun}
+            clones.append(clone)
+        _d5_all_pc[cp] = clones
+
+    # NO suchama on clones (maraivu is house-dependent)
+
+    # PASS 2: Exchange + Jupiter Poison
+    for cp in D5_SEQ:
+        if cp not in D5_ASPECT: continue
+        clones = _d5_all_pc[cp]
+
+        # Jupiter Poison
+        if cp == 'Jupiter':
+            _jpS = d_planet_sign_map.get('Jupiter','')
+            _jpL = d_p5['Jupiter']['L']
+            _jpI = d_p5['Jupiter']['inv']
+            _jpV = _jpI.get('Jupiter',0.0)
+            jp_mult = 0.0; jp_case = None
+            if _jpV > 0.001:
+                def _jp_mfz():
+                    mc = ['Saturn','Mars','Rahu']
+                    if d_p5['Ketu']['inv'].get('Bad Ketu',0.0) > 0.001: mc.append('Ketu')
+                    if _d5_moon_mal(): mc.append('Moon')
+                    for mp in mc:
+                        md = abs(_jpL - d_p5[mp]['L'])
+                        if md > 180: md = 360-md
+                        if md < 22: return False
+                    for cl in _d5_all_lo:
+                        if cl['parent'] in ['Saturn','Mars']:
+                            cd = abs(_jpL - cl['L'])
+                            if cd > 180: cd = 360-cd
+                            if cd < 22:
+                                ctv = sum(v for v in cl['inventory'].values() if v>0.001)
+                                cbv = sum(v for k,v in cl['inventory'].items() if v>0.001 and 'Bad' in k)
+                                if ctv > 0.001 and (cbv/ctv*100) > 5.0: return False
+                    return True
+                # Case A
+                _ca_mult = 0.0
+                _ca_signs = {'Sagittarius','Pisces','Libra','Taurus','Cancer'}
+                _jp_pariv = 'Jupiter' in d_parivardhana_map
+                if (_jpS in _ca_signs) or _jp_pariv:
+                    vL = d_p5['Venus']['L']
+                    jvd = abs(_jpL - vL)
+                    if jvd > 180: jvd = 360-jvd
+                    jvg = int(jvd)
+                    if jvg <= 28 and _jp_mfz():
+                        cp_a = max(50.0, 100.0-(jvg*(50.0/22.0))) if jvg<=22 else 50.0
+                        _ca_mult = (cp_a/100.0)*0.5
+                # Case B
+                _cb_mult = 0.0
+                _cb_signs = {'Sagittarius','Pisces','Cancer'}
+                if (_jpS in _cb_signs) or _jp_pariv:
+                    _mgp = d_planet_data['Moon'].get('moon_good_pct',0)
+                    _mbp = d_planet_data['Moon'].get('moon_bad_pct',0)
+                    _mwax = (paksha=='Shukla') or (moon_phase_name=='Purnima')
+                    _mph = (_mwax and _mgp>50) or (not _mwax and _mbp<10)
+                    _mi = d_p5['Moon']['inv']
+                    _mbc = _mi.get('Bad Moon',0.0)
+                    _mti = sum(abs(v) for v in _mi.values())
+                    _mpu = _mti<0.001 or (_mbc/_mti)<0.02
+                    if _mph and _mpu:
+                        mL = d_p5['Moon']['L']
+                        jmd = abs(_jpL - mL)
+                        if jmd>180: jmd=360-jmd
+                        jmg = int(jmd)
+                        if jmg <= 28 and _jp_mfz():
+                            cp_b = max(50.0, 100.0-(jmg*(50.0/22.0))) if jmg<=22 else 50.0
+                            _cb_mult = cp_b/100.0
+                if _ca_mult > 0.001 or _cb_mult > 0.001:
+                    if _ca_mult >= _cb_mult:
+                        jp_mult = _ca_mult; jp_case = 'CaseA_Venus'
+                    else:
+                        jp_mult = _cb_mult; jp_case = 'CaseB_Moon'
+                    _d5_jp_case = jp_case
+                if jp_mult > 0.001:
+                    pa = jp_mult * _jpV
+                    _jpI['Jupiter'] = _jpV - pa
+                    _jpI['Jupiter Poison'] = _jpI.get('Jupiter Poison',0.0) + pa
+                    for jcl in clones:
+                        jv = jcl['inventory'].get('Jupiter',0.0)
+                        if jv > 0.001:
+                            cp2 = jp_mult * jv
+                            jcl['inventory']['Jupiter'] = jv - cp2
+                            jcl['inventory']['Jupiter Poison'] = jcl['inventory'].get('Jupiter Poison',0.0) + cp2
+                            ov = jcl['original_inventory'].get('Jupiter',0.0)
+                            if ov > 0.001:
+                                op = jp_mult * ov
+                                jcl['original_inventory']['Jupiter'] = ov - op
+                                jcl['original_inventory']['Jupiter Poison'] = jcl['original_inventory'].get('Jupiter Poison',0.0) + op
+
+        # Interaction cycle
+        _c5 = 0
+        while _c5 < 500:
+            _c5 += 1; _h5 = False
+            for clone in clones:
+                cL = clone['L']
+                # Step 1: Active clone pulls
+                if clone['type'] == 'Active' and clone['debt'] < -0.001:
+                    cp_mal = clone['parent'] in malefic_planets
+                    cp_mr = navamsa_malefic_hierarchy.get(clone['parent'],99)
+                    cp_di = d_debtor_rank.index(clone['parent']) if clone['parent'] in d_debtor_rank else 99
+                    tgts = []
+                    for tp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+                        if tp == clone['parent']: continue
+                        if clone['parent'] == 'Ketu' and tp not in ['Sun','Moon']: continue
+                        tm = tp in malefic_planets
+                        if cp_mal and tm:
+                            if cp_mr >= navamsa_malefic_hierarchy.get(tp,99): continue
+                        else:
+                            ti = d_debtor_rank.index(tp) if tp in d_debtor_rank else 99
+                            if cp_di > ti: continue
+                        tL = d_p5[tp]['L']
+                        diff = abs(cL-tL)
+                        if diff>180: diff=360-diff
+                        gap=int(diff)
+                        if gap<=22: tgts.append({'planet':tp,'gap':gap})
+                    tgts.sort(key=lambda x: x['gap'])
+                    for ti in tgts:
+                        if clone['debt']>=-0.001: break
+                        tp=ti['planet']; gap=ti['gap']
+                        tv=d_p5[tp]['vol']; cpct=mix_dict.get(gap,0)
+                        mp=tv*(cpct/100.0)
+                        tk=f"clone_{clone['parent']}_{clone['offset']}_pulled_from_{tp}"
+                        ap=clone.get(tk,0.0); rc=mp-ap
+                        if rc<=0.001: continue
+                        banned=f"Good {clone['parent']}"
+                        tinv=d_p5[tp]['inv']
+                        gc=[]; bc=[]
+                        for k,v in tinv.items():
+                            if k=='Good Rahu': continue
+                            if v>0.001 and k!=banned:
+                                s=_d5_crs(k)
+                                if is_good_currency(k): gc.append({'key':k,'value':v,'score':s})
+                                else: bc.append({'key':k,'value':v,'score':s})
+                        gc.sort(key=lambda x:-x['score']); bc.sort(key=lambda x:-x['score'])
+                        for cu in gc:
+                            if clone['debt']>=-0.001 or rc<=0.001: break
+                            av=tinv[cu['key']]
+                            if av<=0.001: continue
+                            take=min(1.0,abs(clone['debt']),av,rc)
+                            if take>0.001:
+                                d_p5[tp]['inv'][cu['key']]-=take; d_p5[tp]['debt']-=take
+                                clone['inventory'][cu['key']]=clone['inventory'].get(cu['key'],0.0)+take
+                                clone['wasted_inventory'][cu['key']]=clone['wasted_inventory'].get(cu['key'],0.0)+take
+                                clone['debt']+=take; clone[tk]=ap+take; rc-=take; ap+=take; _h5=True
+                                _t5m=tp in malefic_planets or (tp=='Moon' and d_p5['Moon'].get('bad_inv',0)>0)
+                                if cp_mal and _t5m:
+                                    ik=f"Bad {clone['parent']}"
+                                    d_p5[tp]['inv'][ik]=d_p5[tp]['inv'].get(ik,0.0)+take
+                        gs_avail=any(tinv.get(c['key'],0)>0.001 for c in gc if c['key']!=banned)
+                        if clone['debt']<-0.001 and not gs_avail:
+                            for cu in bc:
+                                if clone['debt']>=-0.001 or rc<=0.001: break
+                                av=tinv[cu['key']]
+                                if av<=0.001: continue
+                                take=min(1.0,abs(clone['debt']),av,rc)
+                                if take>0.001:
+                                    d_p5[tp]['inv'][cu['key']]-=take; d_p5[tp]['debt']-=take
+                                    if 'Bad' in cu['key']: d_p5[tp]['bad_inv']-=take
+                                    clone['inventory'][cu['key']]=clone['inventory'].get(cu['key'],0.0)+take
+                                    clone['wasted_inventory'][cu['key']]=clone['wasted_inventory'].get(cu['key'],0.0)+take
+                                    clone['debt']+=take; clone[tk]=ap+take; rc-=take; ap+=take; _h5=True
+                                    _t5mb=tp in malefic_planets or (tp=='Moon' and d_p5['Moon'].get('bad_inv',0)>0)
+                                    if cp_mal and _t5mb:
+                                        ik=f"Bad {clone['parent']}"
+                                        d_p5[tp]['inv'][ik]=d_p5[tp]['inv'].get(ik,0.0)+take
+
+                # Step 2: Real malefics pull from clone original inventory
+                tor=0.0
+                for k in clone['original_inventory']:
+                    tk2=f'taken_from_original_{k}'; tn=clone.get(tk2,0.0)
+                    rm=clone['original_inventory'][k]-tn
+                    if rm>0.001: tor+=rm
+                if tor>0.001:
+                    rml=list(D5_MAL_RANK)
+                    if _d5_moon_mal() and 'Moon' not in rml:
+                        vl=d_p5['Moon']['vol']
+                        bp=(d_p5['Moon']['bad_inv']/vl*100) if vl>0 else 0
+                        mi=rml.index('Mars')
+                        rml.insert(mi if bp>25 else mi+1, 'Moon')
+                    for ml in rml:
+                        if d_p5[ml]['debt']>=-0.001: continue
+                        if ml=='Ketu' and clone['parent'] not in ['Sun','Moon','Jupiter','Venus','Mercury']: continue
+                        mL=d_p5[ml]['L']; diff=abs(mL-cL)
+                        if diff>180: diff=360-diff
+                        gap=int(diff)
+                        if gap>22: continue
+                        tov=sum(clone['original_inventory'].values())
+                        cpct=mix_dict.get(gap,0); mp=tov*(cpct/100.0)
+                        tk3=f"p5_pulled_from_clone_{clone['parent']}_{clone['offset']}"
+                        ap=d_p5[ml].get(tk3,0.0); rc=mp-ap
+                        if rc<=0.001: continue
+                        ac=[]
+                        for k,ov in clone['original_inventory'].items():
+                            if k=='Good Rahu': continue
+                            tk4=f'taken_from_original_{k}'; tn=clone.get(tk4,0.0)
+                            ro=ov-tn
+                            if ro>0.001 and is_good_currency(k):
+                                ac.append({'key':k,'remaining':ro,'score':_d5_crs(k)})
+                        ac.sort(key=lambda x:-x['score'])
+                        for cu in ac:
+                            if d_p5[ml]['debt']>=-0.001 or rc<=0.001: break
+                            tk4=f"taken_from_original_{cu['key']}"; tn=clone.get(tk4,0.0)
+                            ro=clone['original_inventory'][cu['key']]-tn
+                            if ro<=0.001: continue
+                            take=min(1.0,abs(d_p5[ml]['debt']),ro,rc)
+                            if take>0.001:
+                                clone[tk4]=tn+take; clone['inventory'][cu['key']]-=take
+                                d_p5[ml]['inv'][cu['key']]+=take; d_p5[ml]['debt']+=take
+                                d_p5[ml][tk3]=ap+take; rc-=take; ap+=take; _h5=True
+
+                # Step 3: Real benefics pull from clone original inventory
+                tor2=0.0
+                for k in clone['original_inventory']:
+                    tk5=f'taken_from_original_{k}'; tn=clone.get(tk5,0.0)
+                    rm=clone['original_inventory'][k]-tn
+                    if rm>0.001: tor2+=rm
+                if tor2>0.001:
+                    rbl=list(D5_BENEFICS)
+                    if not _d5_moon_mal(): rbl.append('Moon')
+                    def _bpct(pp):
+                        vl=d_p5[pp]['vol']; db=abs(d_p5[pp]['debt'])
+                        return (db/vl*100) if vl>0 else 0
+                    rbl.sort(key=lambda pp:-_bpct(pp))
+                    for bl in rbl:
+                        if d_p5[bl]['debt']>=-0.001: continue
+                        bL=d_p5[bl]['L']; diff=abs(bL-cL)
+                        if diff>180: diff=360-diff
+                        gap=int(diff)
+                        if gap>22: continue
+                        tov=sum(clone['original_inventory'].values())
+                        cpct=mix_dict.get(gap,0); mp=tov*(cpct/100.0)
+                        tk6=f"p5_benefic_pulled_from_clone_{clone['parent']}_{clone['offset']}"
+                        ap=d_p5[bl].get(tk6,0.0); rc=mp-ap
+                        if rc<=0.001: continue
+                        ac=[]
+                        for k,ov in clone['original_inventory'].items():
+                            if k=='Good Rahu': continue
+                            tk7=f'taken_from_original_{k}'; tn=clone.get(tk7,0.0)
+                            ro=ov-tn
+                            if ro>0.001 and is_good_currency(k):
+                                ac.append({'key':k,'remaining':ro,'score':_d5_crs(k)})
+                        ac.sort(key=lambda x:-x['score'])
+                        for cu in ac:
+                            if d_p5[bl]['debt']>=-0.001 or rc<=0.001: break
+                            tk7=f"taken_from_original_{cu['key']}"; tn=clone.get(tk7,0.0)
+                            ro=clone['original_inventory'][cu['key']]-tn
+                            if ro<=0.001: continue
+                            take=min(1.0,abs(d_p5[bl]['debt']),ro,rc)
+                            if take>0.001:
+                                clone[tk7]=tn+take; clone['inventory'][cu['key']]-=take
+                                d_p5[bl]['inv'][cu['key']]+=take; d_p5[bl]['debt']+=take
+                                d_p5[bl][tk6]=ap+take; rc-=take; ap+=take; _h5=True
+
+                # Step 4: Saturn absorbs Bad Sun from XSUN clones
+                if clone.get('is_xsun') and clone['inventory'].get('Bad Sun',0.0) > 0.001:
+                    sL=d_p5['Saturn']['L']; xd=abs(sL-cL)
+                    if xd>180: xd=360-xd
+                    xg=int(xd)
+                    if xg<=22:
+                        xtv=sum(v for v in clone['original_inventory'].values() if v>0.001)
+                        xcp=mix_dict.get(xg,0); xmp=xtv*(xcp/100.0)
+                        xtk=f"p5_saturn_xsun_{clone['offset']}"
+                        xa=d_p5['Saturn'].get(xtk,0.0); xr=xmp-xa
+                        if xr>0.001:
+                            xav=clone['inventory'].get('Bad Sun',0.0)
+                            xt=min(1.0,xav,xr)
+                            if xt>0.001:
+                                clone['inventory']['Bad Sun']-=xt
+                                d_p5['Saturn']['inv']['Bad Sun']=d_p5['Saturn']['inv'].get('Bad Sun',0.0)+xt
+                                d_p5['Saturn']['debt']-=xt
+                                d_p5['Saturn']['bad_inv']=d_p5['Saturn'].get('bad_inv',0.0)+xt
+                                d_p5['Saturn'][xtk]=xa+xt; _h5=True
+            if not _h5: break
+
+        # Kill logic
+        for clone in clones:
+            if clone['type'] != 'Active': continue
+            for k in list(clone['inventory'].keys()):
+                cv=clone['inventory'].get(k,0.0)
+                if cv<=0.001: continue
+                ov=clone['original_inventory'].get(k,0.0)
+                tk8=f'taken_from_original_{k}'; tfo=clone.get(tk8,0.0)
+                orem=max(0.0,ov-tfo); gained=cv-orem
+                if gained>0.001:
+                    clone['inventory'][k]=cv-gained
+                    if not is_good_currency(k):
+                        clone['debt']-=gained
+
+        _d5_all_lo.extend(clones)
+
+    # Sun Healing Pull
+    _shL = d_p5['Sun']['L']
+    _sh_tgts = []
+    for _sp in ('Mars','Mercury'):
+        sd = abs(_shL - d_p5[_sp]['L'])
+        if sd > 180: sd = 360-sd
+        sg = int(sd)
+        if sg <= 22: _sh_tgts.append((_sp, sg))
+    _sh_tgts.sort(key=lambda x: x[1])
+    if _sh_tgts and d_p5['Sun']['debt'] < -0.001:
+        _shc = 0
+        while _shc < 500:
+            _shc += 1; _shd = False
+            for _sp, _sg in _sh_tgts:
+                if d_p5['Sun']['debt'] >= -0.001: break
+                tv = d_p5[_sp]['vol']; cpct = mix_dict.get(_sg,0)
+                mp = tv*(cpct/100.0)
+                tk = f"sun_heal_pulled_from_{_sp}"
+                ap = d_p5['Sun'].get(tk,0.0); rc = mp-ap
+                if rc <= 0.001: continue
+                avl = []
+                for k,v in d_p5[_sp]['inv'].items():
+                    if k=='Good Rahu': continue
+                    if v>0.001 and is_good_currency(k):
+                        avl.append((k,v,_d5_crs(k)))
+                avl.sort(key=lambda x:-x[2])
+                for k,v,_ in avl:
+                    if d_p5['Sun']['debt']>=-0.001 or rc<=0.001: break
+                    cv=d_p5[_sp]['inv'].get(k,0.0)
+                    if cv<=0.001: continue
+                    need=abs(d_p5['Sun']['debt'])
+                    take=min(1.0,need,cv,rc)
+                    if take>0.001:
+                        d_p5[_sp]['inv'][k]-=take; d_p5[_sp]['debt']-=take
+                        d_p5['Sun']['inv'][k]=d_p5['Sun']['inv'].get(k,0.0)+take
+                        d_p5['Sun']['debt']+=take
+                        hk=f"Good {_sp}"; ha=take*0.5
+                        d_p5[_sp]['inv'][hk]=d_p5[_sp]['inv'].get(hk,0.0)+ha
+                        d_p5[_sp]['debt']+=ha
+                        d_p5['Sun'][tk]=ap+take; rc-=take; ap+=take; _shd=True
+            if not _shd: break
+
+    # Jupiter Poison post-sharing debt
+    _jp_dm = 0.0
+    if _d5_jp_case == 'CaseB_Moon': _jp_dm = 1.0
+    elif _d5_jp_case == 'CaseA_Venus': _jp_dm = 0.5
+    for pp in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        jph = d_p5[pp]['inv'].get('Jupiter Poison',0.0)
+        if jph > 0.001: d_p5[pp]['debt'] -= _jp_dm * jph
+    for cl in _d5_all_lo:
+        jcp = cl['inventory'].get('Jupiter Poison',0.0)
+        if jcp > 0.001: cl['debt'] -= _jp_dm * jcp
+
+    # Ketu alone & unaspected check
+    _kLs = {'Gemini','Leo','Scorpio','Aquarius'}
+    _kSgn = d_planet_sign_map.get('Ketu','')
+    if _kSgn in _kLs:
+        _kL = d_p5['Ketu']['L']; _kAlone = True
+        for chk in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu']:
+            cd = abs(_kL - d_p5[chk]['L'])
+            if cd > 180: cd = 360-cd
+            if cd < 22: _kAlone = False; break
+        if _kAlone:
+            for cl in _d5_all_lo:
+                cd = abs(_kL - cl['L'])
+                if cd > 180: cd = 360-cd
+                if cd < 22: _kAlone = False; break
+        if _kAlone:
+            d_p5['Ketu']['inv']['Bad Ketu'] = d_p5['Ketu']['inv'].get('Bad Ketu',0.0) + 25.0
+            d_p5['Ketu']['debt'] -= 25.0
+
+    # Jupiter Poison NPS penalty multipliers
+    if _d5_jp_case == 'CaseB_Moon': d_ppn = 2
+    elif _d5_jp_case == 'CaseA_Venus': d_ppn = 1
+    else: d_ppn = 0
+
+    # ══════════ NPS (no KHS, no maraivu, no suchama) ════════════════════
+    _nps_neecha_st = {'Neecham','Neechabhangam','Neechabhanga Raja Yoga'}
+    _nps_mw = (paksha == 'Shukla') or (moon_phase_name == 'Purnima')
+    day_nps_results = []
+    for p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
+        inv = d_p5[p]['inv']
+        p5_debt = d_p5[p]['debt']
+        p_vol = d_p5[p]['vol']
+        p_cap = capacity_dict.get(p, 100)
+        tg = sum(v for k,v in inv.items() if v>0.001 and is_good_currency(k))
+        tb = sum(v for k,v in inv.items() if v>0.001 and 'Bad' in k)
+        jp_p = inv.get('Jupiter Poison',0.0)
+        if jp_p > 0.001:
+            tg -= jp_p; tb += (d_ppn-1)*jp_p
+        net = tg - tb
+        _st = d_planet_data[p].get('updated_status','')
+        if not _st or _st == '-': _st = d_planet_data[p].get('status','')
+        is_n = _st in _nps_neecha_st
+        if p == 'Moon': is_m = not _nps_mw
+        elif p in ('Sun','Mars','Saturn','Rahu','Ketu'): is_m = True
+        else: is_m = False
+
+        if p == 'Moon' and _nps_mw and not is_n:
+            fns = ((p_vol+p5_debt)/p_vol*100) if abs(p_vol)>0.001 else 0.0
+        elif p == 'Moon' and _nps_mw and is_n:
+            dn = p_cap*1.2
+            sd = -1*p5_debt
+            fns = ((tg-sd)/dn*120) if abs(dn)>0.001 else 0.0
+        elif not is_m and is_n:
+            dn=p_cap*1.2; fns=(net/dn*120) if abs(dn)>0.001 else 0.0
+        elif is_m and is_n:
+            dn=p_cap*1.2; fns=((dn+p5_debt)/dn*120) if abs(dn)>0.001 else 0.0
+        elif not is_m and not is_n:
+            fns=((p_vol+p5_debt)/p_vol*100) if abs(p_vol)>0.001 else 0.0
+        else:
+            fns=((p_vol+p5_debt)/p_vol*100) if abs(p_vol)>0.001 else 0.0
+        # NO KHS, NO maraivu, NO suchama
+        day_nps_results.append({'planet': p, 'day_nps': round(fns, 2)})
+
+    day_nps_results.sort(key=lambda x: -x['day_nps'])
+    return day_nps_results[:5]
+
 
 # South Indian plotter
 def plot_south_indian_style(ax, house_to_planets, lagna_sign, title):
@@ -6570,6 +7651,14 @@ if st.session_state.chart_data:
 
     st.subheader("Normalized Planet Scores")
     st.dataframe(cd['df_normalized_planet_scores'], hide_index=True, use_container_width=True)
+
+    st.subheader("Top 5 Day NPS")
+    _day_nps = cd.get('day_nps_top5', [])
+    if _day_nps:
+        _dn_rows = [{'Rank': i+1, 'Planet': r['planet'], 'Day NPS': r['day_nps']} for i, r in enumerate(_day_nps)]
+        st.dataframe(pd.DataFrame(_dn_rows), hide_index=True, use_container_width=True)
+    else:
+        st.info("Day NPS data not available.")
 
     st.subheader("House Points Analysis")
     st.dataframe(cd['df_house_points'], hide_index=True, use_container_width=True)
