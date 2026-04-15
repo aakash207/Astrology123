@@ -4414,7 +4414,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         if _is_negative:
             # Use Final Normalized Score from normalized planet scores (scale 0-120)
             _nps_val = _nps_score_dict.get(_ps_p, 0.0)
-            _sb = _nps_val  # will be converted to 40 or 60 scale below via (val/120)*weight
+            _sb = _nps_val  # will be converted via configured Sthana weight below
             _overridden_sthana[_ps_p] = _sb
 
         # Parivardhana Yoga: override Sthana with swapped sign score
@@ -4461,16 +4461,34 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         else:
             s_bonus = 10.0 if _rh in (1, 5, 9) else 0.0
 
-        # Unified formula: Sthana 60%, Dig 60%, Self Asp (max 10), HLord, Kendra/Kona 10
-        s_dig = (_db / 100.0) * 60.0
-        s_sth = (_sb / 100.0) * 60.0
+        # Unified formula: Sthana 80%, Dig 40%, Self Asp (max 10), HLord, Kendra/Kona 10
+        s_dig = (_db / 100.0) * 40.0
+        s_sth = (_sb / 100.0) * 80.0
         base_total = s_dig + s_sth + _asp_val + _hl_adj
 
-        final = min(base_total + s_bonus, 100.0)
-        planet_final_strengths[_ps_p] = final
+        # Ketu Benefic Conjunction Bonus (Jupiter, Mercury, Venus only)
+        # If the planet is conjunct with Ketu (same rasi house AND within 22° longitude),
+        # add strength from mix_dict: 0° = +100, 3° = +95, ..., 22° = 0.
+        # This is added before capping so the final printed value never exceeds 100.
+        _ketu_conj_bonus = 0.0
+        if _ps_p in ('Jupiter', 'Mercury', 'Venus'):
+            _kc_ketu_L = phase5_data['Ketu']['L']
+            _kc_planet_L = phase5_data[_ps_p]['L']
+            _kc_diff = abs(_kc_planet_L - _kc_ketu_L)
+            if _kc_diff > 180:
+                _kc_diff = 360 - _kc_diff
+            _kc_gap = int(_kc_diff)
+            if _kc_gap <= 22 and _rh == phase5_data['Ketu']['rasi_house']:
+                _ketu_conj_bonus = float(mix_dict.get(_kc_gap, 0))
+
+        final = min(base_total + s_bonus + _ketu_conj_bonus, 100.0)
+        final_print = min(final, 100.0)
+        planet_final_strengths[_ps_p] = final_print
+        _kc_brkdn = f" + KetuConj:{_ketu_conj_bonus:.2f}" if _ketu_conj_bonus > 0 else ""
         brkdn = (f"Dig:{s_dig:.2f} + Sthana:{s_sth:.2f}{_pari_note} + "
                  f"Asp:{_asp_val:.2f} + "
-                 f"HLord:{_hl_adj:+.2f}({_ps_lord}={_lord_st}) + Bonus:{s_bonus:.2f}")
+                 f"HLord:{_hl_adj:+.2f}({_ps_lord}={_lord_st}) + Bonus:{s_bonus:.2f}"
+                 f"{_kc_brkdn}")
 
         # ── Updated Maraivu Percentage & Adjusted Strength ──
         _ps_rh = phase5_data[_ps_p]['rasi_house']
@@ -4480,10 +4498,10 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ps_updated_maraivu = compute_updated_maraivu(_ps_base_maraivu, _ps_p, planet_status_map.get(_ps_p, '-'), planet_sign_map.get(_ps_p, ''))
 
         # Maraivu Adjusted Strength
-        _ps_adj_strength = (final / 2.0) + (final * (100 - _ps_updated_maraivu) / 200.0)
+        _ps_adj_strength = (final_print / 2.0) + (final_print * (100 - _ps_updated_maraivu) / 200.0)
         _planet_maraivu_adj_strengths[_ps_p] = _ps_adj_strength
 
-        planet_strength_rows.append([_ps_p, f"{final:.2f}", f"{_ps_adj_strength:.2f}", brkdn])
+        planet_strength_rows.append([_ps_p, f"{final_print:.2f}", f"{_ps_adj_strength:.2f}", brkdn])
 
     df_planet_strengths = pd.DataFrame(planet_strength_rows,
         columns=['Planet', 'Total Strength', 'Maraivu Adjusted Strength', 'Score Breakdown'])
