@@ -4514,51 +4514,69 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
     # ---- PLANET CATEGORY TABLE (A / B / C) ----
     _cat_rows = []
     for _cat_p in ['Sun','Moon','Mars','Mercury','Jupiter','Venus','Saturn','Rahu','Ketu']:
-        # --- Step 1: Evaluate Planetary Strength (Strong / Weak / Neutral) ---
+        # --- Step 1: Evaluate Planetary Strength using Planet Total Strength (0-100) ---
         _cat_status = planet_data[_cat_p].get('status', '-')
         _cat_updated = planet_data[_cat_p].get('updated_status', '-')
         _cat_eff = _cat_updated if _cat_updated not in ('-', '', None) else _cat_status
-        _cat_db = planet_data[_cat_p].get('dig_bala') or 0
 
-        # Rahu/Ketu have no digbala — force to neutral value
+        # Use Planet Total Strength for Sun-Saturn; Rahu/Ketu fall back to dig_bala neutral (50)
         if _cat_p in ('Rahu', 'Ketu'):
-            _cat_db = 50  # neutral: won't trigger strong (>91) or weak (<10)
+            _cat_db = 50.0  # neutral: maps to Medium tier
+        else:
+            _cat_db = planet_final_strengths.get(_cat_p, planet_data[_cat_p].get('dig_bala') or 0)
+
+        # 4-tier strength classification (0-100 scale)
+        # > 80  => Very Strong  (maps to Strong in matrix)
+        # 60-80 => Strong       (maps to Strong in matrix)
+        # 40-60 => Medium       (maps to Neutral in matrix)
+        # < 40  => Weak         (maps to Weak in matrix)
+        if _cat_db > 80:
+            _cat_tier = 'Very Strong'
+            _cat_matrix_strength = 'Strong'
+        elif _cat_db >= 60:
+            _cat_tier = 'Strong'
+            _cat_matrix_strength = 'Strong'
+        elif _cat_db >= 40:
+            _cat_tier = 'Medium'
+            _cat_matrix_strength = 'Neutral'
+        else:
+            _cat_tier = 'Weak'
+            _cat_matrix_strength = 'Weak'
 
         _strong_statuses = {'Uchcham', 'Moolathirigonam', 'Aatchi'}
         _has_strong_status = _cat_status in _strong_statuses
-        _has_dig_balam = _cat_db > 91
         _is_neechabhanga_ry = _cat_eff == 'Neechabhanga Raja Yoga'
         _is_neecham = (_cat_status == 'Neecham')
-        _is_neechabhangam = _cat_eff in ('Neechabhangam', 'Neechabhanga Raja Yoga')
-        _is_nishbalam = _cat_db < 10
+        _is_nishbalam = _cat_db < 40  # Weak tier
 
-        # Base determination
-        if _has_strong_status or _has_dig_balam or _is_neechabhanga_ry:
+        # Base determination: status/yoga overrides tier where applicable
+        if _has_strong_status or _is_neechabhanga_ry:
             _cat_strength = 'Strong'
             _cat_s_reason = []
             if _has_strong_status: _cat_s_reason.append(_cat_status)
-            if _has_dig_balam: _cat_s_reason.append(f'DigBala {_cat_db}%')
+            if _cat_matrix_strength == 'Strong' and not _has_strong_status:
+                _cat_s_reason.append(f'Strength {_cat_db:.2f} ({_cat_tier})')
             if _is_neechabhanga_ry: _cat_s_reason.append('Neechabhanga Raja Yoga')
             _cat_s_reason_str = ', '.join(_cat_s_reason)
-        elif _is_neecham or _is_nishbalam:
+        elif _is_neecham or _cat_matrix_strength == 'Weak':
             _cat_strength = 'Weak'
             _cat_s_reason = []
             if _is_neecham: _cat_s_reason.append('Neecham')
-            if _is_nishbalam: _cat_s_reason.append(f'DigBala {_cat_db}% < 10')
+            if _cat_matrix_strength == 'Weak': _cat_s_reason.append(f'Strength {_cat_db:.2f} < 40 ({_cat_tier})')
             _cat_s_reason_str = ', '.join(_cat_s_reason)
         else:
-            _cat_strength = 'Neutral'
-            _cat_s_reason_str = f'Status: {_cat_status}, DigBala: {_cat_db}%'
+            _cat_strength = _cat_matrix_strength  # Neutral
+            _cat_s_reason_str = f'Status: {_cat_status}, Strength: {_cat_db:.2f} ({_cat_tier})'
 
         # Overrides (take precedence)
-        # Uchcham + Nishbalam => Neutral
+        # Uchcham + Weak Strength => Neutral
         if _cat_status == 'Uchcham' and _is_nishbalam:
             _cat_strength = 'Neutral'
-            _cat_s_reason_str = f'Uchcham + Nishbalam (DigBala {_cat_db}%)'
-        # Neecham + DigBala > 91% => Neutral
-        if _is_neecham and _has_dig_balam:
+            _cat_s_reason_str = f'Uchcham + Weak Strength ({_cat_db:.2f} < 40)'
+        # Neecham + Very Strong Strength => Neutral
+        if _is_neecham and _cat_db > 80:
             _cat_strength = 'Neutral'
-            _cat_s_reason_str = f'Neecham + DigBala {_cat_db}% > 91'
+            _cat_s_reason_str = f'Neecham + Very Strong Strength ({_cat_db:.2f} > 80)'
         # Neechabhangam (not Raja Yoga) => Neutral
         if _cat_eff == 'Neechabhangam':
             _cat_strength = 'Neutral'
@@ -4596,7 +4614,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
             _cat_p,
             _cat_status,
             _cat_eff,
-            f"{_cat_db}%",
+            f"{_cat_db:.2f}",
             f"{_cat_nps:.2f}",
             _cat_strength,
             _cat_s_reason_str,
@@ -4607,11 +4625,274 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         ])
 
     df_planet_categories = pd.DataFrame(_cat_rows, columns=[
-        'Planet', 'Status', 'Effective Status', 'Dig Bala',
-        'Normalised for Predictions', 'Strength', 'Strength Reason',
+        'Planet', 'Status', 'Effective Status', 'Strength',
+        'Normalised for Predictions', 'Strength Tier', 'Strength Reason',
         'Nature', 'Nature Reason (Pred)', 'Category', 'Notes'
     ])
     # ---- END PLANET CATEGORY TABLE ----
+
+    # ════════════════════════════════════════════════════════════════════════
+    # ---- YOGA FINDER TABLE ----
+    # Detects yogas based on house-lord connections via Conjunction (same
+    # rasi house), Mutual Aspect (houses 7 apart), or Parivartana (sign
+    # exchange).  Does NOT depend on Baavath Baavagam.
+    # ════════════════════════════════════════════════════════════════════════
+
+    # Step A: Build house -> lord mapping from lagna
+    _yf_lagna_sign = get_sign(lagna_sid)
+    _yf_house_lord = {}          # house_num (1-12) -> planet name
+    _yf_lord_houses = defaultdict(list)  # planet -> list of house nums it rules
+    for _yf_h in range(1, 13):
+        _yf_sign = sign_names[(sign_names.index(_yf_lagna_sign) + (_yf_h - 1)) % 12]
+        _yf_lord = get_sign_lord(_yf_sign)
+        _yf_house_lord[_yf_h] = _yf_lord
+        _yf_lord_houses[_yf_lord].append(_yf_h)
+
+    # Step B: Determine connections between any two lords
+    # 1) Conjunction: both planets in the same rasi house
+    # 2) Mutual Aspect: their houses are exactly 7 apart (1-7, 4-10 etc.)
+    # 3) Parivartana: sign exchange (already detected in parivardhana_map)
+
+    def _yf_are_connected(lord_a, lord_b):
+        """Return list of connection types between lord_a and lord_b."""
+        if lord_a == lord_b:
+            return ['Same Lord']   # single planet rules both houses
+        connections = []
+        h_a = planet_house_map.get(lord_a, 0)
+        h_b = planet_house_map.get(lord_b, 0)
+        # Conjunction: same rasi house
+        if h_a == h_b and h_a != 0:
+            connections.append('Conjunction')
+        # Mutual Aspect: 7th from each other (house distance = 6 mod 12)
+        if h_a != 0 and h_b != 0:
+            _yf_dist = abs(h_a - h_b)
+            if _yf_dist == 6 or _yf_dist == 6:   # 7th house = 6 gap
+                connections.append('Mutual Aspect')
+        # Parivartana (sign exchange)
+        _pari_a = parivardhana_map.get(lord_a, '')
+        if _pari_a and lord_b in _pari_a:
+            connections.append('Parivartana')
+        return connections
+
+    # Step C: Yoga definitions
+    # Each entry: (house_a, house_b, yoga_name, category, subcategory, description, is_malefic)
+    _yf_yoga_defs = [
+        # ── Wealth ──
+        (2, 11, 'Maha Dhana Yoga', 'Wealth', 'Great Wealth Yoga', 'The ultimate link between savings and liquid gains. Income directly feeds into savings, and accumulated savings are perfectly invested to generate more incoming cash flow.', False),
+        (1, 2, 'Sva-Arjita Dhana Yoga', 'Wealth', 'Self-Acquired Wealth', "The person's entire physical existence and life path are wired to accumulate family wealth, assets, and a strong bank balance.", False),
+        (1, 11, 'Kama-Siddhi Yoga', 'Wealth', 'Fulfillment of Desires', 'The self is naturally magnetic to incoming gains, large networks, and the fulfillment of material desires. They are highly ambitious.', False),
+        (1, 5, 'Purva Punya Yoga', 'Wealth', 'Past-Life Merit', 'Wealth is generated directly through personal intelligence, creative projects, or speculative investments.', False),
+        (1, 9, 'Lakshmi Yoga', 'Wealth', 'Supreme Fortune', 'The self is blessed with immense financial fortune, making the acquisition of wealth smooth, naturally lucky, and highly protected.', False),
+        (5, 2, 'Jnana-Dhana Yoga', 'Wealth', 'Wealth via Intellect', 'Intellect, advisory skills, and speculative investments (5th) perfectly feed into accumulated savings (2nd).', False),
+        (5, 11, 'Vipula Dhana Yoga', 'Wealth', 'Abundant Wealth', 'Massive liquid gains (11th) achieved through stock markets, trading, creative pursuits, or brilliant intellectual strategy (5th).', False),
+        (9, 2, 'Bhagya-Kosh Yoga', 'Wealth', 'Treasury of Fortune', 'Fortune and luck (9th) naturally swell the bank account (2nd). This often indicates inherited wealth or money made easily through higher knowledge.', False),
+        (9, 11, 'Maha-Bhagya Yoga', 'Wealth', 'Great Fortunate Gains', 'The "Lucky Gains" yoga. Fortune effortlessly supports their highest financial ambitions, resulting in disproportionately high profits for their efforts.', False),
+        (10, 2, 'Karma-Kosh Yoga', 'Wealth', 'Action to Treasury', 'Career action (10th) is directly tied to managing assets, banking, speaking, or the family business, constantly feeding savings (2nd).', False),
+        (10, 11, 'Rajya-Labha Yoga', 'Wealth', 'Gains from the Kingdom', 'The ultimate indicator of high professional income. Career actions and public status directly result in large-scale liquid gains and bonuses.', False),
+        (10, 5, 'Mantri Yoga', 'Wealth', 'Advisor/Minister Yoga', 'Professional success is driven by creative intellect, education, or risk-taking, which naturally leads to wealth.', False),
+        (10, 9, 'Dharma-Karmadhipati Yoga', 'Wealth', 'Highest Righteous Action', 'This brings immense wealth because career actions (Karma) are perfectly aligned with highest fortune and righteous duty (Dharma), bringing riches as a byproduct of righteous action.', False),
+
+        # ── Power & Fame ──
+        (10, 9, 'Dharma-Karma Adhipati Yoga', 'Power & Fame', 'Dharma-Karma Adhipati', 'Perfect alignment of righteous fortune (9th) and supreme action (10th). Creates top-tier leaders, executives, or figures of high authority.', False),
+        (10, 5, 'Mantri Yoga', 'Power & Fame', 'Advisor Yoga', 'Supreme authority driven by intelligence, strategy, or advising. Excellent for ministers, high-level consultants, and creative directors.', False),
+        (10, 1, 'Simhasana Yoga', 'Power & Fame', 'Throne Yoga', "The individual's very identity and physical self are permanently linked to fame and peak career power.", False),
+        (1, 4, 'Janata Yoga', 'Power & Fame', 'Public Support Yoga', 'Power over the masses, real estate, or local government. The person has a strong foundational "throne" or base of supporters.', False),
+        (1, 7, 'Jaya Yoga', 'Power & Fame', 'Victory & Influence Yoga', 'Power through public influence, diplomacy, foreign affairs, or massive partnerships. The individual dominates public life.', False),
+        (1, 9, 'Lakshmi Yoga', 'Power & Fame', 'Supreme Fortune', 'Combines the Self with supreme luck. The self is blessed with high fortune, making the rise to power smooth, protected, and virtuous.', False),
+        (1, 5, 'Maha-Buddhi Yoga', 'Power & Fame', 'Supreme Intellect Yoga', 'Power through personal charisma, intellect, followers, or massive creative influence.', False),
+        (4, 9, 'Raja-Pujita Yoga', 'Power & Fame', 'Honored by Kings Yoga', "The person's seat of power is blessed by high fortune. Often indicates someone who inherits a powerful position or gains massive public support effortlessly.", False),
+        (4, 5, 'Vidya Yoga', 'Power & Fame', 'Vidya Yoga', 'Combines emotional stability/property (4th) with creative intelligence (5th). Influence over the masses through brilliant strategy, education, or entertainment.', False),
+        (7, 9, 'Bhagya-Dwara Yoga', 'Power & Fame', 'Doorway to Fortune', 'High public status and power achieved through strategic alliances, marriage, or international connections. Luck (9th) manifests through the "other" (7th).', False),
+        (7, 5, 'Duta Yoga', 'Power & Fame', 'Diplomat Yoga', 'Public power gained through diplomacy, intelligence, and the ability to negotiate or advise on a grand scale.', False),
+
+        # ── Love, Family and Comfort ──
+        (5, 7, 'Prema Vivaha Yoga', 'Love, Family & Comfort', 'Yoga of Romantic Marriage', 'The ultimate "Love Marriage" combination. Romantic love and courtship (5th) directly translate into a legal/formal marriage (7th).', False),
+        (1, 7, 'Kalatra-Sukha Yoga', 'Love, Family & Comfort', 'Happiness from Spouse', "The person's physical identity and life path are deeply intertwined with their partner. It creates strong mutual attraction.", False),
+        (5, 11, 'Ananda Yoga', 'Love, Family & Comfort', 'Yoga of Joyful Union', 'The complete fulfillment of romantic desires. It often indicates marrying a friend, or having a romance that expands your social network.', False),
+        (7, 9, 'Bhagya-Dwara Yoga', 'Love, Family & Comfort', 'Doorway to Fortune', 'Marriage brings immense fortune and luck. It often points to a highly ethical, spiritual, or culturally expanding partnership.', False),
+        (7, 11, 'Kama-Labha Yoga', 'Love, Family & Comfort', 'Gains through Partnership', 'The spouse brings the fulfillment of your greatest desires, and the marriage results in an expanding, joyful social life.', False),
+        (2, 4, 'Kutumba-Sukha Yoga', 'Love, Family & Comfort', 'Yoga of Family Happiness', 'Perfect harmony between the immediate family you are born into (2nd) and the private home environment you build (4th).', False),
+        (1, 2, 'Kula-Uddharaka Yoga', 'Love, Family & Comfort', 'Uplifter of the Lineage', 'The individual is highly devoted to their family lineage, values, and takes on the role of the primary caretaker or face of the family.', False),
+        (9, 2, 'Kula-Bhagya Yoga', 'Love, Family & Comfort', 'Yoga of Blessed Lineage', 'A blessed, fortunate family lineage. The person is often born into a family with strong ethical values, traditions, and resources.', False),
+        (5, 2, 'Vamsha-Vriddhi Yoga', 'Love, Family & Comfort', 'Expansion of the Lineage', "A strong bond between the native's children (5th) and their lineage/wealth (2nd). Children increase the family's happiness and assets.", False),
+        (1, 4, 'Sva-Sukha Yoga', 'Love, Family & Comfort', 'Yoga of Inner Peace', "The person's entire physical focus is on securing a peaceful home, acquiring beautiful properties, and ensuring domestic tranquility.", False),
+        (4, 9, 'Maha-Sukha Yoga', 'Love, Family & Comfort', 'Supreme Comforts Yoga', 'Supreme home comforts blessed by divine grace. The native effortlessly acquires beautiful homes, luxury vehicles, and experiences profound inner peace.', False),
+        (4, 11, 'Sukha-Labha Yoga', 'Love, Family & Comfort', 'Gains of Property & Comfort', 'Endless domestic comforts. The fulfillment of all desires regarding real estate, conveniences, and a highly joyful home life.', False),
+        (4, 5, 'Vidya-Sukha Yoga', 'Love, Family & Comfort', 'Happiness via Intellect & Children', 'The home is a place of deep creativity, intelligence, and joy (often filled with the happiness of children).', False),
+        (1, 5, 'Maha-Buddhi Yoga', 'Love, Family & Comfort', 'Supreme Intellect Yoga', "The person's entire physical identity and life path are driven by their intellect. Highly analytical and quick-witted.", False),
+        (4, 5, 'Vidya Yoga', 'Love, Family & Comfort', 'Yoga of Education & Intellect', 'Perfect harmony between academic learning/memory (4th) and application/logic (5th). Easily absorbs and applies information.', False),
+        (5, 9, 'Maha-Jnana Yoga', 'Love, Family & Comfort', 'Yoga of Supreme Wisdom', "The ultimate combination of raw brainpower (5th) and profound wisdom (9th). They understand complex, universal truths.", False),
+        (1, 4, 'Medha Yoga', 'Love, Family & Comfort', 'Yoga of Deep Comprehension', 'A deeply reflective, perceptive, and observant mind. They learn by internalizing their environment and possess excellent memory.', False),
+        (4, 9, 'Uchcha-Vidya Yoga', 'Love, Family & Comfort', 'Yoga of Higher Learning', 'Academic pursuits (4th) naturally lead to profound philosophical understanding (9th). Lifelong learners blessed by great teachers.', False),
+        (2, 5, 'Vak-Siddhi Yoga', 'Love, Family & Comfort', 'Yoga of Eloquent Speech', 'Raw intelligence (5th) flows perfectly into speech (2nd). Creates brilliant orators, sharp debaters, and writers.', False),
+        (2, 9, 'Guru-Vani Yoga', 'Love, Family & Comfort', 'Voice of the Teacher Yoga', 'Speech is filled with wisdom, truth, and higher knowledge. Excellent for teachers, spiritual guides, and consultants.', False),
+        (1, 9, 'Tattva-Jnana Yoga', 'Love, Family & Comfort', 'Yoga of Ultimate Truth', 'The individual is naturally drawn to higher knowledge, philosophy, and truth. A natural guide or guru figure.', False),
+
+        # ── Spirituality ──
+        (8, 12, 'Kaivalya Yoga / Vipreet Raja Yoga', 'Spirituality', 'Yoga of Final Liberation', 'The ultimate combination for esoteric pursuits. Profound intuition, deep understanding of the unseen world, and natural detachment from material obsessions.', False),
+        (9, 8, 'Gupta-Jnana Yoga', 'Spirituality', 'Yoga of Hidden Knowledge', 'A brilliant signature for researchers, mystics, and astrologers. Higher wisdom (9th) merges with deep, hidden secrets (8th).', False),
+        (9, 12, 'Tapasya Yoga / Ashrama Yoga', 'Spirituality', 'Yoga of Spiritual Penance', 'The classic "Ashram Yoga." Higher knowledge (9th) leads directly to letting go of worldly desires (12th).', False),
+        (1, 8, 'Atma-Sodhana Yoga', 'Spirituality', 'Yoga of Soul Transformation', "The individual's life is marked by intense transformations. Naturally psychological and intuitive mind.", False),
+        (1, 12, 'Vairagya Yoga', 'Spirituality', 'Yoga of Renunciation', 'The core identity is tied to isolation, meditation, and charity. Most at peace when disconnected from the material rat race.', False),
+        (1, 9, 'Dharma-Swarupa Yoga', 'Spirituality', 'Embodiment of Dharma', 'The self is entirely aligned with Dharma. Natural philosophers, spiritual guides, and lifelong seekers of ultimate truth.', False),
+        (4, 8, 'Gupta-Sukha Yoga', 'Spirituality', 'Yoga of Esoteric Peace', 'Inner peace is achieved through studying esoteric subjects, astrology, psychology, or undergoing deep internal transformations.', False),
+        (4, 12, 'Moksha-Sukha Yoga', 'Spirituality', 'Peace through Liberation', 'Worldly comforts minimized in favor of spiritual peace, foreign living, or ashram life. True home found in solitude.', False),
+
+        # ── Foreign Travel and Settlements ──
+        (4, 12, 'Videsha Nivasa Yoga', 'Foreign Travel & Settlement', 'Foreign Settlement Yoga', "The classic Permanent Settlement Yoga. The person's roots and comforts are deeply tied to a land far away.", False),
+        (1, 12, 'Deshantara Yoga', 'Foreign Travel & Settlement', 'Yoga of Another Country', 'The self (1st) resides in a completely foreign, unknown land (12th). Feels more at home living abroad.', False),
+        (9, 12, 'Videsha Bhagya Yoga', 'Foreign Travel & Settlement', 'Foreign Fortune Yoga', 'The ultimate "Global Citizen" yoga. Higher learning, luck, and religion (9th) heavily tied to foreign lands (12th).', False),
+        (7, 12, 'Videsha Vyapara Yoga', 'Foreign Travel & Settlement', 'Foreign Trade Yoga', 'Foreign trade, export-import business, or marrying someone from a different cultural background or country.', False),
+        (3, 12, 'Videsha Gamana Yoga', 'Foreign Travel & Settlement', 'Yoga of Going Abroad', 'The effort to move (3rd) leads directly to foreign lands (12th). Active during visa processing and moving across borders.', False),
+
+        # ── Profession and Business ──
+        (10, 3, 'Sanchara-Karma Yoga', 'Profession & Business', 'Action through Communication', 'Career relies on communication, hands, and short travel. Classic for IT, journalism, sales/marketing, and writing.', False),
+        (10, 5, 'Vidya-Karma Yoga / Mantri Yoga', 'Profession & Business', 'Action through Intellect', 'Career built on intellect, strategy, and creativity. Consultants, financial advisors, teachers, politicians, entertainment.', False),
+        (10, 6, 'Seva-Karma Yoga', 'Profession & Business', 'Action through Service', 'Daily action (10th) is fighting enemies, disease, or debt (6th). Doctors, lawyers, police, HR, banking officers.', False),
+        (10, 8, 'Gupta-Karma Yoga', 'Profession & Business', 'Yoga of Hidden/Esoteric Action', 'Career involves sudden crises, hidden information, or other people\'s money. Researchers, surgeons, tax auditors, astrologers.', False),
+        (10, 7, 'Vyapara Yoga', 'Profession & Business', 'Yoga of Trade & Public Business', 'Career dependent on public, open markets, and partnerships. Business owners, merchants, diplomats.', False),
+        (10, 12, 'Videsha-Karma Yoga', 'Profession & Business', 'Action in Foreign Lands', 'Work takes place in foreign lands, isolated environments, or behind the scenes. MNCs, hospitals, embassies.', False),
+        (10, 4, 'Bhumi-Karma Yoga', 'Profession & Business', 'Action through Property & Masses', 'Career tied to the masses, real estate, vehicles, or homeland. Real estate developers, architects, farmers.', False),
+
+        # ── Real Estate, Land & Vehicles ──
+        (4, 2, 'Bhumi-Dhana Yoga', 'Real Estate & Vehicles', 'Wealth via Property Yoga', 'Accumulated savings (2nd) directly converted into land, homes, or vehicles (4th). Wealth tied to physical property.', False),
+        (4, 11, 'Bhumi-Labha Yoga', 'Real Estate & Vehicles', 'Gains from Property Yoga', 'Incoming gains (11th) constantly manifest as new properties or vehicles (4th). Massive rental income or commercial leasing.', False),
+        (1, 4, 'Sva-Bhumi Yoga', 'Real Estate & Vehicles', 'Self-Acquired Domain Yoga', 'Fiercely driven to own their own home and land. Self-made property owners.', False),
+        (4, 9, 'Bhagya-Bhumi Yoga', 'Real Estate & Vehicles', 'Fortunate Property & Inheritance', 'Property blessed by divine fortune. Massive estates, or acquiring properties abroad. Inheriting valuable land.', False),
+        (4, 5, 'Vastu-Sukha Yoga', 'Real Estate & Vehicles', 'Joyful & Aesthetic Dwellings', 'Highly aesthetic, creative properties. Homes are places of entertainment, art, and joy. House-flipping success.', False),
+        (4, 10, 'Karma-Bhumi Yoga', 'Real Estate & Vehicles', 'Action through Property', 'Career built on land or vehicles. Architects, real estate developers, civil engineers, car dealerships.', False),
+
+        # ── Sudden Wealth, Inheritance & Lotteries ──
+        (8, 2, 'Riktha-Dhana Yoga', 'Sudden Wealth & Inheritance', 'Yoga of Inherited Wealth', 'Hidden wealth, insurance money, or deep family inheritances (8th) directly enter your bank vault (2nd).', False),
+        (8, 11, 'Akasmika-Labha Yoga', 'Sudden Wealth & Inheritance', 'Yoga of Sudden Gains', 'A sudden influx of cash flow. Sudden massive returns on investments, huge bonuses, or insurance settlements.', False),
+        (8, 5, 'Gupta-Nidhi Yoga', 'Sudden Wealth & Inheritance', 'Yoga of Hidden Treasure', 'Winning lotteries, high-stakes gambling, or making a fortune through volatile trading.', False),
+        (8, 9, 'Gupta-Bhagya Yoga', 'Sudden Wealth & Inheritance', 'Yoga of Hidden Fortune', 'Unexpected negative events magically turn into great fortune. Inheriting a massive estate from father or guru.', False),
+        (8, 7, 'Kalatra-Dhana Yoga', 'Sudden Wealth & Inheritance', 'Yoga of Spousal Wealth', "Wealth directly through marriage or business partners. Gaining access to spouse's considerable assets.", False),
+
+        # ── Academic Success ──
+        (4, 5, 'Vidya Yoga', 'Academic Success', 'Yoga of Core Education', 'Foundational learning (4th) merges with analytical intellect (5th). Excels in structured academic environments.', False),
+        (4, 2, 'Smriti-Vidya Yoga', 'Academic Success', 'Yoga of Memory & Early Learning', 'Early childhood learning (2nd) supports standard education (4th). Excellent memory and foundational base.', False),
+        (5, 9, 'Prajna Yoga / Saraswati Yoga', 'Academic Success', 'Yoga of Supreme Scholarship', 'The "Scholarship Yoga." Raw intellect (5th) elevates into profound higher university learning (9th).', False),
+        (4, 9, 'Uchcha-Vidya Yoga', 'Academic Success', 'Yoga of Higher Education', 'Foundational degrees (4th) naturally lead to post-graduate success (9th). Blessed by great teachers and mentors.', False),
+        (1, 4, 'Medha Yoga', 'Academic Success', 'Yoga of Deep Comprehension', 'Naturally studious, reflective, and finds deep personal peace in academic environments.', False),
+        (1, 5, 'Tivra-Buddhi Yoga', 'Academic Success', 'Yoga of Sharp Intellect', 'Highly competitive in academic settings. Identity tied to intelligence and test scores.', False),
+        (1, 9, 'Jijnasu Yoga', 'Academic Success', 'Yoga of the Lifelong Seeker', 'The "Lifelong Learner." Constantly seeking higher knowledge, pursuing certifications well into adulthood.', False),
+        (10, 4, 'Upadhyaya Karma Yoga', 'Academic Success', 'Yoga of the Educator', 'Career (10th) directly utilizes foundational degree (4th). Gets a job in exactly what they majored in.', False),
+
+        # ── Children, Progeny & Creative Legacy ──
+        (1, 5, 'Sva-Santana Yoga', 'Children & Progeny', 'Yoga of the Devoted Parent', "The person's identity (1st) is deeply invested in their children (5th). Highly protective and creative.", False),
+        (2, 5, 'Vamsha-Vriddhi Yoga', 'Children & Progeny', 'Yoga of Lineage Expansion', 'Birth of a child (5th) directly expands the family lineage and accumulated wealth (2nd).', False),
+        (5, 9, 'Maha-Santana Yoga', 'Children & Progeny', 'Supreme Progeny Yoga', 'Highly fortunate, righteous, and successful children. Blessed by divine grace (9th).', False),
+        (5, 11, 'Santana-Labha Yoga', 'Children & Progeny', 'Yoga of Gains via Children', 'The deep desire to have a child (5th) is successfully fulfilled (11th). Parent and child become great friends.', False),
+
+        # ── Speech, Oratory & Truth ──
+        (2, 5, 'Vagmi Yoga', 'Speech & Oratory', 'Yoga of the Brilliant Orator', 'The intellect flows flawlessly into speech. Brilliant debaters, sharp-witted comedians, articulate writers.', False),
+        (2, 9, 'Satya-Vak Yoga / Guru-Vani Yoga', 'Speech & Oratory', 'Yoga of Truth & Teacher\'s Voice', 'Speech (2nd) is flooded with higher philosophy, righteousness, and truth (9th). Spiritual guides and professors.', False),
+        (2, 10, 'Karma-Vak Yoga', 'Speech & Oratory', 'Action through Voice Yoga', 'Career (10th) built upon the voice (2nd). Politicians, news anchors, singers, motivational speakers, trial lawyers.', False),
+        (1, 2, 'Sva-Vani Yoga', 'Speech & Oratory', 'Yoga of the Self\'s Voice', 'Immediately recognized by their voice or face. Naturally highly communicative. Spokesperson for family or group.', False),
+
+        # ── Courage, Athletics & Self-Effort ──
+        (1, 3, 'Sva-Parakrama Yoga', 'Courage & Athletics', 'Yoga of Self-Made Courage', 'The ultimate "Self-Made" yoga. Immense physical stamina and willpower. Athletes, martial artists, entrepreneurs.', False),
+        (3, 6, 'Shatru-Hanta Yoga / Shaurya Yoga', 'Courage & Athletics', 'Yoga of the Fearless Warrior', "Courage (3rd) engineered to crush the opposition (6th). Military commanders, litigators, competitive athletes.", False),
+        (3, 10, 'Karma-Parakrama Yoga', 'Courage & Athletics', 'Action through Courage & Skill', "Career (10th) built on hands, communication, or bravery (3rd). Musicians, artists, surgeons, IT professionals.", False),
+        (3, 11, 'Parakrama-Labha Yoga', 'Courage & Athletics', 'Yoga of Gains through Effort', 'The "Monetized Hobby" yoga. Personal skills (3rd) expand into large-scale liquid gains (11th).', False),
+
+        # ── Spouse & Partnerships ──
+        (1, 7, 'Kalatra-Swarupa Yoga', 'Spouse & Partnerships', 'Yoga of the True Partner', "The 'Mirror Yoga.' Physical identity (1st) intertwined with partner (7th). Massive mutual attraction.", False),
+        (7, 2, 'Kalatra-Dhana Yoga', 'Spouse & Partnerships', 'Yoga of Wealth via Spouse', 'The spouse brings accumulated wealth, or comes from a highly affluent family lineage (2nd).', False),
+        (7, 11, 'Kalatra-Labha Yoga', 'Spouse & Partnerships', 'Yoga of Gains via Partnership', 'Spouse brings fulfillment of greatest desires (11th). Marriage expands social network and brings massive gains.', False),
+        (7, 9, 'Bhagya-Dwara Yoga', 'Spouse & Partnerships', 'Doorway to Fortune Yoga', "The 'Lucky Marriage' yoga. Spouse brings immense fortune (9th). Marriage feels divinely guided.", False),
+        (7, 12, 'Videsha-Kalatra Yoga', 'Spouse & Partnerships', 'Yoga of the Foreign Spouse', 'Spouse is from a foreign land or different cultural background. Moving abroad after marriage.', False),
+        (7, 10, 'Raja-Kalatra Yoga', 'Spouse & Partnerships', 'Yoga of the Powerful Spouse', "The 'Power Couple' yoga. Spouse is highly authoritative, career-driven, or holds significant public status.", False),
+
+        # ── Fame, Mass Popularity & Virality ──
+        (1, 7, 'Jana-Vashya Yoga', 'Fame & Popularity', 'Yoga of Public Captivation', "The 'Public Darling' yoga. Personality naturally captivates the public. Essential for celebrities and iconic figures.", False),
+        (1, 5, 'Kirti Yoga', 'Fame & Popularity', 'Yoga of Charisma & Renown', "Identity defined by creative genius. Attracts a fiercely loyal following or fanbase.", False),
+        (10, 5, 'Kala-Karma Yoga', 'Fame & Popularity', 'Action through Art & Intellect', "Career (10th) built on entertainment, arts, or creative advisory (5th). Famous directors, musicians, content creators.", False),
+        (1, 11, 'Vishva-Vikhyaata Yoga', 'Fame & Popularity', 'Yoga of Widespread Influence', "The self (1st) plugged into the collective (11th). Name and image spread far and wide. Going viral.", False),
+        (11, 5, 'Kala-Labha Yoga', 'Fame & Popularity', 'Yoga of Creative Gains & Viral Reach', "Creative output (5th) blasted to massive networks (11th). Global audience and heavy financial gains.", False),
+        (11, 7, 'Jana-Labha Yoga', 'Fame & Popularity', 'Yoga of Mass Public Gains', "Interaction with the public (7th) scales massively (11th). Leading large movements or global business fame.", False),
+
+        # ════════════════════════════════════════════════════
+        # MALEFIC DOSHAS — activate only if BOTH lords < 60% NPS
+        # ════════════════════════════════════════════════════
+
+        # ── Imprisonment, Confinement & Exile ──
+        (6, 12, 'Bandhana Yoga (Litigation & Incarceration)', 'Malefic: Imprisonment & Exile', 'Litigation & Incarceration Axis', 'Enemies or legal disputes (6th) lead directly to isolation or jail (12th).', True),
+        (8, 12, 'Bandhana Yoga (Sudden Trap & Exile)', 'Malefic: Imprisonment & Exile', 'Sudden Trap & Exile Axis', 'A sudden event or hidden trap (8th) results in severe confinement or exile (12th).', True),
+        (1, 12, 'Bandhana Yoga (Physical Confinement)', 'Malefic: Imprisonment & Exile', 'Physical Confinement Axis', 'The physical body (1st) is pulled toward isolation or restricted environments (12th).', True),
+        (10, 12, 'Bandhana Yoga (State Punishment - Career)', 'Malefic: Imprisonment & Exile', 'State Punishment Axis', "Career or public actions (10th) result in exile, severe public downfall, or imprisonment (12th).", True),
+        (9, 12, 'Bandhana Yoga (State Punishment - Law)', 'Malefic: Imprisonment & Exile', 'State Punishment Axis', 'Conflict with the law or authority figures (9th) leads to confinement or forced exile (12th).', True),
+
+        # ── Financial and People Challenges ──
+        (3, 6, 'Younger Sibling Conflict (Litigation)', 'Malefic: Financial & People Challenges', 'Younger Sibling Conflict', 'Younger siblings become a source of daily dispute, litigation, or financial debt (3rd-6th).', True),
+        (3, 8, 'Younger Sibling Conflict (Betrayal)', 'Malefic: Financial & People Challenges', 'Younger Sibling Conflict', 'Relationship with younger siblings marked by sudden crises, hidden betrayals, or severe trauma (3rd-8th).', True),
+        (3, 12, 'Younger Sibling Conflict (Separation)', 'Malefic: Financial & People Challenges', 'Younger Sibling Conflict', 'Younger siblings drain resources through heavy expenses, or permanent separation/estrangement (3rd-12th).', True),
+        (11, 6, 'Elder Sibling Conflict (Debt)', 'Malefic: Financial & People Challenges', 'Elder Sibling & Network Conflict', 'Elder siblings or friends borrow money and never return it, leading to debt and enmity (11th-6th).', True),
+        (11, 8, 'Elder Sibling Conflict (Betrayal)', 'Malefic: Financial & People Challenges', 'Elder Sibling & Network Conflict', 'Massive, sudden betrayals by elder siblings or trusted friends. Scandals causing financial crises (11th-8th).', True),
+        (11, 12, 'Elder Sibling Conflict (Losses)', 'Malefic: Financial & People Challenges', 'Elder Sibling & Network Conflict', 'Financial losses caused by following advice of elder siblings or friends. Complete separation (11th-12th).', True),
+        (4, 6, 'Maternal Conflict (Litigation)', 'Malefic: Financial & People Challenges', 'Maternal & Domestic Conflict', 'Constant bickering, litigation, or debt caused by the mother. Legal battles over real estate (4th-6th).', True),
+        (4, 8, 'Maternal Conflict (Trauma)', 'Malefic: Financial & People Challenges', 'Maternal & Domestic Conflict', 'Deep psychological trauma related to the mother, or sudden severe crises in her life (4th-8th).', True),
+        (4, 12, 'Maternal Conflict (Separation)', 'Malefic: Financial & People Challenges', 'Maternal & Domestic Conflict', 'The mother becomes a massive drain, or deep emotional isolation and physical separation from her (4th-12th).', True),
+        (9, 6, 'Paternal Conflict (Enmity)', 'Malefic: Financial & People Challenges', 'Paternal & Authority Conflict', 'The father becomes an open enemy, or severe legal battles regarding paternal inheritance (9th-6th).', True),
+        (9, 8, 'Paternal Conflict (Downfall)', 'Malefic: Financial & People Challenges', 'Paternal & Authority Conflict', 'Sudden, catastrophic downfalls related to the father. Hidden secrets emerge causing trauma (9th-8th).', True),
+        (9, 12, 'Paternal Conflict (Absence)', 'Malefic: Financial & People Challenges', 'Paternal & Authority Conflict', 'The father is physically absent, or massive financial losses trying to support him (9th-12th).', True),
+
+        # ── Health ──
+        (1, 6, 'Health Dosha (Acute Illness)', 'Malefic: Health', 'Acute Illness & Conflict Axis', 'The physical body (1st) is drawn into conflict with disease (6th). Sensitive immune system or frequent digestive issues.', True),
+        (1, 8, 'Health Dosha (Chronic Illness)', 'Malefic: Health', 'Chronic Illness & Surgery Axis', 'Vitality challenged by sudden events or chronic, hard-to-diagnose conditions. Body undergoes massive transformations.', True),
+        (1, 12, 'Health Dosha (Hospitalization)', 'Malefic: Health', 'Vitality Loss & Hospitalization Axis', "The body's energy (1st) naturally drains (12th). Prone to ailments requiring isolation or medical facility stays.", True),
+        (6, 8, 'Health Dosha (Acute to Chronic)', 'Malefic: Health', 'Complex Disease Connection', 'Acute illnesses (6th) tend to suddenly become chronic or require surgery (8th).', True),
+        (6, 12, 'Health Dosha (Illness to Hospitalization)', 'Malefic: Health', 'Complex Disease Connection', 'Minor illnesses (6th) easily lead to physical exhaustion, bed rest, or hospitalization (12th).', True),
+        (8, 12, 'Health Dosha (Chronic to Long-term Care)', 'Malefic: Health', 'Complex Disease Connection', 'Chronic or hidden ailments (8th) result in prolonged isolation or long-term medical care (12th).', True),
+    ]
+
+    # Step D: Detect yogas
+    _yf_rows = []
+    _yf_seen = set()  # avoid exact duplicates (same yoga + same connection)
+
+    for _yf_ha, _yf_hb, _yf_name, _yf_cat, _yf_sub, _yf_desc, _yf_malefic in _yf_yoga_defs:
+        _yf_lord_a = _yf_house_lord[_yf_ha]
+        _yf_lord_b = _yf_house_lord[_yf_hb]
+
+        connections = _yf_are_connected(_yf_lord_a, _yf_lord_b)
+        if not connections:
+            continue
+
+        # For malefic doshas, both lords must have NPS < 60
+        if _yf_malefic:
+            _yf_nps_a = _nps_pred_dict.get(_yf_lord_a, 100.0)
+            _yf_nps_b = _nps_pred_dict.get(_yf_lord_b, 100.0)
+            if _yf_lord_a == _yf_lord_b:
+                # Same lord rules both houses — check just that one planet
+                if _yf_nps_a >= 60:
+                    continue
+            else:
+                if _yf_nps_a >= 60 or _yf_nps_b >= 60:
+                    continue
+
+        conn_str = ', '.join(connections)
+        _yf_key = (_yf_name, _yf_cat, conn_str)
+        if _yf_key in _yf_seen:
+            continue
+        _yf_seen.add(_yf_key)
+
+        _yf_lord_info = f"{_yf_lord_a}" if _yf_lord_a == _yf_lord_b else f"{_yf_lord_a} & {_yf_lord_b}"
+
+        _yf_rows.append([
+            _yf_cat,
+            _yf_name,
+            _yf_sub,
+            f"H{_yf_ha} & H{_yf_hb}",
+            _yf_lord_info,
+            conn_str,
+            _yf_desc,
+        ])
+
+    df_yoga_finder = pd.DataFrame(_yf_rows, columns=[
+        'Category', 'Yoga Name', 'Sub-Type', 'Houses', 'Lords', 'Connection', 'Description'
+    ])
+    # ---- END YOGA FINDER TABLE ----
 
     # ---- BAAVATH BAAVAGAM TABLE ----
     # For dual-lord planets, determine primary vs secondary house lordship
@@ -5649,6 +5930,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'df_house_points': df_house_points,
         'df_planet_strengths': df_planet_strengths,
         'df_planet_categories': df_planet_categories,
+        'df_yoga_finder': df_yoga_finder,
         'df_baavath_baavagam': df_baavath_baavagam,
         'df_rasi': df_rasi, 'df_nav': df_nav,
         'df_navamsa_positions': df_navamsa_positions,
@@ -7569,7 +7851,10 @@ def build_export_json(cd):
     # ── 12b. Planet Categories ──
     data['planet_categories'] = cd['df_planet_categories'].to_dict(orient='records')
 
-    # ── 12c. Baavath Baavagam ──
+    # ── 12c. Yoga Finder ──
+    data['yoga_finder'] = cd['df_yoga_finder'].to_dict(orient='records')
+
+    # ── 12d. Baavath Baavagam ──
     data['baavath_baavagam'] = cd['df_baavath_baavagam'].to_dict(orient='records')
 
     # ── 13. Lagna Point Score Simulation ──
@@ -7686,6 +7971,9 @@ if st.session_state.chart_data:
 
     st.subheader("Planet Categories (A / B / C)")
     st.dataframe(cd['df_planet_categories'], hide_index=True, use_container_width=True)
+
+    st.subheader("Yoga Finder")
+    st.dataframe(cd['df_yoga_finder'], hide_index=True, use_container_width=True)
 
     st.subheader("Baavath Baavagam")
     st.dataframe(cd['df_baavath_baavagam'], hide_index=True, use_container_width=True)
