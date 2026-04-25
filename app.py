@@ -4424,11 +4424,14 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         _ps_st = planet_data[_ps_p].get('status', '')
         _ps_ust = planet_data[_ps_p].get('updated_status', '')
         _is_negative = _ps_st in _neg_statuses or _ps_ust in _neg_statuses
-        if _is_negative:
-            # Use Final Normalized Score from normalized planet scores (scale 0-120)
+        _eff_status = _ps_ust if _ps_ust not in ('-', '', None) else _ps_st
+        _is_nbry = (_eff_status == 'Neechabhanga Raja Yoga')
+        if _is_negative and _is_nbry:
+            # Only Neechabhanga Raja Yoga: NPS (0-120+ scale) replaces sthana → allows s_sth > 100
             _nps_val = _nps_score_dict.get(_ps_p, 0.0)
             _sb = _nps_val  # will be converted via configured Sthana weight below
             _overridden_sthana[_ps_p] = _sb
+        # Neecham / Neechabhangam: keep the dict value (debilitation score, stays ≤ 100)
 
         # Parivardhana Yoga: override Sthana with swapped sign score
         _pari_note = ''
