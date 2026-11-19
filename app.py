@@ -307,7 +307,10 @@ def generate_periods(start_date, lord_idx, total_years, level='dasa', max_depth=
     depth_map = {'dasa':0,'bhukti':1,'anthara':2,'sukshma':3,'prana':4,'sub_prana':5}
     next_level = {0:'bhukti',1:'anthara',2:'sukshma',3:'prana',4:'sub_prana',5:None}
     depth = depth_map.get(level,0)
-    while remaining > 0:
+    # Every period splits into exactly 9 sub-periods (one per lord). Loop a fixed 9 times:
+    # a `while remaining > 0` loop leaves a ~1e-15 float remainder that spawns a bogus
+    # 10th zero-length period repeating the first lord.
+    for _ in range(9):
         lord = lords_full[i]; y_full = years[i]
         y = min((y_full/120)*total_years, remaining)
         end = current + timedelta(days=y*365.25)
@@ -5852,6 +5855,7 @@ def compute_chart(name, date_obj, time_str, lat, lon, tz_offset, max_depth, bc_m
         'nav_lagna_sign': get_sign(nav_lagna), 'moon_rasi': get_sign(moon_lon),
         'moon_nakshatra': get_nakshatra_details(moon_lon)[0], 'moon_pada': get_nakshatra_details(moon_lon)[1],
         'selected_depth': depth_map[max_depth], 'utc_dt': utc_dt, 'max_depth': max_depth,
+        'moon_lon': moon_lon,
         'bc_mode': bc_mode, 'astro_year': astro_year,
         'house_to_planets_rasi': house_planets_rasi, 'house_to_planets_nav': house_planets_nav,
         'chart_house_wise': _ca_house_wise,
@@ -7702,6 +7706,52 @@ def _serialize_dasa_periods(periods, level_names=None, depth=0):
         result.append(entry)
     return result
 
+def build_full_life_dasa(cd):
+    """Return the whole-life Vimshottari tree down to Antara level (Dasa -> Bhukti -> Antara),
+    clipped to start at birth, as (lord, start, end, subs) tuples.
+
+    This is independent of the 'Generate up to (depth)' choice used for the on-screen
+    tables: the tree is always rebuilt at exactly Antara depth from the Moon's longitude
+    (same maths as the on-screen tables, so the dates match). Returns None for BC-era
+    charts (they only support year-based Mahadasha).
+    """
+    if cd.get('bc_mode') or cd.get('utc_dt') is None:
+        return None
+    birth = cd['utc_dt']
+    idx, bal = generate_vimshottari_dasa(cd['moon_lon'])
+    dasa_start = birth - timedelta(days=(years[idx] - bal) * 365.25)
+    return filter_from_birth(generate_periods(dasa_start, idx, 120, 'dasa', 3), birth)
+
+def build_full_life_dasa_rows(cd):
+    """Flatten the whole-life tree into export rows, parent row first then its children
+    (Dasa, then each Bhukti, then each Antara of that Bhukti). Antara is the deepest level."""
+    tree = build_full_life_dasa(cd)
+    if tree is None:
+        return []
+    birth = cd['utc_dt']
+    rows = []
+
+    def _add(level, dasa, bhukti, antara, start, end):
+        rows.append({
+            'Level': level,
+            'Dasa': dasa,
+            'Bhukti': bhukti,
+            'Antara': antara,
+            'Start': start.strftime('%Y-%m-%d'),
+            'End': end.strftime('%Y-%m-%d'),
+            'Duration': duration_str(end - start, level.lower()),
+            'Age at Start': round(max((start - birth).total_seconds(), 0) / (365.25 * 86400), 2),
+            'Age at End': round((end - birth).total_seconds() / (365.25 * 86400), 2),
+        })
+
+    for d_lord, d_s, d_e, bhuktis in tree:
+        _add('Dasa', d_lord, '', '', d_s, d_e)
+        for b_lord, b_s, b_e, antaras in bhuktis:
+            _add('Bhukti', d_lord, b_lord, '', b_s, b_e)
+            for a_lord, a_s, a_e, _ in antaras:
+                _add('Antara', d_lord, b_lord, a_lord, a_s, a_e)
+    return rows
+
 def build_export_json(cd):
     """Build a comprehensive JSON dict from chart data, excluding Phase 1-4
     currency exchange and Navamsa Phase 1-3."""
@@ -8079,6 +8129,47 @@ if st.session_state.chart_data:
         )
         with st.expander("View / Copy Chart Data", expanded=False):
             st.code(_ex_txt, language=None)
+
+    # ====== EXPORT FULL-LIFE DASA / BHUKTI / ANTARA ======
+    st.markdown("---")
+    st.subheader("Export Full-Life Dasa • Bhukti • Antara")
+    if _is_bc:
+        st.info("Bhukti / Antara export is not available for BC dates (only Mahadasha is calculated).")
+    else:
+        st.caption("Every Mahadasha, Bhukti and Antara from birth through the end of the 120-year Vimshottari cycle. "
+                   "Independent of the 'Generate up to (depth)' setting. Dates match the tables above.")
+        _fl_rows = build_full_life_dasa_rows(cd)
+        _fl_df = pd.DataFrame(_fl_rows)
+        _fl_fname = cd.get('name', 'chart').replace(' ', '_')
+        _fl_counts = _fl_df['Level'].value_counts()
+        st.write(f"**{_fl_counts.get('Dasa', 0)}** Dasas · **{_fl_counts.get('Bhukti', 0)}** Bhuktis · "
+                 f"**{_fl_counts.get('Antara', 0)}** Antaras")
+        _fl_c1, _fl_c2 = st.columns(2)
+        with _fl_c1:
+            st.download_button(
+                label="Download CSV (Excel)",
+                # utf-8-sig so Excel opens it with the right encoding
+                data=_fl_df.to_csv(index=False).encode('utf-8-sig'),
+                file_name=f"{_fl_fname}_dasa_bhukti_antara_full_life.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="dl_full_life_csv",
+            )
+        with _fl_c2:
+            st.download_button(
+                label="Download JSON",
+                data=json.dumps({
+                    'name': cd.get('name'),
+                    'birth_utc': cd['utc_dt'].strftime('%Y-%m-%d %H:%M'),
+                    'vimshottari_dasa': _serialize_dasa_periods(build_full_life_dasa(cd), depth=0),
+                }, indent=2, ensure_ascii=False),
+                file_name=f"{_fl_fname}_dasa_bhukti_antara_full_life.json",
+                mime="application/json",
+                use_container_width=True,
+                key="dl_full_life_json",
+            )
+        with st.expander("Preview", expanded=False):
+            st.dataframe(_fl_df, hide_index=True, use_container_width=True)
 
 else: st.info("Enter birth details above and click 'Generate Chart' to begin")
 
